@@ -17,6 +17,22 @@ This repository is a clean engineering release. It contains the current files ne
 
 The CAD files were exported on 2026-08-27 from `Zero_Final_Assembly_Complete` version 35. Fusion reported that the assembly was current and had no out-of-date child references. Only TAKTO-authored mechanical bodies were exported; the hidden arm scan and third-party reference models were deliberately excluded.
 
+## Release preparation record
+
+The public-release candidate was assembled and checked on 2026-08-27. This record is included so the release can be independently reviewed.
+
+- Opened the live `Zero_Final_Assembly_Complete` Fusion document and confirmed version 35 was the latest complete version, with no out-of-date child references.
+- Exported 24 TAKTO-authored components as binary STL and 23 solid components as STEP. `BaseSpool` is mesh-only in the current Fusion assembly, so it is provided as STL only. Component versions and required quantities are recorded in [`cad/README.md`](cad/README.md).
+- Parsed every exported STL to verify its triangle count, file length, finite coordinates, and plausible bounds. Checked every STEP file for a complete ISO 10303-21 envelope.
+- Included only the current Teensy firmware, the two current KiCad projects and manufacturing outputs, and the focused operator console and bridge. Historical branches and unfinished AR/Android releases were not copied.
+- Compiled the included firmware successfully for a Teensy 4.1. The checked build used 154,508 bytes of program code, 60,300 bytes of initialized data, 52,768 bytes of RAM1 variables, and 250,496 bytes of RAM2 variables.
+- Started the bridge simulation through sensor and catalog initialization with 12 synthetic joints, two IMUs, and EMG. A clean end-to-end WebSocket listener test was not completed because the attempted local ports were already occupied; hardware communication was not retested as part of repository preparation.
+- Scanned the candidate for common secret patterns, private absolute paths, oversized files, and symbolic links. No such release blockers were found. The two published PNGs expose no author, camera, creation-time, description, or GPS metadata in the checked metadata fields.
+- Kept the private thesis, personal arm scan, vendor CAD, account/order data, stale build guides, private photos, and unrelated experiments out of the release.
+- Identified the vendored Three.js files and preserved their MIT terms in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+These checks establish release-file integrity, not medical, mechanical, electrical, or worn-actuation certification. A second reviewer should still inspect the exact repository tree and licensing before publication.
+
 ## Verified project state
 
 ![TAKTO ONE worn prototype](docs/media/takto_one_worn.png)
