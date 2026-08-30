@@ -63,5 +63,5 @@ The vendored Three.js files and their MIT terms are recorded in
 
 ## Reviewer note
 
-A second reviewer should still inspect the exact repository tree and the licensing decision
-before publication.
+A second reviewer should still inspect the exact repository tree before publication.
+Licensing is settled and documented in [`../LICENSE.md`](../LICENSE.md).

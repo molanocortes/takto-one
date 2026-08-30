@@ -1,103 +1,129 @@
+<div align="center">
+
+<img src="docs/media/hero.png" alt="TAKTO ONE" width="100%">
+
 # TAKTO ONE
 
-![TAKTO ONE](docs/media/takto_one_hero.png)
+**A sensor-integrated, tendon-driven hand exoskeleton — open from the CAD up.**
 
-**A sensor-integrated, tendon-driven hand exoskeleton and open robotics research platform.**
+Twelve magnetic joint encoders. Embedded Dynamixel control with no host PC in the loop.
+A live browser digital twin. Every source file needed to build one.
 
-TAKTO ONE combines wearable mechanics, magnetic joint sensing, embedded motor control, custom
-electronics, and a live browser digital twin in one coherent system. It was designed, built,
-instrumented, and programmed end to end by Sebastian Molano.
+[![Software: Apache-2.0](https://img.shields.io/badge/software-Apache--2.0-blue.svg)](LICENSE.md)
+[![Hardware: CERN-OHL-S-2.0](https://img.shields.io/badge/hardware-CERN--OHL--S--2.0-orange.svg)](LICENSE.md)
+[![Docs: CC-BY-4.0](https://img.shields.io/badge/docs-CC--BY--4.0-lightgrey.svg)](LICENSE.md)
+[![Platform: Teensy 4.1](https://img.shields.io/badge/MCU-Teensy%204.1-red.svg)](firmware/)
 
-This repository is a clean engineering release: the current files needed to inspect, reproduce,
-and extend the platform — mechanical CAD, PCB sources, firmware, and software — without the
-private thesis, historical iterations, personal scan geometry, or unrelated experiments.
+[**Build it**](docs/README.md) · [**CAD**](cad/) · [**Electronics**](electronics/) · [**Firmware**](firmware/) · [**Software**](software/)
+
+</div>
 
 ---
 
-## At a glance
+## What it is
+
+TAKTO ONE is a wearable robotic hand platform built end to end as a master's thesis — mechanics,
+industrial design, custom PCBs, embedded firmware, motor control, and a live web interface.
+It exists so other people can study it, build it, and take it further.
 
 | | |
 | --- | --- |
 | **Mechanism** | Tendon-driven, four instrumented long-finger assemblies |
-| **Joint sensing** | 12 AS5600 magnetic encoders, 3 per long finger, read live together |
+| **Joint sensing** | 12 × AS5600 magnetic encoders, 3 per finger, read live together |
 | **Controller** | Teensy 4.1 |
-| **Motor bus** | Dynamixel Protocol 2.0 over a 74HC241 half-duplex interface — the microcontroller owns the bus; a host PC is optional |
-| **Electronics** | 2 custom PCBs (encoder board, palm carrier) with full KiCad sources and manufacturing outputs |
-| **Interface** | Browser operator console with a live 3D hand twin, fed by a serial-to-WebSocket bridge |
-| **Structure** | 3D printed; the as-built prototype uses both PETG and PLA |
+| **Motor bus** | Dynamixel Protocol 2.0 over a 74HC241 half-duplex interface — **the microcontroller owns the bus; no host PC required** |
+| **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
+| **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
+| **Structure** | 3D printed; as built, a mix of PETG and PLA |
 
-## Repository layout
+<img src="docs/media/personalize.png" alt="Personalize it — ten tendon spools, printable in any colour" width="100%">
+
+## Every angle
+
+<table>
+<tr>
+<td width="50%"><img src="docs/media/top-view.png" alt="Top view" width="100%"></td>
+<td width="50%"><img src="docs/media/side-view.png" alt="Side view" width="100%"></td>
+</tr>
+<tr>
+<td align="center"><sub>Plan view — ten tendon spools, twelve joints</sub></td>
+<td align="center"><sub>Profile — actuator bank and forearm shell</sub></td>
+</tr>
+</table>
+
+## Repository
 
 | Area | Contents |
 | --- | --- |
-| [`cad/`](cad/) | Mechanical parts as print-ready STL and neutral STEP, exported from Fusion |
+| [`cad/`](cad/) | Mechanical parts as print-ready STL and neutral STEP |
 | [`electronics/`](electronics/) | KiCad sources and manufacturing outputs for both boards |
-| [`firmware/`](firmware/) | Unified Teensy 4.1 firmware: sensing, display, recording, Dynamixel support |
-| [`software/`](software/) | Operator console, live 3D twin, and the serial-to-WebSocket bridge |
-| [`docs/`](docs/) | System architecture, wiring, the illustrated build guide, and [build notes and corrections](docs/README.md) |
+| [`firmware/`](firmware/) | Unified Teensy 4.1 firmware — sensing, display, recording, Dynamixel |
+| [`software/`](software/) | Operator console, live 3D twin, serial→WebSocket bridge |
+| [`docs/`](docs/) | System architecture, wiring, build guide, and build notes |
 
 ## Start here
 
-0. Read [`docs/README.md`](docs/README.md) first — it carries the system architecture, the
-   build guide, and the known corrections between the documentation and the current hardware.
-1. Review [`cad/README.md`](cad/README.md) and choose the STEP or STL files you need.
-2. Review [`electronics/README.md`](electronics/README.md) before ordering boards or wiring the motor bus.
-3. Build the Teensy sketch following [`firmware/README.md`](firmware/README.md).
-4. Run the digital twin in mock mode, then connect it to hardware — see [`software/README.md`](software/README.md).
+**Read [`docs/README.md`](docs/README.md) first.** It carries the system architecture, the
+illustrated build guide, and the known corrections between the documentation and the hardware.
 
-The embedded Dynamixel implementation is also maintained as the standalone
-[`dynamixel-on-device`](https://github.com/molanocortes/dynamixel-on-device) project.
+```bash
+git clone https://github.com/molanocortes/takto-one.git
+cd takto-one
 
-## Validation status
+# see the console and 3D twin immediately, no hardware needed
+python3 -m http.server 8096 --directory software/console/app
+# open http://localhost:8096/
+```
 
-Being explicit about what has and has not been demonstrated matters more than a longer feature
-list. What is verified:
+Then: [`cad/README.md`](cad/README.md) for parts → [`electronics/README.md`](electronics/README.md)
+before ordering boards → [`firmware/README.md`](firmware/README.md) to flash →
+[`software/README.md`](software/README.md) to connect to hardware.
 
-- Four long-finger assemblies are physically built and instrumented.
-- All 12 magnetic joint encoders have been read live together and visualized in the web twin.
-- The Teensy 4.1 can own the Dynamixel bus through the 74HC241 half-duplex interface.
-- Both PCB designs exist as manufactured designs with complete sources and outputs.
-- The included firmware compiles for a Teensy 4.1, and the bridge serves a live console
-  session in simulation. See the [release verification record](docs/RELEASE_VERIFICATION.md).
+The embedded Dynamixel driver is also maintained standalone as
+[**dynamixel-on-device**](https://github.com/molanocortes/dynamixel-on-device).
 
-What is **not** established by this repository:
+## What is verified, and what is not
 
-- The firmware supports additional sensors and motor-control modes, but a code path is not a
-  validated worn behavior. Verify the installed IMUs, thumb configuration, actuator count,
-  limits, and safety behavior on your exact hardware.
-- Force rendering, transparency control, and assistance behavior are not characterized here.
-- Simulation exercises the software pipeline, not the device. Serial communication with
-  physical hardware was not retested during repository preparation.
-- Timing figures must be read carefully: internal loop rate, telemetry rate, console update
-  rate, and end-to-end latency are different quantities and are not interchangeable.
+Being precise about this matters more than a longer feature list.
+
+**Verified:** four long-finger assemblies physically built and instrumented · all 12 encoders
+read live together and visualized in the web twin · the Teensy owns the Dynamixel bus through
+the 74HC241 · both PCBs exist as manufactured designs with complete sources · the firmware
+compiles for a Teensy 4.1 and the bridge serves a live console session in simulation
+([verification record](docs/RELEASE_VERIFICATION.md)).
+
+**Not established here:** the firmware supports sensors and control modes beyond what has been
+worn and tested — a code path is not a validated behavior. Force rendering, transparency
+control, and assistance behavior are not characterized. Simulation exercises the software
+pipeline, not the device. Loop rate, telemetry rate, console update rate, and end-to-end
+latency are different quantities and are not interchangeable.
+
+**Known limitations.** Ten motors makes this an expensive build. The actuation is a ratchet-based
+spool, not a series-elastic actuator. Recent soft-robotics work achieves comparable joint and
+force sensing with simpler mechanisms. This is a working, well-instrumented research platform —
+not a claim to the state of the art.
 
 ## Safety
 
-TAKTO ONE is an experimental research prototype. **It is not a medical device and not a
-certified protective product.** Do not use it for diagnosis, treatment, unsupervised
-rehabilitation, or safety-critical operation.
+> TAKTO ONE is an experimental research prototype. **It is not a medical device and not a
+> certified protective product.** Do not use it for diagnosis, treatment, unsupervised
+> rehabilitation, or safety-critical operation.
 
 Keep actuator power independently removable, begin with torque disabled, test away from the
 body, confirm mechanical limits, and validate watchdog and fault behavior before any worn
 experiment.
 
-## Deliberately not included
+## Contributing
 
-The submitted master's thesis, personal arm-scan geometry, historical CAD and firmware
-branches, vendor CAD models, supplier account and order history, AR and Android prototypes not
-ready for a polished release, and private documents.
+Issues and pull requests are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md). If you build
+one, open an issue and show it; build reports are the most useful contribution there is.
 
 ## License
 
-**The licensing structure is still under review.** The software, electronics, CAD,
-documentation, and media may require different terms.
+Software **Apache-2.0** · Hardware **CERN-OHL-S-2.0** · Documentation and media **CC-BY-4.0**.
+Full detail, attribution format, and the text-and-data-mining reservation are in
+[`LICENSE.md`](LICENSE.md).
 
-Until explicit licenses are added, the TAKTO-authored files in this repository are publicly
-viewable, but no permission is granted to copy, modify, redistribute, manufacture,
-commercialize, or use them for machine-learning or AI training. See [`LICENSE.md`](LICENSE.md)
-and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-
-If you want to build on this work, please open an issue — resolving the license is an active
-priority and knowing what people need will inform it.
-
-Copyright © 2026 Sebastian Molano.
+<div align="center">
+<sub>Designed and built by Sebastian Molano · Hochschule Anhalt · Made in Germany</sub>
+</div>
