@@ -3,7 +3,7 @@
 | Document | What it covers |
 | --- | --- |
 | [`system-architecture.svg`](system-architecture.svg) | Sensing, aggregation, control, and host layers as one diagram |
-| [`global-wiring.pdf`](global-wiring.pdf) | Finger-by-finger wiring runs and the carrier pads they land on |
+| [`global-wiring.pdf`](global-wiring.pdf) | Full point-to-point wiring: every pin terminated, both I²C multiplexers, all encoder channels, three IMUs, and the 74HC241 servo bus. Rendered inline in the top-level README as [`media/global-wiring.png`](media/global-wiring.png) |
 | [`build-guide.pdf`](build-guide.pdf) | 24-page illustrated assembly walkthrough, including 1:1 part-check plates |
 | [`RELEASE_VERIFICATION.md`](RELEASE_VERIFICATION.md) | How this release was assembled and checked |
 

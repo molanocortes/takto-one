@@ -90,9 +90,15 @@ Two custom boards, designed from scratch. Full KiCad sources and manufacturing o
 
 ## How it fits together
 
-Sensing → aggregation → control → interface, end to end:
+Sensing → aggregation → control → interface:
 
 ![System architecture](docs/system-architecture.svg)
+
+And the full point-to-point wiring — every pin terminated, both I²C multiplexers, all fourteen
+encoder channels, three IMUs, and the 74HC241 servo bus. The
+[PDF](docs/global-wiring.pdf) is the printable version.
+
+<a href="docs/global-wiring.pdf"><img src="docs/media/global-wiring.png" alt="Global wiring schematic" width="100%"></a>
 
 ---
 
