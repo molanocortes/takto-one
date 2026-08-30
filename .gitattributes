@@ -4,3 +4,4 @@
 *.stl binary
 *.zip binary
 * text=auto
+*.mp4 binary

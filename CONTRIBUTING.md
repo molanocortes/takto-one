@@ -19,6 +19,18 @@ contributions of every size are welcome.
   external network calls. Please do not add a CDN or analytics dependency.
 - For hardware changes, include the KiCad or CAD sources, not just exports.
 
+## Adding images and media
+
+The README is deliberately image-led and is meant to keep growing. To add to it:
+
+1. Put the file in `docs/media/`, named for what it shows (`pcb-palm-carrier.png`, not `img3.png`).
+2. Strip metadata and keep it under ~1 MB where you can; PNG for renders and diagrams.
+3. Reference it from `README.md` with a relative path and a one-line `<sub>` caption saying what
+   it is.
+
+Photographs of real builds are especially welcome — renders show the design, photographs show
+that it works.
+
 ## Claims and evidence
 
 This project draws a hard line between what has been physically verified and what has only

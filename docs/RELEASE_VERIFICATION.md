@@ -46,8 +46,16 @@ were already occupied. It has since been run to completion on a free port:
 - A representative joint payload was well formed, e.g.
   `{"id": "index_mcp", "deg": 9.03, "ok": true, "calibrated": true}`.
 
-Hardware communication over a physical serial link was **not** retested as part of repository
-preparation. Simulation exercises the calibration and snapshot pipeline, not the device.
+### Scope of these checks
+
+These checks cover **repository integrity** — that the published files are complete, current,
+and free of private data. They are not the project's hardware validation.
+
+The device itself has been operated on hardware by the author: the firmware runs on the Teensy,
+the Teensy drives the fingers over the Dynamixel bus, and all twelve encoders feed the browser
+twin live. That testing predates this release and was not repeated as part of packaging it, so
+it is reported in the README under what is verified on hardware, not claimed here as something
+this checklist established.
 
 ## Excluded from the release
 
