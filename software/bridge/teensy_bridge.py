@@ -3998,11 +3998,17 @@ SIM_MODE = False
 CLIENTS = set()
 
 def _lan_ip():
-    """Best-effort LAN address for QR pairing (no traffic is actually sent)."""
+    """Best-effort LAN address for QR pairing.
+
+    Connecting a UDP socket sends no packets: it only asks the kernel which
+    local interface would be used to reach the target, which is what we want.
+    The target is TEST-NET-1 (RFC 5737), a reserved documentation address, so
+    this never references or contacts a third-party service.
+    """
     import socket as _s
     try:
         sk = _s.socket(_s.AF_INET, _s.SOCK_DGRAM)
-        sk.connect(("8.8.8.8", 80))
+        sk.connect(("192.0.2.1", 80))
         ip = sk.getsockname()[0]
         sk.close()
         return ip
