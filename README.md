@@ -22,9 +22,11 @@ Twelve magnetic joint encoders · Embedded Dynamixel control, no host PC in the 
 
 ### See it move
 
-<a href="docs/media/takto-one-film.mp4"><img src="docs/media/film-poster.png" alt="Watch the TAKTO ONE film" width="88%"></a>
+https://github.com/molanocortes/takto-one/raw/main/docs/media/takto-one-film.mp4
 
-<sub><a href="docs/media/takto-one-film.mp4"><b>▶ Watch the film</b></a> · 30 seconds</sub>
+<a href="https://github.com/molanocortes/takto-one/raw/main/docs/media/takto-one-film.mp4"><img src="docs/media/film-poster.png" alt="Watch the TAKTO ONE film" width="88%"></a>
+
+<sub><a href="https://github.com/molanocortes/takto-one/raw/main/docs/media/takto-one-film.mp4"><b>▶ Watch the film</b></a> · 30 seconds · 1280×720</sub>
 
 </div>
 
