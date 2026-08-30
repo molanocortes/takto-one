@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 860" width="1500" height="860" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<defs><marker id="arr-teal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L9,5 L0,9.5 z" fill="#0FA98C"/></marker><marker id="arr-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L9,5 L0,9.5 z" fill="#E8961E"/></marker><marker id="arr-slate" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L9,5 L0,9.5 z" fill="#54677A"/></marker><marker id="arr-grey" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L9,5 L0,9.5 z" fill="#9AA5B0"/></marker><marker id="arr-ink" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L9,5 L0,9.5 z" fill="#33404E"/></marker></defs>
+<rect x="0" y="0" width="1500" height="860" rx="0" fill="#FCFDFE" stroke="none" stroke-width="0"/>
+<text x="70" y="58" font-size="26" fill="#1B2430" text-anchor="start" font-weight="bold" letter-spacing="0.5">WEARABLE HAND RIG · SYSTEM ARCHITECTURE</text>
+<text x="70" y="82" font-size="14" fill="#5C6873" text-anchor="start">signal flow: sensing → aggregation → control → interface and host</text>
+<line x1="70" y1="100" x2="1430" y2="100" stroke="#E4EAEF" stroke-width="1" stroke-linecap="round"/>
+<line x1="970" y1="48" x2="996" y2="48" stroke="#0FA98C" stroke-width="3.5" stroke-linecap="round"/>
+<text x="1004" y="52" font-size="12" fill="#5C6873" text-anchor="start">I²C bus A · encoder fan-out</text>
+<line x1="970" y1="74" x2="996" y2="74" stroke="#E8961E" stroke-width="3.5" stroke-linecap="round"/>
+<text x="1004" y="78" font-size="12" fill="#5C6873" text-anchor="start">I²C bus B · orientation</text>
+<line x1="1238" y1="48" x2="1264" y2="48" stroke="#54677A" stroke-width="3.5" stroke-linecap="round"/>
+<text x="1272" y="52" font-size="12" fill="#5C6873" text-anchor="start">SPI · display</text>
+<line x1="1238" y1="74" x2="1264" y2="74" stroke="#9AA5B0" stroke-width="3.5" stroke-linecap="round"/>
+<text x="1272" y="78" font-size="12" fill="#5C6873" text-anchor="start">analog / digital I/O</text>
+<text x="230" y="130" font-size="11.5" fill="#93A0AC" text-anchor="middle" font-weight="bold" letter-spacing="2">SENSING</text>
+<text x="590" y="130" font-size="11.5" fill="#93A0AC" text-anchor="middle" font-weight="bold" letter-spacing="2">AGGREGATION</text>
+<text x="945" y="130" font-size="11.5" fill="#93A0AC" text-anchor="middle" font-weight="bold" letter-spacing="2">CONTROL</text>
+<text x="1290" y="130" font-size="11.5" fill="#93A0AC" text-anchor="middle" font-weight="bold" letter-spacing="2">INTERFACE · HOST</text>
+<rect x="100" y="152" width="260" height="66" rx="10" fill="#FFFFFF" stroke="#9BD9CA" stroke-width="1.3"/>
+<text x="116" y="176" font-size="14" fill="#1B2430" text-anchor="start" font-weight="bold">FINGER 1</text>
+<text x="116" y="193" font-size="11" fill="#5C6873" text-anchor="start">MCP · PIP · DIP joints</text>
+<text x="116" y="209" font-size="10.5" fill="#0B8A72" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace">3 × angle encoder @ 0x36</text>
+<line x1="360" y1="185" x2="462" y2="185" stroke="#0FA98C" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-teal)"/>
+<text x="410" y="177" font-size="10" fill="#0B8A72" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace">3 ch</text>
+<rect x="100" y="232" width="260" height="66" rx="10" fill="#FFFFFF" stroke="#9BD9CA" stroke-width="1.3"/>
+<text x="116" y="256" font-size="14" fill="#1B2430" text-anchor="start" font-weight="bold">FINGER 2</text>
+<text x="116" y="273" font-size="11" fill="#5C6873" text-anchor="start">MCP · PIP · DIP joints</text>
+<text x="116" y="289" font-size="10.5" fill="#0B8A72" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace">3 × angle encoder @ 0x36</text>
+<line x1="360" y1="265" x2="462" y2="265" stroke="#0FA98C" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-teal)"/>
+<text x="410" y="257" font-size="10" fill="#0B8A72" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace">3 ch</text>
+<rect x="100" y="312" width="260" height="66" rx="10" fill="#FFFFFF" stroke="#9BD9CA" stroke-width="1.3"/>
+<text x="116" y="336" font-size="14" fill="#1B2430" text-anchor="start" font-weight="bold">FINGER 3</text>
+<text x="116" y="353" font-size="11" fill="#5C6873" text-anchor="start">MCP · PIP · DIP joints</text>
+<text x="116" y="369" font-size="10.5" fill="#0B8A72" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace">3 × angle encoder @ 0x36</text>
+<line x1="360" y1="345" x2="462" y2="345" stroke="#0FA98C" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-teal)"/>
+<text x="410" y="337" font-size="10" fill="#0B8A72" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace">3 ch</text>
+<rect x="100" y="392" width="260" height="66" rx="10" fill="#FFFFFF" stroke="#9BD9CA" stroke-width="1.3"/>
+<text x="116" y="416" font-size="14" fill="#1B2430" text-anchor="start" font-weight="bold">FINGER 4</text>
+<text x="116" y="433" font-size="11" fill="#5C6873" text-anchor="start">MCP · PIP · DIP joints</text>
+<text x="116" y="449" font-size="10.5" fill="#0B8A72" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace">3 × angle encoder @ 0x36</text>
+<line x1="360" y1="425" x2="462" y2="425" stroke="#0FA98C" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-teal)"/>
+<text x="410" y="417" font-size="10" fill="#0B8A72" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace">3 ch</text>
+<rect x="100" y="482" width="260" height="58" rx="10" fill="#FFFFFF" stroke="#F2CE9E" stroke-width="1.3"/>
+<text x="116" y="507" font-size="14" fill="#1B2430" text-anchor="start" font-weight="bold">HAND FRAME</text>
+<text x="116" y="525" font-size="11" fill="#5C6873" text-anchor="start">orientation · 9-axis fusion</text>
+<rect x="284" y="499" width="56" height="22" rx="4" fill="#FFFFFF" stroke="#E8961E" stroke-width="1"/>
+<text x="312" y="514.5" font-size="11.5" fill="#1B2430" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace" font-weight="bold">0x4A</text>
+<rect x="100" y="554" width="260" height="58" rx="10" fill="#FFFFFF" stroke="#F2CE9E" stroke-width="1.3"/>
+<text x="116" y="579" font-size="14" fill="#1B2430" text-anchor="start" font-weight="bold">FOREARM FRAME</text>
+<text x="116" y="597" font-size="11" fill="#5C6873" text-anchor="start">orientation · 9-axis fusion</text>
+<rect x="284" y="571" width="56" height="22" rx="4" fill="#FFFFFF" stroke="#E8961E" stroke-width="1"/>
+<text x="312" y="586.5" font-size="11.5" fill="#1B2430" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace" font-weight="bold">0x4B</text>
+<rect x="100" y="640" width="260" height="112" rx="10" fill="#FFFFFF" stroke="#CBD4DC" stroke-width="1.2"/>
+<text x="116" y="666" font-size="12.5" fill="#1B2430" text-anchor="start" font-weight="bold">SIGNAL INPUTS</text>
+<text x="116" y="690" font-size="10.5" fill="#5C6873" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace">activation module → A0 (14)</text>
+<text x="116" y="709" font-size="10.5" fill="#5C6873" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace">mode pot → A13 (27)</text>
+<text x="116" y="728" font-size="10.5" fill="#5C6873" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace">button → 5 (pull-up)</text>
+<rect x="470" y="152" width="240" height="310" rx="12" fill="#FBFEFD" stroke="#BFD8D0" stroke-width="1.4"/>
+<text x="486" y="182" font-size="15" fill="#1B2430" text-anchor="start" font-weight="bold" letter-spacing="0.5">CARRIER BOARD</text>
+<text x="486" y="200" font-size="11" fill="#5C6873" text-anchor="start">I²C fan-out · 4.7 kΩ pull-ups</text>
+<rect x="486" y="218" width="208" height="58" rx="8" fill="#E9FBF5" stroke="#0FA98C" stroke-width="1.2"/>
+<text x="500" y="242" font-size="12.5" fill="#1B2430" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace" font-weight="bold">MUX 0x70</text>
+<text x="500" y="262" font-size="10.5" fill="#0B8A72" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace">ch 0..7 → E0..E7</text>
+<rect x="486" y="290" width="208" height="58" rx="8" fill="#E9FBF5" stroke="#0FA98C" stroke-width="1.2"/>
+<text x="500" y="314" font-size="12.5" fill="#1B2430" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace" font-weight="bold">MUX 0x71</text>
+<text x="500" y="334" font-size="10.5" fill="#0B8A72" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace">ch 0..5 → E8..E13</text>
+<text x="486" y="376" font-size="11" fill="#5C6873" text-anchor="start">14 encoder channels</text>
+<text x="486" y="394" font-size="11" fill="#5C6873" text-anchor="start">12 used = 4 fingers × 3 joints</text>
+<text x="486" y="412" font-size="11" fill="#5C6873" text-anchor="start">2 spare (E12 · E13)</text>
+<text x="486" y="438" font-size="11" fill="#0B8A72" text-anchor="start" font-family="SF Mono, Menlo, Consolas, monospace" font-weight="bold">all encoders @ 0x36</text>
+<line x1="710" y1="318" x2="822" y2="318" stroke="#0FA98C" stroke-width="3.2" stroke-linecap="round" marker-end="url(#arr-teal)"/>
+<text x="768" y="300" font-size="12.5" fill="#0B8A72" text-anchor="middle" font-weight="bold" letter-spacing="0.5">I²C BUS A</text>
+<text x="768" y="338" font-size="10.5" fill="#5C6873" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace">SDA 18 · SCL 19</text>
+<rect x="830" y="210" width="230" height="430" rx="14" fill="#F3F6F8" stroke="#33404E" stroke-width="1.6"/>
+<text x="945" y="264" font-size="23" fill="#1B2430" text-anchor="middle" font-weight="bold">TEENSY 4.1</text>
+<text x="945" y="286" font-size="11" fill="#5C6873" text-anchor="middle" font-weight="bold" letter-spacing="2">CONTROLLER</text>
+<line x1="850" y1="306" x2="1040" y2="306" stroke="#DDE4EA" stroke-width="1" stroke-linecap="round"/>
+<text x="945" y="330" font-size="11.5" fill="#5C6873" text-anchor="middle">3 × I²C · SPI · analog I/O</text>
+<text x="945" y="350" font-size="11.5" fill="#5C6873" text-anchor="middle">3.3 V rail to all peripherals</text>
+<text x="945" y="620" font-size="10" fill="#93A0AC" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace">0 · 1 · 7 reserved: motor bus (n.c.)</text>
+<line x1="360" y1="511" x2="410" y2="511" stroke="#E8961E" stroke-width="2.2" stroke-linecap="round"/>
+<line x1="360" y1="583" x2="410" y2="583" stroke="#E8961E" stroke-width="2.2" stroke-linecap="round"/>
+<line x1="410" y1="511" x2="410" y2="583" stroke="#E8961E" stroke-width="2.2" stroke-linecap="round"/>
+<line x1="410" y1="547" x2="822" y2="547" stroke="#E8961E" stroke-width="2.8" stroke-linecap="round" marker-end="url(#arr-amber)"/>
+<text x="620" y="531" font-size="12.5" fill="#C77A0E" text-anchor="middle" font-weight="bold" letter-spacing="0.5">I²C BUS B</text>
+<text x="620" y="567" font-size="10.5" fill="#5C6873" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace">SDA 17 · SCL 16 · shared: 0x4A + 0x4B</text>
+<polyline points="360,696 400,696 400,602 818,602" fill="none" stroke="#9AA5B0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="814" y1="602" x2="822" y2="602" stroke="#9AA5B0" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-grey)"/>
+<text x="620" y="592" font-size="10.5" fill="#5C6873" text-anchor="middle">analog · digital</text>
+<line x1="1060" y1="300" x2="1172" y2="300" stroke="#54677A" stroke-width="2.8" stroke-linecap="round" marker-end="url(#arr-slate)"/>
+<text x="1116" y="283" font-size="12.5" fill="#54677A" text-anchor="middle" font-weight="bold" letter-spacing="0.5">SPI</text>
+<text x="1116" y="320" font-size="10" fill="#5C6873" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace">10·9·8·11·13</text>
+<rect x="1180" y="240" width="250" height="120" rx="10" fill="#EFF3F7" stroke="#54677A" stroke-width="1.3"/>
+<circle cx="1238" cy="300" r="35" fill="#FFFFFF" stroke="#54677A" stroke-width="2.2"/>
+<circle cx="1238" cy="300" r="26" fill="#E3EAF1" stroke="none"/>
+<text x="1288" y="296" font-size="14" fill="#1B2430" text-anchor="start" font-weight="bold">ROUND DISPLAY</text>
+<text x="1288" y="315" font-size="11" fill="#5C6873" text-anchor="start">240 × 240</text>
+<line x1="1060" y1="430" x2="1172" y2="430" stroke="#9AA5B0" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-grey)"/>
+<text x="1116" y="419" font-size="10" fill="#5C6873" text-anchor="middle" font-family="SF Mono, Menlo, Consolas, monospace">pin 2</text>
+<rect x="1180" y="402" width="200" height="56" rx="10" fill="#FFFFFF" stroke="#CBD4DC" stroke-width="1.2"/>
+<text x="1196" y="426" font-size="13" fill="#1B2430" text-anchor="start" font-weight="bold">PIEZO BUZZER</text>
+<text x="1196" y="444" font-size="10.5" fill="#5C6873" text-anchor="start">driven output</text>
+<line x1="1068" y1="540" x2="1172" y2="540" stroke="#33404E" stroke-width="2.8" stroke-linecap="round" marker-end="url(#arr-ink)" marker-start="url(#arr-ink)"/>
+<text x="1116" y="526" font-size="12" fill="#1B2430" text-anchor="middle" font-weight="bold" letter-spacing="0.5">USB</text>
+<rect x="1180" y="505" width="250" height="72" rx="10" fill="#FFFFFF" stroke="#33404E" stroke-width="1.3"/>
+<text x="1196" y="534" font-size="14" fill="#1B2430" text-anchor="start" font-weight="bold">HOST LINK</text>
+<text x="1196" y="554" font-size="11" fill="#5C6873" text-anchor="start">telemetry / commands</text>
+<text x="70" y="830" font-size="10.5" fill="#93A0AC" text-anchor="start">Derived from DATA.md · arrows show signal flow · mux 0x70 / 0x71 · encoders 0x36 · orientation 0x4A / 0x4B · all logic 3.3 V</text>
+</svg>

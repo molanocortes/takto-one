@@ -34,10 +34,12 @@ private thesis, historical iterations, personal scan geometry, or unrelated expe
 | [`electronics/`](electronics/) | KiCad sources and manufacturing outputs for both boards |
 | [`firmware/`](firmware/) | Unified Teensy 4.1 firmware: sensing, display, recording, Dynamixel support |
 | [`software/`](software/) | Operator console, live 3D twin, and the serial-to-WebSocket bridge |
-| [`docs/`](docs/) | Media and the [release verification record](docs/RELEASE_VERIFICATION.md) |
+| [`docs/`](docs/) | System architecture, wiring, the illustrated build guide, and [build notes and corrections](docs/README.md) |
 
 ## Start here
 
+0. Read [`docs/README.md`](docs/README.md) first — it carries the system architecture, the
+   build guide, and the known corrections between the documentation and the current hardware.
 1. Review [`cad/README.md`](cad/README.md) and choose the STEP or STL files you need.
 2. Review [`electronics/README.md`](electronics/README.md) before ordering boards or wiring the motor bus.
 3. Build the Teensy sketch following [`firmware/README.md`](firmware/README.md).
