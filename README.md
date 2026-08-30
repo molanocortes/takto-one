@@ -42,11 +42,11 @@ It exists so other people can study it, build it, and take it further.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/media/top-view.png" alt="Top view" width="100%"></td>
-<td width="50%"><img src="docs/media/side-view.png" alt="Side view" width="100%"></td>
+<td width="50%"><img src="docs/media/top-view.png" alt="Plan view" width="100%"></td>
+<td width="50%"><img src="docs/media/side-view.png" alt="Profile view" width="100%"></td>
 </tr>
 <tr>
-<td align="center"><sub>Plan view — ten tendon spools, twelve joints</sub></td>
+<td align="center"><sub>Plan — ten tendon spools, twelve instrumented joints</sub></td>
 <td align="center"><sub>Profile — actuator bank and forearm shell</sub></td>
 </tr>
 </table>
