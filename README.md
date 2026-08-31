@@ -30,7 +30,7 @@ force back into it, with every file needed to build one.
      the one-second cover card, which exists only so the player has a thumbnail; it is not
      re-committed on each cover change, to keep binary churn out of git history. -->
 
-https://github.com/user-attachments/assets/1538657f-96ee-4b98-8d4a-2e254e1aeca6
+https://github.com/user-attachments/assets/484980ce-ec6d-4174-a04e-9c5ad102c8cc
 
 ---
 
