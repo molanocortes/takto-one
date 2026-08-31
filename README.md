@@ -34,24 +34,34 @@ what you point it at is up to you.
 
 ## What people could build with this
 
-**None of the following is a finished feature.** They are the directions this hardware opens,
-listed because the reason to open-source a platform is that other people take it somewhere the
-author could not. What is actually built and measured today is in
-[Where the project really stands](#where-the-project-really-stands) below.
+**These are directions, not delivered features.** The foundation under them is built and
+working: twelve sensed joints, tendon actuation, two custom boards, firmware, and a full
+software stack. What that foundation opens up is far wider than any one roadmap — every line
+below could be a project in its own right. Open sourcing it is how they get to happen in
+parallel, and how they get to happen sooner. Current status is in
+[Where the project really stands](#where-the-project-really-stands).
 
 | | |
 | --- | --- |
-| 🤖 **Teleoperate a robot hand** | Your fingers become the controller. Per-joint angles map onto a robot hand directly, without a camera rig or a motion-capture volume. Reach further than the operator can stand: an undersea manipulator, a hot cell, a machine on another continent. |
-| 🧠 **Generate training data machines can trust** | Vision-based hand datasets inherit vision's blind spots. Joint encoders give clean, occlusion-free, per-joint ground truth at 60 Hz — labelled by physics rather than by a model's guess. Untethered, so the data comes from real tasks rather than a capture studio. |
-| 🤟 **Sign language capture and recognition** | Already underway, not speculation — see [Sign language](#sign-language-a-worked-example) below. |
-| 🎮 **Force feedback, per finger** | A PlayStation 5 trigger can vary its resistance as you press. This device has a tendon and a motor on each finger, so the same idea generalises: feel a virtual wall, a trigger pull, the give of tissue, the weight of a load — finger by finger rather than through one rumbling handle. |
-| 🩺 **Rehabilitation and assessment** | Range of motion measured objectively, session over session, instead of estimated by eye. Assisted movement for a hand that cannot complete it alone. |
-| 🕹️ **High-precision machine control** | Operating equipment where a joystick is too blunt and a touchscreen is impossible — gloved, wet, in the dark, or while your eyes are needed elsewhere. |
-| 🥊 **Whatever you are actually here for** | A boxer driving a sparring robot, a surgeon rehearsing at distance, a musician mapping fingers to synthesis. The platform does not care. |
+| **Teleoperate a robot hand** | Your fingers become the controller. Per-joint angles map onto a robot hand directly, without a camera rig or a motion-capture volume. Reach further than the operator can stand: an undersea manipulator, a hot cell, a machine on another continent. |
+| **Generate training data machines can trust** | Vision-based hand datasets inherit vision's blind spots. Joint encoders give clean, occlusion-free, per-joint ground truth at 60 Hz — labelled by physics rather than by a model's guess. Untethered, so the data comes from real tasks rather than a capture studio. |
+| **Sign language capture and recognition** | Already underway, not speculation — see [Sign language](#sign-language-a-worked-example) below. |
+| **Force feedback, per finger** | A PlayStation 5 trigger can vary its resistance as you press. This device has a tendon and a motor on each finger, so the same idea generalises: feel a virtual wall, a trigger pull, the give of tissue, the weight of a load — finger by finger rather than through one rumbling handle. |
+| **Rehabilitation and assessment** | Range of motion measured objectively, session over session, instead of estimated by eye. Assisted movement for a hand that cannot complete it alone. |
+| **High-precision machine control** | Operating equipment where a joystick is too blunt and a touchscreen is impossible — gloved, wet, in the dark, or while your eyes are needed elsewhere. |
+| **Whatever you are actually here for** | A boxer driving a sparring robot, a surgeon rehearsing at distance, a musician mapping fingers to synthesis. The platform does not care. |
 
-The honest version: **the hardware to sense and actuate is here and working. Almost all of that
-list is unbuilt.** That is the invitation, and it is why the project is open rather than
-protected.
+To be precise about status: **the sensing and the actuation are built and working; the
+applications above are open ground.** If one of them is what you need, the hard engineering is
+already behind you — you would be starting from a working platform rather than from nothing.
+
+<div align="center">
+
+<img src="docs/media/personalize.png" alt="Personalize it — three colourways" width="100%">
+
+</div>
+
+---
 
 ## The machine
 
@@ -65,14 +75,6 @@ protected.
 | **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
 | **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
 | **Structure** | 3D printed; as built, a mix of PETG and PLA |
-
----
-
-<div align="center">
-
-<img src="docs/media/personalize.png" alt="Personalize it — three colourways" width="100%">
-
-</div>
 
 ---
 
