@@ -22,7 +22,7 @@ const FINGERS = ["index", "middle", "ring", "pinky"];
 const D2R = Math.PI / 180;
 const MODEL_SCALE = 0.013;          // mm -> scene units (device ~4.4 units long)
 
-const HAND_ASSET_VERSION = 17;   // bump when zero_hand.glb is rebuilt (busts HTTP
+const HAND_ASSET_VERSION = 19;   // bump when zero_hand.glb is rebuilt (busts HTTP
                                  // cache) - AND update the <link rel="preload">
                                  // in index.html, which carries the same ?v=
 

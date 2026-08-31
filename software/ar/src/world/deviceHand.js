@@ -24,7 +24,7 @@ export const FINGERS = ["index", "middle", "ring", "pinky"];
 const D2R = Math.PI / 180;
 
 // one GLB parse for the whole app (TWIN mode + the hub hero share it)
-const HAND_ASSET_VERSION = 16;   // keep in step with web twin.js (busts HTTP cache on rebuilds)
+const HAND_ASSET_VERSION = 19;   // keep in step with web twin.js (busts HTTP cache on rebuilds)
 let _glbPromise = null;
 function loadHandGLB() {
   if (!_glbPromise) _glbPromise = new GLTFLoader().loadAsync(`./assets/zero_hand.glb?v=${HAND_ASSET_VERSION}`);
