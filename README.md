@@ -9,7 +9,7 @@
 TAKTO ONE measures the angle of **twelve finger joints** and can pull them back through tendons.
 The control loop runs on the device itself, so neither the sensing nor the actuation is waiting
 on a computer. It is a wearable platform for reading the human hand precisely, and for putting
-force back into it — with every file needed to build one.
+force back into it, with every file needed to build one.
 
 [![Software: Apache-2.0](https://img.shields.io/badge/software-Apache--2.0-blue.svg)](LICENSE.md)
 [![Hardware: CERN-OHL-S-2.0](https://img.shields.io/badge/hardware-CERN--OHL--S--2.0-orange.svg)](LICENSE.md)
@@ -21,48 +21,66 @@ force back into it — with every file needed to build one.
 
 ---
 
-## Why a hand, and why this one
-
-A camera watching your hand loses fingers the moment they cross, curl, or leave frame. A glove
-full of flex sensors drifts. TAKTO ONE puts a **magnetic encoder on the joint itself** — three
-per finger, twelve in all — so the measurement does not care about occlusion, lighting, or where
-you are standing. The microcontroller owns the motor bus, so the device does not need a computer
-in the loop to act.
-
-That combination — **per-joint truth going in, tendon force coming out, no host required** — is
-what makes it a platform rather than a gadget. It is a hand-shaped input and output device, and
-what you point it at is up to you.
-
-## What people could build with this
-
-**These are directions, not delivered features.** The foundation under them is built and
-working: twelve sensed joints, tendon actuation, two custom boards, firmware, and a full
-software stack. What that foundation opens up is far wider than any one roadmap — every line
-below could be a project in its own right. Open sourcing it is how they get to happen in
-parallel, and how they get to happen sooner. Current status is in
-[Where the project really stands](#where-the-project-really-stands).
-
-| | |
-| --- | --- |
-| **Teleoperate a robot hand** | Your fingers become the controller. Per-joint angles map onto a robot hand directly, without a camera rig or a motion-capture volume. Reach further than the operator can stand: an undersea manipulator, a hot cell, a machine on another continent. |
-| **Generate training data machines can trust** | Vision-based hand datasets inherit vision's blind spots. Joint encoders give clean, occlusion-free, per-joint ground truth — labelled by physics rather than by a model's guess. Logging happens on the device, so the capture rate is set by your firmware rather than by a browser, and the data comes from real tasks rather than a capture studio. |
-| **Sign language capture and recognition** | Already underway, not speculation — see [Sign language](#sign-language-a-worked-example) below. |
-| **Force feedback, per finger** | A tendon and a motor behind each finger means resistance can be varied as the hand moves: a surface that stops you, the give of soft tissue, the weight of a load, the resistance of a control you are pulling. Felt finger by finger, rather than as one vibration through a handle. |
-| **Rehabilitation and assessment** | Range of motion measured objectively, session over session, instead of estimated by eye. Assisted movement for a hand that cannot complete it alone. |
-| **High-precision machine control** | Operating equipment where a joystick is too blunt and a touchscreen is impossible — gloved, wet, in the dark, or while your eyes are needed elsewhere. |
-| **Whatever you are actually here for** | A boxer driving a sparring robot, a surgeon rehearsing at distance, a musician mapping fingers to synthesis. The platform does not care. |
-
-To be precise about status: **the sensing and the actuation are built and working; the
-applications above are open ground.** If one of them is what you need, the hard engineering is
-already behind you — you would be starting from a working platform rather than from nothing.
-
 <div align="center">
 
-<img src="docs/media/personalize.png" alt="Personalize it — three colourways" width="100%">
+<img src="docs/media/personalize.png" alt="Personalize it, three colourways" width="100%">
 
 </div>
 
 ---
+
+## Why a hand, and why this one
+
+A camera watching your hand loses fingers the moment they cross, curl, or leave frame. A glove
+full of flex sensors drifts. TAKTO ONE puts a **magnetic encoder on the joint itself**, three
+per finger, twelve in all, so the measurement does not care about occlusion, lighting, or where
+you are standing. The microcontroller owns the motor bus, so the device does not need a computer
+in the loop to act.
+
+That combination, **per-joint truth going in, tendon force coming out, no host required**, is
+what makes it a platform rather than a gadget. It is a hand-shaped input and output device, and
+what you point it at is up to you.
+
+## What it already does
+
+Two of the things this platform is most useful for are **built, and in this repository.**
+
+**Motion capture that writes to the device, not to a browser.** The firmware records to the
+Teensy's built-in SD card: one row per frame, carrying all fourteen encoder channels, the hand,
+forearm and thumb quaternions, EMG envelope and RMS, the crown, and full motor telemetry
+(position, velocity, current, mode and fault flags). A single sensor acquisition feeds the SD
+row, the serial stream and the display, so the log and the live view can never disagree. Because
+it writes on the device, capture is not limited by a browser or a host connection, and the rate
+is a firmware constant rather than a display refresh. That is what makes it a serious source of
+hand-motion data: **per-joint, occlusion-free, timestamped, and labelled by physics rather than
+by a model's guess.**
+
+**Teleoperation and assistance.** The control law runs on the Teensy in three modes: idle, direct
+current, and a blended mode that moves continuously between *transparent*, where the device
+follows the wearer and stays out of the way, and *assist*, where it drives toward a position
+setpoint. The blend is a live parameter, so the hand can lead the device, the device can lead the
+hand, or anything in between. Setpoints, gains and current limits are all exposed over the serial
+protocol, which is what lets one hand drive another.
+
+Together those are the loop that matters: **read a hand precisely, record it, and play it back
+into a hand.**
+
+## Where it can go from here
+
+That foundation is what puts the following within reach. These are **directions rather than
+delivered features.** Each is a project in its own right, and open sourcing the platform is how
+they get to happen in parallel instead of one at a time.
+
+| | |
+| --- | --- |
+| **Drive a robot hand** | Per-joint angles map onto a robot hand without a camera rig or a capture volume. The interesting version is reach: a manipulator underwater, in a hot cell, or on another continent, driven by a hand that stays somewhere safe. |
+| **Train models on better data** | The capture described above already produces clean per-joint ground truth. What is missing is scale: many hands, many tasks, a shared schema, a published dataset. That is community work rather than solo work. |
+| **Sign language** | Already begun rather than hypothetical. See [Sign language](#sign-language-a-worked-example). |
+| **Force feedback, per finger** | A tendon and a motor behind each finger means resistance can be varied as the hand moves: a surface that stops you, the give of soft tissue, the weight of a load. Felt finger by finger, rather than as one vibration through a handle. The control modes ship; the haptic rendering does not. |
+| **Rehabilitation and assessment** | Range of motion measured objectively across sessions instead of estimated by eye, and assisted movement for a hand that cannot finish the motion alone. |
+| **Precision machine control** | Situations where a joystick is too blunt and a touchscreen is impossible: gloved, wet, in the dark, or with your eyes needed elsewhere. |
+
+Current status is stated plainly in [Where the project really stands](#where-the-project-really-stands).
 
 ## The machine
 
@@ -72,7 +90,7 @@ already behind you — you would be starting from a working platform rather than
 | **Actuation** | Series-elastic, through elastic tendons and ratchet-based spools |
 | **Joint sensing** | 12 × AS5600 magnetic encoders, 3 per finger, read live together |
 | **Controller** | Teensy 4.1 |
-| **Motor bus** | Dynamixel Protocol 2.0 over a 74HC241 half-duplex interface — **the microcontroller owns the bus; no host PC required** |
+| **Motor bus** | Dynamixel Protocol 2.0 over a 74HC241 half-duplex interface, **the microcontroller owns the bus; no host PC required** |
 | **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
 | **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
 | **Structure** | 3D printed; as built, a mix of PETG and PLA |
@@ -87,15 +105,15 @@ already behind you — you would be starting from a working platform rather than
 <td width="50%"><img src="docs/media/side-view.png" alt="Profile view" width="100%"></td>
 </tr>
 <tr>
-<td align="center"><sub><b>Plan</b> — ten tendon spools, twelve instrumented joints</sub></td>
-<td align="center"><sub><b>Profile</b> — actuator bank and forearm shell</sub></td>
+<td align="center"><sub><b>Plan</b>, ten tendon spools, twelve instrumented joints</sub></td>
+<td align="center"><sub><b>Profile</b>, actuator bank and forearm shell</sub></td>
 </tr>
 </table>
 
 ## Inside it
 
 Two custom boards, designed from scratch. Full KiCad sources and manufacturing outputs are in
-[`electronics/`](electronics/) — these renders come straight from those files.
+[`electronics/`](electronics/), these renders come straight from those files.
 
 <table>
 <tr>
@@ -103,8 +121,8 @@ Two custom boards, designed from scratch. Full KiCad sources and manufacturing o
 <td width="58%"><img src="docs/media/pcb-palm-carrier.png" alt="Palm carrier board" width="100%"></td>
 </tr>
 <tr>
-<td align="center"><sub><b>Encoder board</b> — AS5600 magnetic angle sensor, one per joint</sub></td>
-<td align="center"><sub><b>Palm carrier</b> — shaped to the hand, multiplexes the encoder fan-out</sub></td>
+<td align="center"><sub><b>Encoder board</b>, AS5600 magnetic angle sensor, one per joint</sub></td>
+<td align="center"><sub><b>Palm carrier</b>, shaped to the hand, multiplexes the encoder fan-out</sub></td>
 </tr>
 </table>
 
@@ -114,7 +132,7 @@ Sensing → aggregation → control → interface:
 
 ![System architecture](docs/system-architecture.svg)
 
-And the full point-to-point wiring — every pin terminated, both I²C multiplexers, all fourteen
+And the full point-to-point wiring, every pin terminated, both I²C multiplexers, all fourteen
 encoder channels, three IMUs, and the 74HC241 servo bus. The
 [PDF](docs/global-wiring.pdf) is the printable version.
 
@@ -124,7 +142,7 @@ encoder channels, three IMUs, and the 74HC241 servo bus. The
 
 ## Start here
 
-**Read [`docs/README.md`](docs/README.md) first** — system architecture, the illustrated build
+**Read [`docs/README.md`](docs/README.md) first**, system architecture, the illustrated build
 guide, and the known corrections between the documentation and the current hardware.
 
 ```bash
@@ -152,9 +170,9 @@ The embedded Dynamixel driver is also maintained standalone as
 
 ## The software that ships with it
 
-Four surfaces, all reading the same live stream from the device — the browser sees it at 60 Hz,
+Four surfaces, all reading the same live stream from the device, the browser sees it at 60 Hz,
 which is a display rate, not the device's limit (see [On rates](#a-note-on-rates)). All of them run with **no
-hardware at all** — the bridge's `--sim` mode feeds synthetic joints, so you can explore the
+hardware at all**, the bridge's `--sim` mode feeds synthetic joints, so you can explore the
 whole stack before you print a single part.
 
 <table>
@@ -163,8 +181,8 @@ whole stack before you print a single part.
 <td width="50%"><img src="docs/media/ui-console.png" alt="Operator console" width="100%"></td>
 </tr>
 <tr>
-<td align="center"><sub><b>Web front end</b> — the project's public face</sub></td>
-<td align="center"><sub><b>Operator console</b> — live 3D twin, per-joint encoders, motor state, calibration</sub></td>
+<td align="center"><sub><b>Web front end</b>, the project's public face</sub></td>
+<td align="center"><sub><b>Operator console</b>, live 3D twin, per-joint encoders, motor state, calibration</sub></td>
 </tr>
 </table>
 
@@ -174,19 +192,21 @@ whole stack before you print a single part.
 <td width="38%"><img src="docs/media/ui-android.png" alt="Android companion" width="100%"></td>
 </tr>
 <tr>
-<td align="center"><sub><b>AR layer</b> — the hand twin and capture, touch and rhythm modules in space</sub></td>
-<td align="center"><sub><b>Android companion</b> — sessions and twin on a phone</sub></td>
+<td align="center"><sub><b>AR layer</b>, the hand twin and capture, touch and rhythm modules in space</sub></td>
+<td align="center"><sub><b>Android companion</b>, sessions and twin on a phone</sub></td>
 </tr>
 </table>
 
-> The AR and Android layers are **working prototypes, not polished products.** They are included
-> because they show the shape of the platform, and because they are more useful in your hands
-> than on a private disk.
+> **What is in this repository:** the operator console and the serial bridge. The full web front
+> end, the AR layer, the Android companion and the sign-language stack run on the same device and
+> the same protocol, but their source is **not part of this release yet.** They are shown here so
+> you can see the shape of the platform. If one of them is what you need, open an issue and say
+> so; that is the fastest way to get it prioritised.
 
 ## Sign language: a worked example
 
 The clearest demonstration that this is a platform and not a single-purpose device is
-**TAKTO-SIGN** — a German Sign Language capture, training and live-recognition stack built
+**TAKTO-SIGN**, a German Sign Language capture, training and live-recognition stack built
 on exactly this hardware. It records finger bend and hand orientation at 60 Hz, learns a
 designed vocabulary, and recognises signs live. Like everything else here, it runs end to end
 with no hardware through `--sim`.
@@ -196,7 +216,7 @@ this: it is a **signer-dependent isolated-sign recogniser**, with a continuous s
 path and a measured cross-signer result. **It is not open-vocabulary translation.**
 
 That is one application, built by one person, on this platform. It is meant as an example of
-what the hardware supports — not as the limit of it.
+what the hardware supports, not as the limit of it.
 
 ## Where the project really stands
 
@@ -222,7 +242,7 @@ collapsing them into one is the easiest way to mislead someone.
 - **Browser console: 60 Hz.** The bridge broadcasts snapshots to connected browsers at 60 Hz,
   chosen so a fresh sample never waits more than one tick to ship. This is a *display* rate.
 - **Firmware streaming default: 50 Hz.** `SAMPLE_HZ` in the shipped sketch. Also an interface
-  number — it is what gets emitted over the serial line for the host to draw.
+  number, it is what gets emitted over the serial line for the host to draw.
 - **Embedded control loop: up to 2 kHz.** The control law runs on the Teensy next to the
   actuator, not on a host.
 - **On-device capture is not bound by any of the above.** If you do not need a live browser UI,
@@ -234,7 +254,7 @@ been characterised here.** If your application depends on a specific rate, measu
 build rather than taking a number from this page.
 
 **Known limitations, stated plainly.** Ten motors makes this an expensive build. The
-series-elastic actuation is a simple implementation — elastic tendons and ratchet spools — not
+series-elastic actuation is a simple implementation, elastic tendons and ratchet spools, not
 an advanced SEA design. Recent soft-robotics work achieves comparable joint and force sensing
 with simpler mechanisms. This is a working, well-instrumented research platform, not a claim to
 the state of the art. Those gaps are exactly where contributions would help most.
@@ -258,15 +278,15 @@ platform, not a finished product, and the limitations above are open invitations
 
 Good places to start:
 
-- **Build one** — and tell us what was unclear, what did not fit, what you changed. Build
+- **Build one**, and tell us what was unclear, what did not fit, what you changed. Build
   reports are the single most valuable contribution.
-- **Improve the actuation** — a better series-elastic design is the most interesting open problem here.
-- **Reduce the motor count** — ten is expensive; underactuation would widen who can build this.
-- **Fix documentation** — known deltas are listed in [`docs/README.md`](docs/README.md); find more.
-- **Firmware, bridge, console** — bugs, features, and platform ports.
+- **Improve the actuation**, a better series-elastic design is the most interesting open problem here.
+- **Reduce the motor count**, ten is expensive; underactuation would widen who can build this.
+- **Fix documentation**, known deltas are listed in [`docs/README.md`](docs/README.md); find more.
+- **Firmware, bridge, console**, bugs, features, and platform ports.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). Open an issue with questions, ideas, or photos of your
-build — showing what you made is always welcome.
+build, showing what you made is always welcome.
 
 ## License
 

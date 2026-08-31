@@ -5,7 +5,7 @@ contributions of every size are welcome.
 
 ## The most useful contributions
 
-1. **Build reports.** If you build one — or part of one — open an issue and say what happened.
+1. **Build reports.** If you build one, or part of one, open an issue and say what happened.
    What was unclear, what did not fit, what you changed. This is worth more than code.
 2. **Documentation corrections.** The build guide predates some of the current hardware; known
    deltas are listed in [`docs/README.md`](docs/README.md). If you find another, report it.
@@ -15,7 +15,7 @@ contributions of every size are welcome.
 
 - Say what you changed and why. Link an issue if there is one.
 - Keep firmware changes compiling for a Teensy 4.1.
-- Keep the console dependency-free — it deliberately vendors what it needs and makes no
+- Keep the console dependency-free, it deliberately vendors what it needs and makes no
   external network calls. Please do not add a CDN or analytics dependency.
 - For hardware changes, include the KiCad or CAD sources, not just exports.
 
@@ -28,14 +28,14 @@ The README is deliberately image-led and is meant to keep growing. To add to it:
 3. Reference it from `README.md` with a relative path and a one-line `<sub>` caption saying what
    it is.
 
-Photographs of real builds are especially welcome — renders show the design, photographs show
+Photographs of real builds are especially welcome, renders show the design, photographs show
 that it works.
 
 ## Claims and evidence
 
 This project draws a hard line between what has been physically verified and what has only
 been simulated or written. If you add a claim about hardware behavior, say how it was measured
-and on what hardware. Name the exact quantity — loop rate, telemetry rate, and end-to-end
+and on what hardware. Name the exact quantity, loop rate, telemetry rate, and end-to-end
 latency are not the same number.
 
 ## Licensing of contributions

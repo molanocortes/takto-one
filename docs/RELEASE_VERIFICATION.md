@@ -22,18 +22,18 @@ not a medical, mechanical, electrical, or worn-actuation certification.
 
 | Check | Result |
 | --- | --- |
-| STL integrity — triangle count, file length, finite coordinates, plausible bounds | Passed on every file |
-| STEP integrity — complete ISO 10303-21 envelope | Passed on every file |
-| STEP headers — author, organization, originating path | Empty; no identity or path leakage |
+| STL integrity, triangle count, file length, finite coordinates, plausible bounds | Passed on every file |
+| STEP integrity, complete ISO 10303-21 envelope | Passed on every file |
+| STEP headers, author, organization, originating path | Empty; no identity or path leakage |
 | Firmware build for Teensy 4.1 | Compiled successfully |
 | Bridge byte-compile (Python 3.12) | Passed |
-| Bridge simulation — sensor and catalog initialization | 12 synthetic joints, two IMUs, EMG |
-| End-to-end WebSocket session against the bridge | Passed — see below |
-| Console module graph — every relative import resolves | Passed, no broken imports |
+| Bridge simulation, sensor and catalog initialization | 12 synthetic joints, two IMUs, EMG |
+| End-to-end WebSocket session against the bridge | Passed. See below |
+| Console module graph, every relative import resolves | Passed, no broken imports |
 | Console external dependencies | None; no CDN, analytics, or third-party calls |
 | Secret patterns, private absolute paths, oversized files, symlinks | None found |
-| Published image metadata — author, camera, timestamp, GPS | None present |
-| Git history — files added then deleted, oversized blobs, author email | Clean; commits use a GitHub noreply address |
+| Published image metadata, author, camera, timestamp, GPS | None present |
+| Git history, files added then deleted, oversized blobs, author email | Clean; commits use a GitHub noreply address |
 
 ### End-to-end WebSocket verification
 
@@ -48,7 +48,7 @@ were already occupied. It has since been run to completion on a free port:
 
 ### Scope of these checks
 
-These checks cover **repository integrity** — that the published files are complete, current,
+These checks cover **repository integrity**, that the published files are complete, current,
 and free of private data. They are not the project's hardware validation.
 
 The device itself has been operated on hardware by the author: the firmware runs on the Teensy,

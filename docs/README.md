@@ -37,8 +37,8 @@ superseded:
   [`dynamixel-on-device`](https://github.com/molanocortes/dynamixel-on-device).
 - It describes the prototype as 100% PETG. The as-built prototype uses **both PETG and PLA**.
 
-Everything else in the guide — the mechanical assembly order, part-check plates, tendon
-routing, spool and ratchet setup, and board fitting — reflects the device as built.
+Everything else in the guide, the mechanical assembly order, part-check plates, tendon
+routing, spool and ratchet setup, and board fitting, reflects the device as built.
 
 ### Board revision
 

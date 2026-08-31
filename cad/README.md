@@ -5,7 +5,7 @@ These files were exported directly from Autodesk Fusion on 2026-08-27 from the c
 - `stl/` contains high-resolution binary meshes in millimetres for slicing and inspection.
 - `step/` contains isolated solid bodies for neutral CAD interchange and editing.
 
-The source assembly also contains third-party reference models and a hidden personal arm scan. Those items—and the complete unfiltered assembly archive—are intentionally not published. Each STEP file was created from an isolated TAKTO-authored body so it does not carry those references.
+The source assembly also contains third-party reference models and a hidden personal arm scan. Those items, and the complete unfiltered assembly archive, are intentionally not published. Each STEP file was created from an isolated TAKTO-authored body so it does not carry those references.
 
 ## Export manifest
 
