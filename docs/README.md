@@ -52,3 +52,22 @@ The 74HC241 half-duplex interface is wired separately on Teensy `Serial1` with d
 control on pin 7. It is not integrated into the published palm-carrier Gerbers. Use the pin map
 in `firmware/takto_one/takto_one.ino` and verify the buffer truth table, voltage domains,
 common ground, and receive-default state on the bench.
+
+## Notes on the bundled website
+
+The website in `software/web/` is the source of the public front end, with one deliberate
+omission: **`assets/docs/` is not included.** In the working copy that folder holds the submitted
+master's thesis, an unpublished manuscript and the CAD submission archive. None of them are
+distributed here, and the preprint call-to-action that pointed at the manuscript was removed
+along with it. Restore that link only if the paper is actually published, and prefer a DOI to a
+bundled PDF.
+
+The page also probes for three optional files and simply hides the corresponding element when
+they are absent: `assets/cv.pdf`, `assets/vision.jpg` and `assets/film/poster.jpg`. If you drop a
+CV at that path in a public fork, it becomes public with everything in it. That is worth knowing
+before you use it.
+
+The AR layer in `software/ar/` is the app only. Its capture and asset tooling is not included.
+It also has a known bug on high-DPI displays: it sizes its render target from CSS pixels while
+the canvas backs at the device ratio, so on a 2x screen the scene draws into a quarter of the
+canvas. Force a device pixel ratio of 1 as a workaround.

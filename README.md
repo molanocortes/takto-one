@@ -205,11 +205,32 @@ whole stack before you print a single part.
 </tr>
 </table>
 
-> **What is in this repository:** the operator console and the serial bridge. The full web front
-> end, the AR layer, the Android companion and the sign-language stack run on the same device and
-> the same protocol, but their source is **not part of this release yet.** They are shown here so
-> you can see the shape of the platform. If one of them is what you need, open an issue and say
-> so; that is the fastest way to get it prioritised.
+> **The AR layer and the Android companion are working prototypes, not polished products.** The
+> Android source is not in this release; the sign-language stack is not either. Everything else
+> shown here is included.
+>
+> The website ships **without** `assets/docs/`. That folder holds the submitted thesis, an
+> unpublished manuscript and the CAD submission archive, none of which are distributed. The
+> preprint call-to-action was removed with it.
+
+## The device screen
+
+The Teensy drives a round display, and the face engine that paints it is part of the firmware.
+Three faces ship, each covering every device state: battery, boot, calibrate, fault, idle,
+linked, recording, saved, standalone, stop and teleop.
+
+<div align="center">
+
+<img src="docs/media/watch-faces.png" alt="Three watch faces across every device state" width="100%">
+
+<sub>Every face against every state, rendered by the firmware's own rasterizer from a mock feed.
+These are not photographs of the physical screen.</sub>
+
+</div>
+
+The **thesis** face is the one used throughout the thesis work. Source, the face engine, the
+frame budget and the flashing runbook are in
+[`firmware/takto_one/watch/`](firmware/takto_one/watch/).
 
 ## Sign language: a worked example
 

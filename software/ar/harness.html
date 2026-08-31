@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>AR Experience - boot harness</title>
+<!--
+  This is a PLUMBING HARNESS, not the experience. It proves the telemetry
+  pipeline works (mock or real host) and lets you drive commands. Replace it
+  with the real WebXR experience per ARCHITECTURE.md and the AESTHETIC bible.
+  Default source is the in-browser mock (add ?mock=1, on by default here).
+  For the real host or python mock: index.html?ws=ws://localhost:8766/ws
+-->
+<style>
+  :root{
+    --bg-0:#0F1318; --bg-1:#161C24; --bg-2:#1D252F;
+    --text-0:#E9EEF3; --text-1:#AAB6C2; --text-2:#7C8896;
+    --aqua:#5FE6C4; --aqua-deep:#1C8F77; --amber:#FFB155; --stop:#F4564D;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 800px at 50% -10%,#12202a,var(--bg-0));
+    color:var(--text-0);font-family:var(--sans);min-height:100vh;padding:24px}
+  h1{font-size:15px;font-weight:600;letter-spacing:.3px;margin:0 0 2px}
+  .sub{color:var(--text-2);font-size:12px;margin-bottom:18px}
+  .wrap{max-width:720px;margin:0 auto}
+  .card{background:linear-gradient(180deg,var(--bg-1),var(--bg-2));border:1px solid #26313d;
+    border-radius:14px;padding:16px 18px;margin-bottom:14px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  button{background:#22303c;color:var(--text-0);border:1px solid #33404d;border-radius:10px;
+    padding:9px 13px;font:inherit;font-size:13px;cursor:pointer;transition:.18s cubic-bezier(.22,1,.36,1)}
+  button:hover{border-color:var(--aqua);color:var(--aqua)}
+  button.on{background:var(--aqua-deep);border-color:var(--aqua);color:#eafff9}
+  .grid{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-family:var(--mono);font-size:12.5px}
+  .k{color:var(--text-2)} .v{color:var(--text-0)}
+  .bar{height:10px;border-radius:6px;background:#0d141b;overflow:hidden;position:relative}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--aqua),var(--amber));
+    width:0;transition:width .08s linear}
+  .fingerbar{height:26px;border-radius:8px;background:#0d141b;position:relative;margin-top:6px}
+  .fingerbar>.fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#1C8F77,#5FE6C4);
+    border-radius:8px;width:0}
+  .fingerbar>.wall{position:absolute;top:-4px;bottom:-4px;width:3px;background:var(--amber);
+    box-shadow:0 0 10px var(--amber);display:none}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-family:var(--mono);
+    border:1px solid #33404d;color:var(--text-1)}
+  .pill.live{color:var(--aqua);border-color:var(--aqua)}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--aqua);
+    box-shadow:0 0 8px var(--aqua);animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="dot"></span> AR Experience - telemetry boot harness</h1>
+  <div class="sub">Proves the data pipeline. Not the experience. Source: <span id="src" class="pill live">mock</span></div>
+
+  <div class="card">
+    <div class="row">
+      <button data-mode="atelier" class="modeb on">Atelier</button>
+      <button data-mode="capture" class="modeb">Capture</button>
+      <button data-mode="rhythm" class="modeb">Rhythm</button>
+      <button data-mode="touch" class="modeb">Touch</button>
+    </div>
+    <div class="row">
+      <button id="hard">Hard wall (K=2.5)</button>
+      <button id="soft">Soft wall (K=0.08)</button>
+      <button id="free">Release</button>
+      <button id="rec">Record start</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="grid">
+      <div class="k">mode / state</div><div class="v"><span id="mode">-</span> / <span id="state">-</span></div>
+      <div class="k">device / motors</div><div class="v" id="link">-</div>
+      <div class="k">joints valid</div><div class="v" id="joints">-</div>
+      <div class="k">index_mcp</div><div class="v" id="idx">-</div>
+      <div class="k">actuator current</div><div class="v" id="cur">-</div>
+      <div class="k">reps</div><div class="v" id="reps">-</div>
+      <div class="k">session</div><div class="v" id="sess">-</div>
+    </div>
+    <div style="margin-top:12px" class="k" >activation level / fatigue / quality</div>
+    <div class="bar" style="margin-top:6px"><i id="act"></i></div>
+    <div class="k" style="margin-top:6px" id="actq">-</div>
+
+    <div class="k" style="margin-top:14px">index finger angle vs wall (Touch)</div>
+    <div class="fingerbar"><div class="fill" id="ffill"></div><div class="wall" id="fwall"></div></div>
+  </div>
+</div>
+
+<script type="module">
+import { makeTelemetry } from "./src/telemetry.js";
+
+const tele = makeTelemetry();               // mock unless ?ws= is given
+const $ = id => document.getElementById(id);
+if (new URLSearchParams(location.search).get("ws")) $("src").textContent = "websocket";
+
+let wall = null;
+const WALL_X = 20;
+function sendWall(K){ wall = K==null?null:{joint:"index_drive",x_wall_deg:WALL_X,K,B:0.02,f_max_ma:80};
+  tele.send({cmd:"walls", walls: wall?[wall]:[]}); }
+
+document.querySelectorAll(".modeb").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".modeb").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); tele.send({cmd:"mode",mode:b.dataset.mode}); });
+$("hard").onclick=()=>sendWall(2.5);
+$("soft").onclick=()=>sendWall(0.08);
+$("free").onclick=()=>sendWall(null);
+let recording=false;
+$("rec").onclick=()=>{ recording=!recording;
+  tele.send({cmd:"record",action:recording?"start":"stop",profile:{name:"Harness"},session:"test-1"});
+  $("rec").textContent = recording?"Record stop":"Record start"; $("rec").classList.toggle("on",recording); };
+
+tele.onSnapshot(s=>{
+  $("mode").textContent=s.mode; $("state").textContent=s.state;
+  $("link").textContent = `${s.link.device?"up":"down"} / ${s.link.motors?"up":"down"}`;
+  const ok=s.joints.filter(j=>j.ok).length; $("joints").textContent=`${ok}/${s.joints.length}`;
+  const idx=s.joints.find(j=>j.id==="index_mcp"); $("idx").textContent=`${idx.deg.toFixed(1)} deg ${idx.ok?"":"(drop)"}`;
+  const a=s.actuators[0]; $("cur").textContent=`${a.current_ma.toFixed(1)} mA (${a.feedback_mode})`;
+  $("reps").textContent=`${s.reps.done} / ${s.reps.goal}`;
+  $("sess").textContent = s.session.recording?`REC ${(s.session.elapsed_ms/1000).toFixed(1)}s`:"idle";
+  $("act").style.width = `${(s.activation.level*100).toFixed(0)}%`;
+  $("actq").textContent = `level ${s.activation.level.toFixed(2)}  fatigue ${s.activation.fatigue.toFixed(2)}  ${s.activation.quality}`;
+  // finger vs wall (0..70 deg range)
+  $("ffill").style.width = `${Math.min(100, idx.deg/70*100)}%`;
+  const fw=$("fwall"); if(wall){ fw.style.display="block"; fw.style.left=`${WALL_X/70*100}%`; } else fw.style.display="none";
+});
+tele.start();
+</script>
+</body>
+</html>
