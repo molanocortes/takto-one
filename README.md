@@ -26,7 +26,7 @@ force back into it, with every file needed to build one.
      inside a <div>. Do not wrap it in a <video> tag or in markdown link brackets, and do
      not swap it for a repo-relative path - GitHub's sanitiser strips <video> outright, and
      raw.githubusercontent serves .mp4 as application/octet-stream, so neither will play.
-     The same file is kept at docs/media/takto-one-film.mp4 as the durable copy. -->
+     The same file is kept at docs/media/TAKTO-ONE.mp4 as the durable copy. -->
 
 https://github.com/user-attachments/assets/8b99a291-4188-4111-b27c-68c6f68171b1
 
