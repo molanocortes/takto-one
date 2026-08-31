@@ -6,9 +6,10 @@
 
 ### Open hand control. Read every finger. Drive every finger.
 
-TAKTO ONE measures the angle of **twelve finger joints at 60 Hz** and can pull them back through
-tendons. It is a wearable platform for reading the human hand precisely, and for putting force
-back into it — with every file needed to build one.
+TAKTO ONE measures the angle of **twelve finger joints** and can pull them back through tendons.
+The control loop runs on the device itself, so neither the sensing nor the actuation is waiting
+on a computer. It is a wearable platform for reading the human hand precisely, and for putting
+force back into it — with every file needed to build one.
 
 [![Software: Apache-2.0](https://img.shields.io/badge/software-Apache--2.0-blue.svg)](LICENSE.md)
 [![Hardware: CERN-OHL-S-2.0](https://img.shields.io/badge/hardware-CERN--OHL--S--2.0-orange.svg)](LICENSE.md)
@@ -44,9 +45,9 @@ parallel, and how they get to happen sooner. Current status is in
 | | |
 | --- | --- |
 | **Teleoperate a robot hand** | Your fingers become the controller. Per-joint angles map onto a robot hand directly, without a camera rig or a motion-capture volume. Reach further than the operator can stand: an undersea manipulator, a hot cell, a machine on another continent. |
-| **Generate training data machines can trust** | Vision-based hand datasets inherit vision's blind spots. Joint encoders give clean, occlusion-free, per-joint ground truth at 60 Hz — labelled by physics rather than by a model's guess. Untethered, so the data comes from real tasks rather than a capture studio. |
+| **Generate training data machines can trust** | Vision-based hand datasets inherit vision's blind spots. Joint encoders give clean, occlusion-free, per-joint ground truth — labelled by physics rather than by a model's guess. Logging happens on the device, so the capture rate is set by your firmware rather than by a browser, and the data comes from real tasks rather than a capture studio. |
 | **Sign language capture and recognition** | Already underway, not speculation — see [Sign language](#sign-language-a-worked-example) below. |
-| **Force feedback, per finger** | A PlayStation 5 trigger can vary its resistance as you press. This device has a tendon and a motor on each finger, so the same idea generalises: feel a virtual wall, a trigger pull, the give of tissue, the weight of a load — finger by finger rather than through one rumbling handle. |
+| **Force feedback, per finger** | A tendon and a motor behind each finger means resistance can be varied as the hand moves: a surface that stops you, the give of soft tissue, the weight of a load, the resistance of a control you are pulling. Felt finger by finger, rather than as one vibration through a handle. |
 | **Rehabilitation and assessment** | Range of motion measured objectively, session over session, instead of estimated by eye. Assisted movement for a hand that cannot complete it alone. |
 | **High-precision machine control** | Operating equipment where a joystick is too blunt and a touchscreen is impossible — gloved, wet, in the dark, or while your eyes are needed elsewhere. |
 | **Whatever you are actually here for** | A boxer driving a sparring robot, a surgeon rehearsing at distance, a musician mapping fingers to synthesis. The platform does not care. |
@@ -151,7 +152,8 @@ The embedded Dynamixel driver is also maintained standalone as
 
 ## The software that ships with it
 
-Four surfaces, all reading the same 60 Hz stream from the device. All of them run with **no
+Four surfaces, all reading the same live stream from the device — the browser sees it at 60 Hz,
+which is a display rate, not the device's limit (see [On rates](#a-note-on-rates)). All of them run with **no
 hardware at all** — the bridge's `--sim` mode feeds synthetic joints, so you can explore the
 whole stack before you print a single part.
 
@@ -211,6 +213,25 @@ rate, console update rate, and end-to-end latency are different quantities and a
 interchangeable. Verify the installed IMUs, thumb configuration, actuator count, limits, and
 safety behavior on your own hardware before any worn experiment. Repository-preparation checks
 are recorded in the [verification record](docs/RELEASE_VERIFICATION.md).
+
+### A note on rates
+
+Loop rate, sampling rate, telemetry rate and console update rate are four different numbers, and
+collapsing them into one is the easiest way to mislead someone.
+
+- **Browser console: 60 Hz.** The bridge broadcasts snapshots to connected browsers at 60 Hz,
+  chosen so a fresh sample never waits more than one tick to ship. This is a *display* rate.
+- **Firmware streaming default: 50 Hz.** `SAMPLE_HZ` in the shipped sketch. Also an interface
+  number — it is what gets emitted over the serial line for the host to draw.
+- **Embedded control loop: up to 2 kHz.** The control law runs on the Teensy next to the
+  actuator, not on a host.
+- **On-device capture is not bound by any of the above.** If you do not need a live browser UI,
+  the streaming rate is a firmware constant you can change, and logging can run considerably
+  faster than what the console displays.
+
+The ceiling on encoder sampling is set by the I²C bus and multiplexer switching, and **it has not
+been characterised here.** If your application depends on a specific rate, measure it on your own
+build rather than taking a number from this page.
 
 **Known limitations, stated plainly.** Ten motors makes this an expensive build. The
 series-elastic actuation is a simple implementation — elastic tendons and ratchet spools — not
