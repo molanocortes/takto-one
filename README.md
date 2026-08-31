@@ -21,21 +21,14 @@ force back into it, with every file needed to build one.
 
 ---
 
-<div align="center">
+<!-- The film. This bare URL is what GitHub turns into a video player, so it must stay
+     alone on its own line and OUTSIDE any raw HTML block: the conversion does not fire
+     inside a <div>. Do not wrap it in a <video> tag or in markdown link brackets, and do
+     not swap it for a repo-relative path - GitHub's sanitiser strips <video> outright, and
+     raw.githubusercontent serves .mp4 as application/octet-stream, so neither will play.
+     The same file is kept at docs/media/takto-one-film.mp4 as the durable copy. -->
 
-<!-- The film. A README cannot hold a video player: GitHub's sanitiser strips <video>
-     outright (it renders as an empty paragraph), and a repo-relative .mp4 is served as
-     application/octet-stream, so nothing plays in place. Clicking the poster opens the file
-     in GitHub's own video view, which plays it at full 1080p and normal speed, with sound.
-     For a player embedded in this page instead: drag docs/media/takto-one-film.mp4 into any
-     issue comment, then paste the https://github.com/user-attachments/assets/<id> URL it
-     mints on its OWN LINE here, bare. GitHub turns a bare attachment URL into a player
-     itself. Do not wrap it in a <video> tag - that gets stripped. -->
-<a href="docs/media/takto-one-film.mp4"><img src="docs/media/film-poster.png" alt="Watch the TAKTO ONE film" width="100%"></a>
-
-**[Watch the film](docs/media/takto-one-film.mp4)** — 30 seconds, 1080p, with sound
-
-</div>
+https://github.com/user-attachments/assets/8c8795db-af9b-404b-a712-960aaa687867
 
 ---
 
