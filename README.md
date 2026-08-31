@@ -177,7 +177,7 @@ whole stack before you print a single part.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/media/ui-website.png" alt="Web front end" width="100%"></td>
+<td width="50%"><img src="docs/media/web-hero.gif" alt="Web front end" width="100%"></td>
 <td width="50%"><img src="docs/media/ui-console.png" alt="Operator console" width="100%"></td>
 </tr>
 <tr>
@@ -185,6 +185,14 @@ whole stack before you print a single part.
 <td align="center"><sub><b>Operator console</b>, live 3D twin, per-joint encoders, motor state, calibration</sub></td>
 </tr>
 </table>
+
+<div align="center">
+
+<img src="docs/media/web-scroll.gif" alt="Scrolling the web front end" width="72%">
+
+<sub>The front end, top to bottom</sub>
+
+</div>
 
 <table>
 <tr>
