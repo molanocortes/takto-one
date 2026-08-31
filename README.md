@@ -23,21 +23,17 @@ force back into it, with every file needed to build one.
 
 <div align="center">
 
-<!-- The film. GitHub will not play a repo-relative .mp4 inline: raw.githubusercontent
-     serves it as application/octet-stream, so a <video> tag or image-syntax link renders
-     nothing. An animated WebP does autoplay inline, so the loop below plays on the page
-     with no click and no navigation, and links through to the full film with sound.
-     WebP rather than GIF because GIF is capped at 256 colours and pays per frame: the same
-     loop as a GIF was 10 fps and 2.97 MB, which visibly juddered on these slow camera moves.
-     This is 24 fps at 960 px in 1.65 MB.
-     To upgrade to a real inline player with audio: drag docs/media/takto-one-film.mp4 into
-     any issue comment or the README web editor, copy the
-     https://github.com/user-attachments/assets/<id> URL it mints, and replace this whole
-     <a>...</a> block with:
-       <video src="https://github.com/user-attachments/assets/<id>" poster="docs/media/film-poster.png" controls width="100%"></video> -->
-<a href="docs/media/takto-one-film.mp4"><img src="docs/media/film-loop.webp" alt="TAKTO ONE film" width="100%"></a>
+<!-- The film. A README cannot hold a video player: GitHub's sanitiser strips <video>
+     outright (it renders as an empty paragraph), and a repo-relative .mp4 is served as
+     application/octet-stream, so nothing plays in place. Clicking the poster opens the file
+     in GitHub's own video view, which plays it at full 1080p and normal speed, with sound.
+     For a player embedded in this page instead: drag docs/media/takto-one-film.mp4 into any
+     issue comment, then paste the https://github.com/user-attachments/assets/<id> URL it
+     mints on its OWN LINE here, bare. GitHub turns a bare attachment URL into a player
+     itself. Do not wrap it in a <video> tag - that gets stripped. -->
+<a href="docs/media/takto-one-film.mp4"><img src="docs/media/film-poster.png" alt="Watch the TAKTO ONE film" width="100%"></a>
 
-**[Watch the full film](docs/media/takto-one-film.mp4)** — 30 seconds, with sound
+**[Watch the film](docs/media/takto-one-film.mp4)** — 30 seconds, 1080p, with sound
 
 </div>
 
@@ -87,12 +83,6 @@ protocol, which is what lets one hand drive another.
 Together those are the loop that matters: **read a hand precisely, record it, and play it back
 into a hand.**
 
-<div align="center">
-
-<img src="docs/media/loop-motion.webp" alt="The hand articulating under tendon drive" width="88%">
-
-</div>
-
 ## Where it can go from here
 
 That foundation is what puts the following within reach. These are **directions rather than
@@ -122,12 +112,6 @@ Current status is stated plainly in [Where the project really stands](#where-the
 | **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
 | **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
 | **Structure** | 3D printed; as built, a mix of PETG and PLA |
-
-<div align="center">
-
-<img src="docs/media/loop-machine.webp" alt="The assembled device" width="88%">
-
-</div>
 
 ---
 
