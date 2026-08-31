@@ -40,15 +40,30 @@ latency are not the same number.
 
 ## Licensing of contributions
 
-By contributing you agree that your contribution is licensed under the same terms as the part
-of the repository it touches:
+Contributions are released under the same terms as the part of the repository they touch:
 
-- `firmware/`, `software/` → Apache-2.0
-- `cad/`, `electronics/` → CERN-OHL-S-2.0
-- `docs/` and media → CC-BY-4.0
+- `firmware/`, `software/` -> Apache-2.0
+- `cad/`, `electronics/` -> CERN-OHL-S-2.0
+- `docs/` and media -> CC-BY-4.0
 
-Apache-2.0 contributions include the patent grant in section 3 of that license. Please only
-submit work you have the right to license this way.
+There is also a short [Contributor License Agreement](CLA.md). **You keep the copyright in your
+work**; the CLA grants the maintainer the right to distribute it, including under different terms
+later. That sounds bureaucratic for a project this size, so here is the honest reason: without it,
+the project can never be relicensed. If a licence ever has to change, whether to loosen it, to
+offer commercial terms alongside it, or to fix a licence that turned out to be a poor fit, every
+past contributor would have to be tracked down and asked. Agreeing once at the start avoids that
+permanently.
+
+To accept it, put this line in your pull request description:
+
+```
+I have read CLA.md and I agree to its terms.
+```
+
+and sign off your commits with `git commit -s`, which certifies the same thing under the
+Developer Certificate of Origin.
+
+Please only submit work you have the right to license this way.
 
 ## Safety
 

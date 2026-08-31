@@ -32,6 +32,19 @@ including commercially, with attribution.
 
 Machine-readable citation metadata is in [`CITATION.cff`](CITATION.cff).
 
+## Commercial licensing
+
+The hardware licence above, CERN-OHL-S-2.0, is strongly reciprocal: if you distribute a modified
+design, or a product built from one, you must make your modified sources available under the same
+terms. That is deliberate, and for most people it is exactly the right arrangement.
+
+If it does not work for you, **licensing on other terms is available.** If you want to build a
+product on this hardware without publishing your modifications, or you need warranties,
+indemnities or support that an open licence does not provide, open an issue or contact the
+author and we can discuss terms. The same applies to the software.
+
+Asking costs nothing and no one is refused a hearing.
+
 ## Text and data mining
 
 The author reserves the rights referred to in Article 4(3) of Directive (EU) 2019/790 and

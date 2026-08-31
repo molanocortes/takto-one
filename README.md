@@ -322,6 +322,11 @@ build, showing what you made is always welcome.
 Software **Apache-2.0** · Hardware **CERN-OHL-S-2.0** · Documentation and media **CC-BY-4.0**.
 Full detail, attribution format, and the text-and-data-mining reservation: [`LICENSE.md`](LICENSE.md).
 
+The hardware licence is strongly reciprocal: distribute a modified design and you publish your
+modifications. If that does not suit your situation, **licensing on other terms is available**,
+see [`LICENSE.md`](LICENSE.md). Contributors are asked to agree to a short [CLA](CLA.md), which
+keeps relicensing possible and leaves your copyright with you.
+
 <div align="center">
 <sub>Designed and built by Sebastian Molano · Hochschule Anhalt · Made in Germany</sub>
 </div>
