@@ -21,25 +21,16 @@ force back into it, with every file needed to build one.
 
 ---
 
-<div align="center">
+<!-- The film. This bare URL is what GitHub turns into a video player, so it must stay
+     alone on its own line and OUTSIDE any raw HTML block: the conversion does not fire
+     inside a <div>. Do not wrap it in a <video> tag or in markdown link brackets, and do
+     not swap it for a repo-relative path - GitHub's sanitiser strips <video> outright, and
+     raw.githubusercontent serves .mp4 as application/octet-stream, so neither will play.
+     docs/media/TAKTO-ONE.mp4 is the durable in-repo copy. It is the same film without
+     the one-second cover card, which exists only so the player has a thumbnail; it is not
+     re-committed on each cover change, to keep binary churn out of git history. -->
 
-<!-- The film. GitHub will not play a repo-relative .mp4 inline: raw.githubusercontent
-     serves it as application/octet-stream, so a <video> tag or image-syntax link renders
-     nothing. An animated WebP does autoplay inline, so the loop below plays on the page
-     with no click and no navigation, and links through to the full film with sound.
-     WebP rather than GIF because GIF is capped at 256 colours and pays per frame: the same
-     loop as a GIF was 10 fps and 2.97 MB, which visibly juddered on these slow camera moves.
-     This is 24 fps at 960 px in 1.65 MB.
-     To upgrade to a real inline player with audio: drag docs/media/takto-one-film.mp4 into
-     any issue comment or the README web editor, copy the
-     https://github.com/user-attachments/assets/<id> URL it mints, and replace this whole
-     <a>...</a> block with:
-       <video src="https://github.com/user-attachments/assets/<id>" poster="docs/media/film-poster.png" controls width="100%"></video> -->
-<a href="docs/media/takto-one-film.mp4"><img src="docs/media/film-loop.webp" alt="TAKTO ONE film" width="100%"></a>
-
-**[Watch the full film](docs/media/takto-one-film.mp4)** — 30 seconds, with sound
-
-</div>
+https://github.com/user-attachments/assets/1538657f-96ee-4b98-8d4a-2e254e1aeca6
 
 ---
 
@@ -87,12 +78,6 @@ protocol, which is what lets one hand drive another.
 Together those are the loop that matters: **read a hand precisely, record it, and play it back
 into a hand.**
 
-<div align="center">
-
-<img src="docs/media/loop-motion.webp" alt="The hand articulating under tendon drive" width="88%">
-
-</div>
-
 ## Where it can go from here
 
 That foundation is what puts the following within reach. These are **directions rather than
@@ -123,12 +108,6 @@ Current status is stated plainly in [Where the project really stands](#where-the
 | **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
 | **Structure** | 3D printed; as built, a mix of PETG and PLA |
 | **Parts** | 61 printed parts, 8 servos, 12 encoder boards — full [bill of materials](docs/BOM.md) |
-
-<div align="center">
-
-<img src="docs/media/loop-machine.webp" alt="The assembled device" width="88%">
-
-</div>
 
 ---
 
