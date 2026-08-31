@@ -4,9 +4,11 @@
 
 # TAKTO ONE
 
-### A sensor-integrated, tendon-driven hand exoskeleton — open from the CAD up.
+### Open hand control. Read every finger. Drive every finger.
 
-Twelve magnetic joint encoders · Embedded Dynamixel control, no host PC in the loop · A live browser digital twin
+TAKTO ONE measures the angle of **twelve finger joints at 60 Hz** and can pull them back through
+tendons. It is a wearable platform for reading the human hand precisely, and for putting force
+back into it — with every file needed to build one.
 
 [![Software: Apache-2.0](https://img.shields.io/badge/software-Apache--2.0-blue.svg)](LICENSE.md)
 [![Hardware: CERN-OHL-S-2.0](https://img.shields.io/badge/hardware-CERN--OHL--S--2.0-orange.svg)](LICENSE.md)
@@ -18,25 +20,40 @@ Twelve magnetic joint encoders · Embedded Dynamixel control, no host PC in the 
 
 ---
 
-<div align="center">
+## Why a hand, and why this one
 
-### See it move
+A camera watching your hand loses fingers the moment they cross, curl, or leave frame. A glove
+full of flex sensors drifts. TAKTO ONE puts a **magnetic encoder on the joint itself** — three
+per finger, twelve in all — so the measurement does not care about occlusion, lighting, or where
+you are standing. The microcontroller owns the motor bus, so the device does not need a computer
+in the loop to act.
 
-https://github.com/molanocortes/takto-one/raw/main/docs/media/takto-one-film.mp4
+That combination — **per-joint truth going in, tendon force coming out, no host required** — is
+what makes it a platform rather than a gadget. It is a hand-shaped input and output device, and
+what you point it at is up to you.
 
-<a href="https://github.com/molanocortes/takto-one/raw/main/docs/media/takto-one-film.mp4"><img src="docs/media/film-poster.png" alt="Watch the TAKTO ONE film" width="88%"></a>
+## What people could build with this
 
-<sub><a href="https://github.com/molanocortes/takto-one/raw/main/docs/media/takto-one-film.mp4"><b>▶ Watch the film</b></a> · 30 seconds · 1280×720</sub>
+**None of the following is a finished feature.** They are the directions this hardware opens,
+listed because the reason to open-source a platform is that other people take it somewhere the
+author could not. What is actually built and measured today is in
+[Where the project really stands](#where-the-project-really-stands) below.
 
-</div>
+| | |
+| --- | --- |
+| 🤖 **Teleoperate a robot hand** | Your fingers become the controller. Per-joint angles map onto a robot hand directly, without a camera rig or a motion-capture volume. Reach further than the operator can stand: an undersea manipulator, a hot cell, a machine on another continent. |
+| 🧠 **Generate training data machines can trust** | Vision-based hand datasets inherit vision's blind spots. Joint encoders give clean, occlusion-free, per-joint ground truth at 60 Hz — labelled by physics rather than by a model's guess. Untethered, so the data comes from real tasks rather than a capture studio. |
+| 🤟 **Sign language capture and recognition** | Already underway, not speculation — see [Sign language](#sign-language-a-worked-example) below. |
+| 🎮 **Force feedback, per finger** | A PlayStation 5 trigger can vary its resistance as you press. This device has a tendon and a motor on each finger, so the same idea generalises: feel a virtual wall, a trigger pull, the give of tissue, the weight of a load — finger by finger rather than through one rumbling handle. |
+| 🩺 **Rehabilitation and assessment** | Range of motion measured objectively, session over session, instead of estimated by eye. Assisted movement for a hand that cannot complete it alone. |
+| 🕹️ **High-precision machine control** | Operating equipment where a joystick is too blunt and a touchscreen is impossible — gloved, wet, in the dark, or while your eyes are needed elsewhere. |
+| 🥊 **Whatever you are actually here for** | A boxer driving a sparring robot, a surgeon rehearsing at distance, a musician mapping fingers to synthesis. The platform does not care. |
 
----
+The honest version: **the hardware to sense and actuate is here and working. Almost all of that
+list is unbuilt.** That is the invitation, and it is why the project is open rather than
+protected.
 
-## What it is
-
-A wearable robotic hand platform built end to end as a master's thesis — mechanics, industrial
-design, custom PCBs, embedded firmware, motor control, and a live web interface. It is published
-so other people can study it, build it, and take it further.
+## The machine
 
 | | |
 | --- | --- |
@@ -128,7 +145,56 @@ The embedded Dynamixel driver is also maintained standalone as
 
 ---
 
-## What is verified, and what is not
+---
+
+## The software that ships with it
+
+Four surfaces, all reading the same 60 Hz stream from the device. All of them run with **no
+hardware at all** — the bridge's `--sim` mode feeds synthetic joints, so you can explore the
+whole stack before you print a single part.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/media/ui-website.png" alt="Web front end" width="100%"></td>
+<td width="50%"><img src="docs/media/ui-console.png" alt="Operator console" width="100%"></td>
+</tr>
+<tr>
+<td align="center"><sub><b>Web front end</b> — the project's public face</sub></td>
+<td align="center"><sub><b>Operator console</b> — live 3D twin, per-joint encoders, motor state, calibration</sub></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="62%"><img src="docs/media/ui-ar.png" alt="AR layer" width="100%"></td>
+<td width="38%"><img src="docs/media/ui-android.png" alt="Android companion" width="100%"></td>
+</tr>
+<tr>
+<td align="center"><sub><b>AR layer</b> — the hand twin and capture, touch and rhythm modules in space</sub></td>
+<td align="center"><sub><b>Android companion</b> — sessions and twin on a phone</sub></td>
+</tr>
+</table>
+
+> The AR and Android layers are **working prototypes, not polished products.** They are included
+> because they show the shape of the platform, and because they are more useful in your hands
+> than on a private disk.
+
+## Sign language: a worked example
+
+The clearest demonstration that this is a platform and not a single-purpose device is
+**TAKTO-SIGN** — a German Sign Language capture, training and live-recognition stack built
+on exactly this hardware. It records finger bend and hand orientation at 60 Hz, learns a
+designed vocabulary, and recognises signs live. Like everything else here, it runs end to end
+with no hardware through `--sim`.
+
+Its own scope statement is worth repeating, because it is the right way to talk about work like
+this: it is a **signer-dependent isolated-sign recogniser**, with a continuous scripted-sentence
+path and a measured cross-signer result. **It is not open-vocabulary translation.**
+
+That is one application, built by one person, on this platform. It is meant as an example of
+what the hardware supports — not as the limit of it.
+
+## Where the project really stands
 
 Being precise about this matters more than a longer feature list.
 
