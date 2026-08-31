@@ -77,10 +77,9 @@ const STORY = [
 // The build rail deliberately stays compact: a repository for the work and the
 // build guide.
 //
-// The preprint CTA is removed in this public release: it pointed at
-// assets/docs/TAKTO_BioRob_paper_Molano.pdf, an UNPUBLISHED manuscript that is
-// not distributed here. Restore it only once the paper is actually published,
-// and prefer a DOI over a bundled PDF when that happens.
+// A preprint CTA sat here and is removed in this release: it pointed into
+// assets/docs/, which is not distributed. Add it back only when there is a
+// published paper to point at, and prefer a DOI to a bundled PDF.
 const MAIL = "mailto:sebastian.molano.29@gmail.com";
 const BUILD_GUIDE_URL = "../../docs/build-guide.pdf";
 const PROOF_CTAS = [

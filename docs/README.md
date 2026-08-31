@@ -56,11 +56,10 @@ common ground, and receive-default state on the bench.
 ## Notes on the bundled website
 
 The website in `software/web/` is the source of the public front end, with one deliberate
-omission: **`assets/docs/` is not included.** In the working copy that folder holds the submitted
-master's thesis, an unpublished manuscript and the CAD submission archive. None of them are
-distributed here, and the preprint call-to-action that pointed at the manuscript was removed
-along with it. Restore that link only if the paper is actually published, and prefer a DOI to a
-bundled PDF.
+omission: **`assets/docs/` is not included.** In the working copy that folder holds private documents that are not
+distributed here. A preprint call-to-action that pointed into it was removed along with it. Add
+such a link back only when there is a published paper to point at, and prefer a DOI to a bundled
+PDF.
 
 The page also probes for three optional files and simply hides the corresponding element when
 they are absent: `assets/cv.pdf`, `assets/vision.jpg` and `assets/film/poster.jpg`. If you drop a
