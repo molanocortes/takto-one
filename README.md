@@ -23,6 +23,25 @@ force back into it, with every file needed to build one.
 
 <div align="center">
 
+<!-- The film. GitHub will not play a repo-relative .mp4 inline: raw.githubusercontent
+     serves it as application/octet-stream, so a <video> tag or image-syntax link renders
+     nothing. An animated GIF DOES autoplay inline, so the loop below plays on the page with
+     no click and no navigation, and links through to the full film with sound.
+     To upgrade to a real inline player with audio: drag docs/media/takto-one-film.mp4 into
+     any issue comment or the README web editor, copy the
+     https://github.com/user-attachments/assets/<id> URL it mints, and replace this whole
+     <a>...</a> block with:
+       <video src="https://github.com/user-attachments/assets/<id>" poster="docs/media/film-poster.png" controls width="100%"></video> -->
+<a href="docs/media/takto-one-film.mp4"><img src="docs/media/film-loop.gif" alt="TAKTO ONE film" width="100%"></a>
+
+**[Watch the full film](docs/media/takto-one-film.mp4)** — 30 seconds, with sound
+
+</div>
+
+---
+
+<div align="center">
+
 <img src="docs/media/personalize.png" alt="Personalize it, three colourways" width="100%">
 
 </div>
