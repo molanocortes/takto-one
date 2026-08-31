@@ -166,46 +166,47 @@ The embedded Dynamixel driver is also maintained standalone as
 
 ---
 
----
-
 ## The software that ships with it
 
-Four surfaces, all reading the same live stream from the device, the browser sees it at 60 Hz,
-which is a display rate, not the device's limit (see [On rates](#a-note-on-rates)). All of them run with **no
-hardware at all**, the bridge's `--sim` mode feeds synthetic joints, so you can explore the
-whole stack before you print a single part.
-
-<table>
-<tr>
-<td width="50%"><img src="docs/media/web-hero.gif" alt="Web front end" width="100%"></td>
-<td width="50%"><img src="docs/media/ui-console.png" alt="Operator console" width="100%"></td>
-</tr>
-<tr>
-<td align="center"><sub><b>Web front end</b>, the project's public face</sub></td>
-<td align="center"><sub><b>Operator console</b>, live 3D twin, per-joint encoders, motor state, calibration</sub></td>
-</tr>
-</table>
+Two browser surfaces, one data path. Both run with **no hardware at all**, the bridge's `--sim`
+mode feeds synthetic joints, so you can explore the whole stack before you print a single part.
+The browser sees the stream at 60 Hz, which is a display rate, not the device's limit (see
+[On rates](#a-note-on-rates)). Every twin below renders the same articulated geometry that
+ships in [`cad/`](cad/).
 
 <div align="center">
 
-<img src="docs/media/web-scroll.gif" alt="Scrolling the web front end" width="72%">
+<img src="docs/media/ui-web.gif" alt="The public front end, scrolled through its opening beats" width="100%">
 
-<sub>The front end, top to bottom</sub>
+<sub><b>The public front end.</b> One scroll-driven story: the device turns, the fingers move,
+and each claim sits next to the part of the machine that makes it.</sub>
 
 </div>
 
-<table>
-<tr>
-<td width="62%"><img src="docs/media/ui-ar.png" alt="AR layer" width="100%"></td>
-<td width="38%"><img src="docs/media/ui-android.png" alt="Android companion" width="100%"></td>
-</tr>
-<tr>
-<td align="center"><sub><b>AR layer</b>, the hand twin and capture, touch and rhythm modules in space</sub></td>
-<td align="center"><sub><b>Android companion</b>, sessions and twin on a phone</sub></td>
-</tr>
-</table>
+<div align="center">
 
-> **The AR layer and the Android companion are working prototypes, not polished products.** The
+<img src="docs/media/ui-console.gif" alt="The operator console with the live twin articulating" width="100%">
+
+<sub><b>The operator console.</b> Live 3D twin, twelve per-joint encoders, motor state, EMG
+effort, current draw, the device's own round screen, and calibration. Shown on the simulator,
+which is why the encoder column is populated and the link reads <i>mock</i>.</sub>
+
+</div>
+
+### Built on the same stream, not in this release
+
+<div align="center">
+
+<img src="docs/media/ui-prototypes.png" alt="Three views of the AR layer beside the Android companion" width="100%">
+
+<sub><b>AR layer</b> — the worn hand twin, the touch module, and capture, shown in the desktop
+preview of the headset scene &nbsp;·&nbsp; <b>Android companion</b> — sessions and the twin on a
+phone, in practice mode.</sub>
+
+</div>
+
+> **The AR layer and the Android companion are working prototypes, not polished products,** and
+> the images above are simulator and emulator captures rather than a headset or a handset. The
 > Android source is not in this release; the sign-language stack is not either. Everything else
 > shown here is included.
 >
