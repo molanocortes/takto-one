@@ -87,6 +87,12 @@ protocol, which is what lets one hand drive another.
 Together those are the loop that matters: **read a hand precisely, record it, and play it back
 into a hand.**
 
+<div align="center">
+
+<img src="docs/media/loop-motion.webp" alt="The hand articulating under tendon drive" width="88%">
+
+</div>
+
 ## Where it can go from here
 
 That foundation is what puts the following within reach. These are **directions rather than
@@ -116,6 +122,12 @@ Current status is stated plainly in [Where the project really stands](#where-the
 | **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
 | **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
 | **Structure** | 3D printed; as built, a mix of PETG and PLA |
+
+<div align="center">
+
+<img src="docs/media/loop-machine.webp" alt="The assembled device" width="88%">
+
+</div>
 
 ---
 
