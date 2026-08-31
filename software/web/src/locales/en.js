@@ -3,8 +3,9 @@
 // Numbers, part names, and units stay identical across locales - only prose
 // translates. Honesty rules ride along: no unclaimed processes, no
 // certificates we do not hold, the metal is OPEN (AlSi10Mg or 316L, neither
-// fabricated), EUR 1,599.84 is the COSTED four-finger design, never money
-// spent, and nothing claims the worn finger has been motor-driven.
+// fabricated), EUR 1,244.44 is the COSTED four-finger design and covers the
+// priced lines of docs/BOM.md only, never money spent, and nothing claims
+// the worn finger has been motor-driven.
 // EDITORIAL RULE (owner, 2026-08-03): headlines + captions + numbers carry
 // the story; no section over ~60 visible words at the surface; the deep
 // content lives behind the folds (sheet, compliance map), never deleted.
@@ -114,7 +115,7 @@ export const L = {
       ["Consoles", "web operator suite · AR experience · Android companion"],
       ["Materials", "printed PETG structure as built · 2 links per finger engineered for metal AM, aluminium (AlSi10Mg) or 316L · sliding pairs pair a hard face with a self-lubricating polymer"],
       ["Worn mass", "hand-borne target < 150 g · actuators live on the forearm"],
-      ["Bill of materials", "EUR 1,599.84 · the costed four-finger design, eight motors"],
+      ["Bill of materials", "EUR 1,244.44 for the priced lines · four fingers, eight motors · the two custom boards a further USD 170.73"],
     ],
     github: "GitHub",
     write: "Write me",

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 308" width="900" height="308" role="img" aria-label="Parts cost by group. Actuation, eight servos, is 1040 euros of a 1244.44 euro total.">
+<title>Where the parts cost goes — EUR 1,244.44 across six groups</title>
+<text x="0" y="20" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14" font-weight="600" fill="#1f2328">Where the parts cost goes</text>
+<text x="0" y="38" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#59636e">EUR 1,244.44 across six groups · four fingers, eight motors</text>
+<line x1="268" y1="59.0" x2="268" y2="251.0" stroke="#d1d9e0" stroke-width="1"/>
+<text x="252" y="74" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#59636e">Actuation · 8 × XC330-M181-T</text>
+<path d="M268.0,60.0 H744.0 A4.0,4.0 0 0 1 748.0,64.0 V76.0 A4.0,4.0 0 0 1 744.0,80.0 H268.0 Z" fill="#2a78d6"/>
+<text x="758.0" y="74" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" fill="#1f2328">1,040.00</text>
+<text x="252" y="108" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#59636e">Motion sensing · 3 × BNO085</text>
+<path d="M268.0,94.0 H294.7 A4.0,4.0 0 0 1 298.7,98.0 V110.0 A4.0,4.0 0 0 1 294.7,114.0 H268.0 Z" fill="#2a78d6"/>
+<text x="308.7" y="108" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" fill="#1f2328">66.57</text>
+<text x="252" y="142" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#59636e">Print stock · PETG + TPU</text>
+<path d="M268.0,128.0 H287.1 A4.0,4.0 0 0 1 291.1,132.0 V144.0 A4.0,4.0 0 0 1 287.1,148.0 H268.0 Z" fill="#2a78d6"/>
+<text x="301.1" y="142" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" fill="#1f2328">50.00</text>
+<text x="252" y="176" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#59636e">Control · Teensy, display, buffer</text>
+<path d="M268.0,162.0 H284.3 A4.0,4.0 0 0 1 288.3,166.0 V178.0 A4.0,4.0 0 0 1 284.3,182.0 H268.0 Z" fill="#2a78d6"/>
+<text x="298.3" y="176" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" fill="#1f2328">43.97</text>
+<text x="252" y="210" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#59636e">Joint sensing · 12 magnets</text>
+<path d="M268.0,196.0 H276.2 A4.0,4.0 0 0 1 280.2,200.0 V212.0 A4.0,4.0 0 0 1 276.2,216.0 H268.0 Z" fill="#2a78d6"/>
+<text x="290.2" y="210" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" fill="#1f2328">26.40</text>
+<text x="252" y="244" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#59636e">Transmission · tendon</text>
+<path d="M268.0,230.0 H272.1 A4.0,4.0 0 0 1 276.1,234.0 V246.0 A4.0,4.0 0 0 1 272.1,250.0 H268.0 Z" fill="#2a78d6"/>
+<text x="286.1" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12.5" fill="#1f2328">17.50</text>
+<text x="0" y="302" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11" fill="#59636e">Indicative 2026 prices, ex VAT and shipping. Priced lines only — the two custom boards were a further USD 170.73 delivered, and some lines carry no published price.</text>
+</svg>

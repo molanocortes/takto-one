@@ -122,6 +122,7 @@ Current status is stated plainly in [Where the project really stands](#where-the
 | **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
 | **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
 | **Structure** | 3D printed; as built, a mix of PETG and PLA |
+| **Parts** | 61 printed parts, 8 servos, 12 encoder boards — full [bill of materials](docs/BOM.md) |
 
 <div align="center">
 
@@ -174,6 +175,24 @@ encoder channels, three IMUs, and the 74HC241 servo bus. The
 
 ---
 
+## What it costs to build
+
+Eight motors, twelve instrumented joints, sixty-one printed parts. **The servos are nearly the
+whole bill** — every other group put together is under a fifth of it, which is why cutting the
+motor count is the most useful thing anyone could contribute.
+
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/bom-cost-dark.svg">
+    <img src="docs/media/bom-cost-light.svg" alt="Parts cost by group: actuation EUR 1040 of a EUR 1244.44 total, then motion sensing 66.57, print stock 50.00, control 43.97, joint sensing 26.40, transmission 17.50" width="100%">
+  </picture>
+</div>
+
+Part numbers, suppliers, quantities and the caveats are in **[`docs/BOM.md`](docs/BOM.md)**,
+with a machine-readable copy in [`docs/bom.csv`](docs/bom.csv).
+
+---
+
 ## Start here
 
 **Read [`docs/README.md`](docs/README.md) first**, system architecture, the illustrated build
@@ -190,6 +209,7 @@ python3 -m http.server 8096 --directory software/console/app
 
 | Step | Where |
 | --- | --- |
+| Source the parts | [`docs/BOM.md`](docs/BOM.md) |
 | Choose and print parts | [`cad/README.md`](cad/README.md) |
 | Order and wire the boards | [`electronics/README.md`](electronics/README.md) |
 | Flash the Teensy | [`firmware/README.md`](firmware/README.md) |
@@ -317,7 +337,7 @@ The ceiling on encoder sampling is set by the I²C bus and multiplexer switching
 been characterised here.** If your application depends on a specific rate, measure it on your own
 build rather than taking a number from this page.
 
-**Known limitations, stated plainly.** Ten motors makes this an expensive build. The
+**Known limitations, stated plainly.** Eight motors makes this an expensive build. The
 series-elastic actuation is a simple implementation, elastic tendons and ratchet spools, not
 an advanced SEA design. Recent soft-robotics work achieves comparable joint and force sensing
 with simpler mechanisms. This is a working, well-instrumented research platform, not a claim to
@@ -345,7 +365,11 @@ Good places to start:
 - **Build one**, and tell us what was unclear, what did not fit, what you changed. Build
   reports are the single most valuable contribution.
 - **Improve the actuation**, a better series-elastic design is the most interesting open problem here.
-- **Reduce the motor count**, ten is expensive; underactuation would widen who can build this.
+- **Reduce the motor count**, eight is expensive; underactuation would widen who can build this.
+- **Build the thumb.** The forearm carries ten spool/tensioner bays and only eight are used, so
+  the room for a thumb pair is already in the mechanism. Nobody has designed the linkage,
+  routed the tendons, or extended the kinematics for it — the firmware already addresses
+  fourteen encoder channels and twelve are populated, so two are waiting.
 - **Fix documentation**, known deltas are listed in [`docs/README.md`](docs/README.md); find more.
 - **Firmware, bridge, console**, bugs, features, and platform ports.
 
@@ -361,6 +385,10 @@ The hardware licence is strongly reciprocal: distribute a modified design and yo
 modifications. If that does not suit your situation, **licensing on other terms is available**,
 see [`LICENSE.md`](LICENSE.md). Contributors are asked to agree to a short [CLA](CLA.md), which
 keeps relicensing possible and leaves your copyright with you.
+
+**TAKTO and TAKTO ONE are trademarks of Sebastian Molano**, asserted as unregistered marks and
+not covered by any licence above. Build it, change it, sell it, and say it is based on TAKTO
+ONE; just give your own version its own name. Details in [`LICENSE.md`](LICENSE.md).
 
 <div align="center">
 <sub>Designed and built by Sebastian Molano · Hochschule Anhalt · Made in Germany</sub>

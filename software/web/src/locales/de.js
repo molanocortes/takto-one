@@ -1,8 +1,9 @@
 // locales/de.js - DEUTSCH. Gleiche Struktur wie en.js; Zahlen, Bauteilnamen
 // und Einheiten bleiben identisch. Ehrlichkeitsregeln gelten unveraendert:
 // keine unbelegten Verfahren, keine Zertifikate, die wir nicht besitzen; das
-// Metall bleibt OFFEN (AlSi10Mg oder 316L, keines gefertigt); EUR 1.599,84
-// ist der KALKULIERTE Vier-Finger-Entwurf, nie ausgegebenes Geld.
+// Metall bleibt OFFEN (AlSi10Mg oder 316L, keines gefertigt); EUR 1.244,44
+// ist der KALKULIERTE Vier-Finger-Entwurf und deckt nur die bepreisten
+// Positionen aus docs/BOM.md ab, nie ausgegebenes Geld.
 
 export const L = {
   nav: {
@@ -102,7 +103,7 @@ export const L = {
       ["Konsolen", "Web-Operator-Suite · AR-Erlebnis · Android-Begleiter"],
       ["Materialien", "gedruckte PETG-Struktur im Aufbau · 2 Glieder pro Finger für Metall-AM ausgelegt, Aluminium (AlSi10Mg) oder 316L · Gleitpaare kombinieren eine harte Fläche mit selbstschmierendem Polymer"],
       ["Getragene Masse", "Ziel an der Hand < 150 g · die Aktuatoren sitzen am Unterarm"],
-      ["Materialkosten", "EUR 1.599,84 · der kalkulierte Vier-Finger-Entwurf, acht Motoren"],
+      ["Materialkosten", "EUR 1.244,44 für die bepreisten Positionen · vier Finger, acht Motoren · die beiden Eigenplatinen zusätzlich USD 170,73"],
     ],
     github: "GitHub",
     write: "Schreib mir",

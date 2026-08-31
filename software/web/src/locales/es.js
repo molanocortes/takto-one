@@ -1,8 +1,9 @@
 // locales/es.js - ESPAÑOL. Misma estructura que en.js; los números, nombres
 // de piezas y unidades no cambian entre idiomas. Las reglas de honestidad se
 // mantienen: ningún proceso sin respaldo, ningún certificado que no tengamos;
-// el metal queda ABIERTO (AlSi10Mg o 316L, ninguno fabricado); EUR 1.599,84
-// es el diseño de cuatro dedos COSTEADO, nunca dinero gastado.
+// el metal queda ABIERTO (AlSi10Mg o 316L, ninguno fabricado); EUR 1.244,44
+// es el diseño de cuatro dedos COSTEADO y cubre solo las líneas con precio
+// de docs/BOM.md, nunca dinero gastado.
 
 export const L = {
   nav: {
@@ -102,7 +103,7 @@ export const L = {
       ["Consolas", "suite web de operador · experiencia AR · compañera Android"],
       ["Materiales", "estructura PETG impresa tal como está montada · 2 eslabones por dedo diseñados para AM en metal, aluminio (AlSi10Mg) o 316L · los pares deslizantes combinan una cara dura con un polímero autolubricante"],
       ["Masa llevada", "objetivo en la mano < 150 g · los actuadores viven en el antebrazo"],
-      ["Lista de materiales", "EUR 1.599,84 · el diseño de cuatro dedos costeado, ocho motores"],
+      ["Lista de materiales", "EUR 1.244,44 en las líneas con precio · cuatro dedos, ocho motores · las dos placas propias, USD 170,73 aparte"],
     ],
     github: "GitHub",
     write: "Escríbeme",
