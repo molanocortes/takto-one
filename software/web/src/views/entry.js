@@ -336,6 +336,7 @@ export function mountEntry(rootHost) {
         el("h3", { class: "proof-h" }, p.h),
         el("p", { class: "proof-p" }, p.p),
         el("span", { class: "btn ghost sm" }, p.label)))),
+    sheetFold,
   );
 
   // ---------- compliance: one honest sentence, the map behind the fold ----------
