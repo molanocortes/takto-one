@@ -20,5 +20,8 @@ keywords:
   - tendon-driven
   - open hardware
   - embedded systems
-license: Apache-2.0
+license:
+  - Apache-2.0
+  - CERN-OHL-S-2.0
+  - CC-BY-4.0
 year: 2026

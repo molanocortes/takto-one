@@ -4,6 +4,7 @@
 | --- | --- |
 | [`system-architecture.svg`](system-architecture.svg) | Sensing, aggregation, control, and host layers as one diagram |
 | [`global-wiring.pdf`](global-wiring.pdf) | Full point-to-point wiring: every pin terminated, both I²C multiplexers, all encoder channels, three IMUs, and the 74HC241 servo bus. Rendered inline in the top-level README as [`media/global-wiring.png`](media/global-wiring.png) |
+| [`BOM.md`](BOM.md) | Bill of materials for the costed four-finger configuration: parts, quantities, suppliers, and dated indicative prices. Machine-readable copy in [`bom.csv`](bom.csv) |
 | [`build-guide.pdf`](build-guide.pdf) | 24-page illustrated assembly walkthrough, including 1:1 part-check plates |
 | [`RELEASE_VERIFICATION.md`](RELEASE_VERIFICATION.md) | How this release was assembled and checked |
 
@@ -39,6 +40,19 @@ superseded:
 
 Everything else in the guide, the mechanical assembly order, part-check plates, tendon
 routing, spool and ratchet setup, and board fitting, reflects the device as built.
+
+### The ratchet is a third-party part
+
+The actuation uses ratchet spools, and the ratchet itself is not TAKTO-authored. It is ORCA's
+`Ratchet.stl`, redistributed unmodified at
+[`cad/third_party/orca/`](../cad/third_party/orca/) under CC BY 4.0, **not** under this
+project's CERN-OHL-S-2.0. Print one per spool station, ten for a full build. That folder carries
+the licence text, the attribution, and a SHA-256 you can check against upstream.
+
+The mating `cad/stl/base_spool.stl` in this release is a TAKTO-modified adaptation of ORCA's
+`BaseSpool.stl` and *is* included; `cad/stl/spool_cover.stl` is TAKTO's own design and is not
+interchangeable with ORCA's `SpoolCover.stl`. See
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
 
 ### Board revision
 

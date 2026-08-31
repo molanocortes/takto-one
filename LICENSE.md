@@ -12,6 +12,8 @@ normal practice for open-hardware projects.
 
 Third-party components keep their own terms. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
+One carve-out worth naming here: the spool station geometry in `cad/` derives from the ORCA hand project (CC BY 4.0) and carries an attribution requirement, and `cad/third_party/` holds one ORCA file redistributed unmodified that stays under CC BY 4.0 rather than CERN-OHL-S-2.0. Details in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 ## What this means in practice
 
 **Software (Apache-2.0).** Use it, modify it, ship it in a commercial product. You must keep
@@ -31,6 +33,30 @@ including commercially, with attribution.
 > TAKTO ONE, Sebastian Molano, https://github.com/molanocortes/takto-one
 
 Machine-readable citation metadata is in [`CITATION.cff`](CITATION.cff).
+
+## Name and trademark
+
+**TAKTO and TAKTO ONE are trademarks of Sebastian Molano.** They are asserted as unregistered
+marks; no registration is claimed, and the (R) symbol is deliberately not used.
+
+The licences above cover the files, not the name. Apache-2.0 expressly grants no trademark
+rights (section 6), and CERN-OHL-S-2.0 does not license the licensor's marks either. That
+separation is intentional and is the ordinary arrangement in open hardware: the design is
+yours to use, the name stays attached to its origin.
+
+Concretely:
+
+- **You may** build the device, modify it, sell what you build, publish your derivative, and
+  say accurately that it is *based on TAKTO ONE*, *derived from TAKTO ONE*, or *compatible
+  with TAKTO ONE*.
+- **Please do not** name your derivative TAKTO, adopt the name or its styling as the identity
+  of your own product, or present your version in a way that suggests it is the original or
+  is endorsed by the author.
+
+The point is not to narrow what you may build, the licences above already settle that. It is
+so that when someone says *a TAKTO*, it is clear whose design they mean, and so a fork's
+problems do not land on the original's reputation. If a use is unclear, ask. The answer is
+usually yes.
 
 ## Commercial licensing
 
