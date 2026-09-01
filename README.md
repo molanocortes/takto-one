@@ -96,6 +96,8 @@ Current status is stated plainly in [Where the project really stands](#where-the
 
 ## The machine
 
+<img src="docs/media/turntable.gif" alt="TAKTO ONE, one full turn" width="100%">
+
 | | |
 | --- | --- |
 | **Mechanism** | Tendon-driven, four instrumented long-finger assemblies |
@@ -113,16 +115,7 @@ Current status is stated plainly in [Where the project really stands](#where-the
 
 ## Every angle
 
-<table>
-<tr>
-<td width="50%"><img src="docs/media/top-view.png" alt="Plan view" width="100%"></td>
-<td width="50%"><img src="docs/media/side-view.png" alt="Profile view" width="100%"></td>
-</tr>
-<tr>
-<td align="center"><sub><b>Plan</b>, ten tendon spools, twelve instrumented joints</sub></td>
-<td align="center"><sub><b>Profile</b>, actuator bank and forearm shell</sub></td>
-</tr>
-</table>
+<img src="docs/media/every-angle.png" alt="Plan, profile, front and isometric views" width="100%">
 
 ## Inside it
 
