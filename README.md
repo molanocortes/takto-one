@@ -268,8 +268,8 @@ plain browser on the desktop, which is how the frames below were captured.
 
 <img src="docs/media/ar-modes-live.gif" alt="Three modes of the AR layer running: the hand twin seen from a moving viewpoint, a touch object deforming under contact, and the atelier hub with its four reachable objects" width="100%">
 
-<sub>Running live in the desktop preview: <b>twin</b>, the articulated hand seen from a moving
-viewpoint &nbsp;·&nbsp; <b>touch</b>, objects that answer the wearer's fingers &nbsp;·&nbsp;
+<sub>Running live in the desktop preview: <b>twin</b>, the articulated hand driven by joint
+angles and seen from a moving viewpoint &nbsp;·&nbsp; <b>touch</b>, objects that answer the wearer's fingers &nbsp;·&nbsp;
 <b>atelier</b>, the hub, where the four modes are objects you reach toward rather than buttons.
 Butterflies drift through every one of them.</sub>
 
