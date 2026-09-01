@@ -1,0 +1,11 @@
+{
+  "generated_by": "TAKTO firmware watch registry",
+  "states": ["boot", "idle", "linked", "standalone", "teleop", "recording", "calib", "saved", "stop", "fault", "battery"],
+  "faces": [
+    { "id": "thesis", "name": "Takto", "colorways": [
+      { "id": "sapphire", "name": "Sapphire Depth", "rgb": [102, 184, 255], "canonical": true, "note": "The palette as submitted. The only canonical thesis colorway." },
+      { "id": "graphite", "name": "Graphite", "rgb": [150, 165, 180], "canonical": false, "note": "Non-canonical recolor. Not the documented look." },
+      { "id": "amber", "name": "Amber", "rgb": [226, 160, 80], "canonical": false, "note": "Non-canonical recolor. Not the documented look." }
+    ] }
+  ]
+}

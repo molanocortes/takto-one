@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TAKTO device screen — all stages</title>
+<style>
+  :root { --bg:#070A0F; --fg:#cfe0ff; --dim:#5b6b86; }
+  html,body { margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,system-ui,"Inter Tight",sans-serif; }
+  header { padding:22px 26px 6px; }
+  header h1 { margin:0; font-size:17px; letter-spacing:.06em; font-weight:650; }
+  header p { margin:4px 0 0; font-size:12px; color:var(--dim); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px,1fr));
+    gap:26px; padding:22px 26px 60px; }
+  .cell { display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .screen-wrap { width:200px; height:200px; border-radius:50%;
+    box-shadow:0 0 0 8px #14181f, 0 0 0 9px #05070b, 0 18px 40px rgba(0,0,0,.55);
+    overflow:hidden; }
+  canvas { width:200px; height:200px; display:block; }
+  .cap { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>TAKTO · device screen — every stage</h1>
+  <p>Round GC9A01 240×240, sapphire aesthetic. One renderer (<code>src/device_screen.js</code>), driven by a single deviceUi state that the bridge broadcasts — same stage on the physical screen, this web twin, and AR.</p>
+</header>
+<div class="grid" id="grid"></div>
+<script type="module">
+import { DeviceScreen } from './src/device_screen.js';
+
+const STAGES = [
+  ['Boot / self-test', { screen:'boot', health:{imu:1,enc:1,drv:0,lnk:1}, boot:0.7 }],
+  ['Home / mode menu', { screen:'home', menuIndex:1 }],
+  ['Position',         { screen:'position', angleDeg:47, targetDeg:62 }],
+  ['Transparent',      { screen:'transparent', effort:0.62, assist:true }],
+  ['Capture',          { screen:'capture', recSec:3.4, takeName:'rec-0931', recording:true }],
+  ['Playback',         { screen:'playback', playName:'rec-0931', playDur:3.4, playing:true }],
+  ['Calibrate',        { screen:'calibrate', calStep:1, calProgress:0.55 }],
+  ['Summary',          { screen:'summary', summaryOk:true, summaryText:'saved rec-0931' }],
+  ['Safe / e-stop',    { screen:'safe', faultReason:'all torque off' }],
+];
+
+const grid = document.getElementById('grid');
+const screens = STAGES.map(([label, st]) => {
+  const cell = document.createElement('div'); cell.className = 'cell';
+  const wrap = document.createElement('div'); wrap.className = 'screen-wrap';
+  const cv = document.createElement('canvas'); wrap.appendChild(cv); cell.appendChild(wrap);
+  const cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = label; cell.appendChild(cap);
+  grid.appendChild(cell);
+  return { ds: new DeviceScreen(cv), st };
+});
+
+let t0 = performance.now();
+function frame(t) {
+  for (const { ds, st } of screens) ds.render(st, t);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__dsStep = (n=8) => { for (let i=0;i<n;i++) for (const {ds,st} of screens) ds.render(st, performance.now()+i*16); };
+</script>
+</body>
+</html>

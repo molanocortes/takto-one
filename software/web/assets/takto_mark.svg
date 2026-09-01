@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" role="img">
+  <title>TAKTO mark (paper studio)</title>
+  <desc>Five beats in the profile of a hand on a palm bar; the accent beat is lit. Site-local ink + oxide rendering for light backgrounds.</desc>
+  <rect x="20"  y="117" width="24" height="55"  rx="12" fill="#23201A"/>
+  <rect x="64"  y="84"  width="24" height="88"  rx="12" fill="#23201A"/>
+  <rect x="108" y="42"  width="24" height="130" rx="12" fill="#23201A"/>
+  <rect x="152" y="60"  width="24" height="112" rx="12" fill="#C9401B"/>
+  <rect x="196" y="125" width="24" height="47"  rx="12" fill="#23201A"/>
+  <rect x="20"  y="190" width="200" height="16" rx="8"  fill="#23201A"/>
+</svg>

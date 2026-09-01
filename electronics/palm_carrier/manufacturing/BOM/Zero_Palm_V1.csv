@@ -1,0 +1,6 @@
+"Reference","Qty","Value","DNP","Exclude from BOM","Exclude from Board","Footprint","Datasheet","LCSC"
+"C3","1","10uF","","","","Capacitor_SMD:C_0805_2012Metric","","C15850"
+"C4,C5","2","100nF","","","","Capacitor_SMD:C_0805_2012Metric","","C49678"
+"R3,R4","2","4.7k","","","","Resistor_SMD:R_0805_2012Metric","","C17673"
+"R5,R6","2","10k","","","","Resistor_SMD:R_0805_2012Metric","","C17414"
+"U1,U2","2","TCA9548APWR","","","","Package_SO:TSSOP-24_4.4x7.8mm_P0.65mm","http://www.ti.com/lit/ds/symlink/tca9548a.pdf","C130026"

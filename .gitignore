@@ -1,0 +1,15 @@
+.DS_Store
+.idea/
+.vscode/
+.venv/
+__pycache__/
+*.py[cod]
+*.tmp
+*.bak
+*.lck
+*.kicad_prl
+*.kicad_sch-bak
+*-backups/
+.takto-state/
+.sensoryhand_*
+.takto_*

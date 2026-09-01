@@ -1,0 +1,239 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IMU axis calibrator</title>
+<style>
+  :root { --bg:#0A0D13; --fg:#cfe0ff; --dim:#5b6b86; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,system-ui,sans-serif; overflow:hidden; }
+  #c { position:fixed; inset:0; width:100vw; height:100vh; display:block; }
+  #hud { position:fixed; top:0; left:0; right:0; padding:14px 18px; pointer-events:none;
+    display:flex; gap:24px; justify-content:space-between; align-items:flex-start; }
+  .panel { pointer-events:auto; background:rgba(12,16,24,.72); border:1px solid #1e2836;
+    border-radius:12px; padding:12px 14px; min-width:300px; backdrop-filter:blur(6px); }
+  .panel h2 { margin:0 0 6px; font-size:14px; letter-spacing:.08em; }
+  .panel .cfg { font:13px/1.5 ui-monospace,Menlo,monospace; color:#8fb4ff; }
+  .panel .rpy { font:12px/1.5 ui-monospace,Menlo,monospace; color:var(--dim); }
+  .panel .off { font:12px/1.5 ui-monospace,Menlo,monospace; color:#c8a24a; }
+  .panel .row { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  button { pointer-events:auto; background:#16202e; color:var(--fg);
+    border:1px solid #2a3a4f; border-radius:8px; padding:6px 12px; cursor:pointer; font-size:13px; }
+  button:hover { background:#1e2c40; }
+  #tip { position:fixed; bottom:12px; left:0; right:0; text-align:center; color:var(--dim);
+    font-size:12px; pointer-events:none; padding:0 16px; }
+  .key { color:#8fb4ff; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="panel" id="pHand">
+    <h2>HAND  (left gizmo)</h2>
+    <div class="cfg" id="cfgHand">-</div>
+    <div class="rpy" id="rpyHand">rpy -</div>
+    <div class="off" id="offHand">off identity</div>
+    <div class="row"><button data-imu="hand" data-d="-1">&#9664; relabel</button>
+      <button data-imu="hand" data-d="1">relabel &#9654;</button></div>
+    <div class="row"><button data-imu="hand" data-flip="x">flip R</button>
+      <button data-imu="hand" data-flip="y">flip G</button>
+      <button data-imu="hand" data-flip="z">flip B</button>
+      <button data-imu="hand" data-reset="1">reset</button></div>
+  </div>
+  <div class="panel" id="pFore" style="text-align:right">
+    <h2>FOREARM  (right gizmo)</h2>
+    <div class="cfg" id="cfgFore">-</div>
+    <div class="rpy" id="rpyFore">rpy -</div>
+    <div class="off" id="offFore">off identity</div>
+    <div class="row" style="justify-content:flex-end">
+      <button data-imu="fore" data-d="-1">&#9664; relabel</button>
+      <button data-imu="fore" data-d="1">relabel &#9654;</button></div>
+    <div class="row" style="justify-content:flex-end">
+      <button data-imu="fore" data-flip="x">flip R</button>
+      <button data-imu="fore" data-flip="y">flip G</button>
+      <button data-imu="fore" data-flip="z">flip B</button>
+      <button data-imu="fore" data-reset="1">reset</button></div>
+  </div>
+</div>
+<div id="tip">
+  red = X &nbsp; green = Y &nbsp; blue = Z &nbsp; | &nbsp;
+  relabel: hand <span class="key">A / D</span>, forearm <span class="key">J / L</span> &nbsp;
+  flip: hand <span class="key">1 2 3</span>, forearm <span class="key">8 9 0</span>, reset <span class="key">R</span> &nbsp; | &nbsp;
+  shows the bridge's FINAL hand/forearm (remap+offset already live). relabel fixes which axis is which;
+  flip fixes a 180&deg; rest pose. Read <span class="key">__imuCal()</span> in the console to fold a change into the bridge.
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from './vendor/GLTFLoader.js';
+
+// ---- the 24 axis-aligned orientations (signed permutations, det = +1) -------
+// These RELABEL which sensor axis is which (a frame conjugation). They fix rotation
+// tracking, but they are symmetries of identity, so they can never flip a rest pose.
+function genConfigs() {
+  const ax = ['x','y','z'];
+  const perms  = [[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]];
+  const parity = [   1,      -1,     -1,     1,      1,      -1 ];
+  const out = [];
+  for (let pi = 0; pi < perms.length; pi++) {
+    for (let s = 0; s < 8; s++) {
+      const sg = [ (s&1)?-1:1, (s&2)?-1:1, (s&4)?-1:1 ];
+      if (sg[0]*sg[1]*sg[2]*parity[pi] !== 1) continue;   // keep proper rotations only
+      const p = perms[pi];
+      out.push([[sg[0],ax[p[0]]],[sg[1],ax[p[1]]],[sg[2],ax[p[2]]]]);
+    }
+  }
+  return out;                                             // exactly 24
+}
+const CONFIGS = genConfigs();
+const cfgStr = c => `x<-${c[0][0]>0?'+':'-'}${c[0][1]}  y<-${c[1][0]>0?'+':'-'}${c[1][1]}  z<-${c[2][0]>0?'+':'-'}${c[2][1]}`;
+const pyStr  = c => `[${c.map(e=>`(${e[0]},'${e[1]}')`).join(', ')}]`;   // paste-ready for the bridge
+
+// ---- three.js scene ---------------------------------------------------------
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+cam.position.set(0, 1.6, 7); cam.lookAt(0, 0, 0);
+scene.add(new THREE.HemisphereLight(0x8899bb, 0x101820, 1.0));
+const _key = new THREE.DirectionalLight(0xffffff, 1.5); _key.position.set(3, 5, 4); scene.add(_key);
+const _fill = new THREE.DirectionalLight(0x88aaff, 0.5); _fill.position.set(-4, 1, -3); scene.add(_fill);
+
+function triad(len, colors, op) {
+  const g = new THREE.Group();
+  const dirs = [[1,0,0],[0,1,0],[0,0,1]];
+  dirs.forEach((d,i) => {
+    const a = new THREE.ArrowHelper(new THREE.Vector3(...d), new THREE.Vector3(0,0,0),
+      len, colors[i], len*0.28, len*0.16);
+    a.traverse(o => { if (o.material) { o.material.transparent = op < 1; o.material.opacity = op; } });
+    g.add(a);
+  });
+  return g;
+}
+const RGB = [0xff5566, 0x55dd77, 0x5599ff];
+const DIM = [0x5a3540, 0x33553f, 0x33507a];
+
+// hand (left), forearm (right): a live gizmo + a faint fixed world triad each
+function station(x) {
+  const world = triad(1.35, DIM, 0.55); world.position.set(x, 0, 0); scene.add(world);
+  const live  = triad(1.5,  RGB, 1.0);  live.position.set(x, 0, 0);  scene.add(live);
+  return live;
+}
+const gHand = station(-2.4);
+const gFore = station(+2.4);
+
+// Load the real device CAD (same GLB as the console twin) as the reference
+// geometry: a centered, scaled clone rides in each rotating group, so the STL
+// turns exactly with its IMU. Axis arrows stay overlaid for the precise frame.
+new GLTFLoader().load('./assets/zero_hand.glb', (gltf) => {
+  for (const g of [gHand, gFore]) {
+    const m = gltf.scene.clone(true);
+    const box = new THREE.Box3().setFromObject(m);
+    const size = box.getSize(new THREE.Vector3()).length() || 1;
+    const center = box.getCenter(new THREE.Vector3());
+    const s = 2.6 / size;
+    m.scale.setScalar(s);
+    m.position.copy(center).multiplyScalar(-s);   // center at the group origin
+    g.add(m);
+  }
+  document.getElementById('tip').insertAdjacentHTML('afterbegin',
+    'device CAD loaded &mdash; ');
+}, undefined, (err) => console.warn('GLB load failed; axis arrows only:', err));
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false); cam.aspect = w/h; cam.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+// ---- state ------------------------------------------------------------------
+const sel = { hand: 0, fore: 0 };        // relabel (config) index per IMU
+const raw = { hand: [1,0,0,0], fore: [1,0,0,0] };
+const _q = new THREE.Quaternion();
+
+// per-IMU body-frame offset, right-multiplied AFTER the relabel: fixes a static rest
+// flip WITHOUT changing rotation tracking (a constant right factor commutes through the
+// incremental world rotation). The bridge already bakes 180 about Z on the hand into the
+// live stream, so both offsets start at identity here (identity = the live bridge truth).
+const off = { hand: new THREE.Quaternion(), fore: new THREE.Quaternion() };
+const AX = { x:new THREE.Vector3(1,0,0), y:new THREE.Vector3(0,1,0), z:new THREE.Vector3(0,0,1) };
+const _flip = new THREE.Quaternion();
+function flip(imu, axis){ _flip.setFromAxisAngle(AX[axis], Math.PI); off[imu].multiply(_flip); refreshHud(); }
+function resetOff(imu){ off[imu].identity(); refreshHud(); }
+const offStr = q => { const r=n=>Math.abs(n)<1e-4?0:+n.toFixed(3);
+  const s = `[${r(q.w)}, ${r(q.x)}, ${r(q.y)}, ${r(q.z)}]`;
+  return (Math.abs(q.w-1)<1e-4 && Math.abs(q.x)<1e-4 && Math.abs(q.y)<1e-4 && Math.abs(q.z)<1e-4) ? 'identity' : s; };
+
+function applyCfg(q, c) {                 // q = [w,x,y,z] -> THREE.Quaternion
+  const v = { x:q[1], y:q[2], z:q[3] };
+  return _q.set(c[0][0]*v[c[0][1]], c[1][0]*v[c[1][1]], c[2][0]*v[c[2][1]], q[0]);
+}
+function rpy(q) {                          // for readout only
+  const [w,x,y,z] = q;
+  const r = Math.atan2(2*(w*x+y*z), 1-2*(x*x+y*y));
+  const sp = 2*(w*y-z*x); const p = Math.abs(sp)>=1 ? Math.sign(sp)*Math.PI/2 : Math.asin(sp);
+  const yw = Math.atan2(2*(w*z+x*y), 1-2*(y*y+z*z));
+  const d = a => (a*180/Math.PI).toFixed(0);
+  return `${d(r)}  ${d(p)}  ${d(yw)}`;
+}
+function refreshHud() {
+  cfgHand.textContent = `#${sel.hand+1}/24   ${cfgStr(CONFIGS[sel.hand])}`;
+  cfgFore.textContent = `#${sel.fore+1}/24   ${cfgStr(CONFIGS[sel.fore])}`;
+  offHand.textContent = 'off ' + offStr(off.hand);
+  offFore.textContent = 'off ' + offStr(off.fore);
+}
+function cycle(imu, d) { sel[imu] = (sel[imu] + d + 24) % 24; refreshHud(); }
+refreshHud();
+
+document.querySelectorAll('button').forEach(b =>
+  b.onclick = () => {
+    if (b.dataset.flip) flip(b.dataset.imu, b.dataset.flip);
+    else if (b.dataset.reset) resetOff(b.dataset.imu);
+    else cycle(b.dataset.imu, +b.dataset.d);
+  });
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k==='a') cycle('hand',-1); else if (k==='d') cycle('hand',1);
+  else if (k==='j') cycle('fore',-1); else if (k==='l') cycle('fore',1);
+  else if (k==='1') flip('hand','x'); else if (k==='2') flip('hand','y'); else if (k==='3') flip('hand','z');
+  else if (k==='8') flip('fore','x'); else if (k==='9') flip('fore','y'); else if (k==='0') flip('fore','z');
+  else if (k==='r') { resetOff('hand'); resetOff('fore'); }
+});
+
+// ---- live data --------------------------------------------------------------
+function connect() {
+  const ws = new WebSocket('ws://localhost:8765/ws');
+  ws.onmessage = ev => {
+    let s; try { s = JSON.parse(ev.data); } catch { return; }
+    if (s.kind !== 'snap') return;
+    if (s.hand && s.hand.quat) raw.hand = s.hand.quat;
+    if (s.forearm && s.forearm.quat) raw.fore = s.forearm.quat;
+  };
+  ws.onclose = () => setTimeout(connect, 1000);
+  setInterval(() => { try { ws.readyState===1 && ws.send(JSON.stringify({cmd:'ping'})); } catch {} }, 500);
+}
+connect();
+
+function tick() {
+  gHand.quaternion.copy(applyCfg(raw.hand, CONFIGS[sel.hand]).multiply(off.hand));
+  gFore.quaternion.copy(applyCfg(raw.fore, CONFIGS[sel.fore]).multiply(off.fore));
+  rpyHand.textContent = 'rpy ' + rpy(raw.hand);
+  rpyFore.textContent = 'rpy ' + rpy(raw.fore);
+  renderer.render(scene, cam);
+  requestAnimationFrame(tick);
+}
+tick();
+
+// expose the chosen relabel + offset so a change can be read back / pasted into the bridge.
+// remap -> IMU_QUAT_REMAP_*, offset [w,x,y,z] -> IMU_QUAT_OFFSET_* in teensy_bridge.py
+window.__imuCal = () => ({
+  hand:    { remap: pyStr(CONFIGS[sel.hand]), offset: [off.hand.w,off.hand.x,off.hand.y,off.hand.z].map(n=>+n.toFixed(4)) },
+  forearm: { remap: pyStr(CONFIGS[sel.fore]), offset: [off.fore.w,off.fore.x,off.fore.y,off.fore.z].map(n=>+n.toFixed(4)) } });
+</script>
+</body>
+</html>

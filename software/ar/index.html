@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>LUMEN · by TAKTO</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20x='2'%20y='18'%20width='4'%20height='10'%20rx='2'%20fill='%232F5B86'/%3E%3Crect%20x='8'%20y='12'%20width='4'%20height='16'%20rx='2'%20fill='%232F5B86'/%3E%3Crect%20x='14'%20y='4'%20width='4'%20height='24'%20rx='2'%20fill='%232F5B86'/%3E%3Crect%20x='20'%20y='8'%20width='4'%20height='20'%20rx='2'%20fill='%2366B8FF'/%3E%3Crect%20x='26'%20y='20'%20width='4'%20height='8'%20rx='2'%20fill='%232F5B86'/%3E%3C/svg%3E" />
+<script type="importmap">
+  { "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<style>
+  :root { --aqua:#66B8FF; --halo:#D9EDFF; --void:#060A10; }
+  html, body { margin:0; height:100%; overflow:hidden; background:var(--void); }
+  #gl { position:fixed; inset:0; width:100%; height:100%; display:block; }
+
+  /* entry veil: one breathing ring, one quiet word */
+  #veil {
+    position:fixed; inset:0; background:var(--void); z-index:10;
+    display:flex; align-items:center; justify-content:center; flex-direction:column;
+    cursor:pointer; transition:opacity 2.2s cubic-bezier(0.22,1,0.36,1);
+  }
+  #veil.gone { opacity:0; pointer-events:none; }
+  #veil .ring {
+    width:112px; height:112px; border-radius:50%;
+    border:1px solid rgba(102,184,255,0.55);
+    box-shadow:0 0 34px rgba(102,184,255,0.22), inset 0 0 22px rgba(102,184,255,0.12);
+    animation:breathe 4.6s ease-in-out infinite;
+    display:flex; align-items:center; justify-content:center;
+  }
+  /* TAKTO mark inside the ring: five beats, the index lit (BRAND-GUIDE.md) */
+  #veil .ring svg { width:46px; height:46px; opacity:0.9; }
+  #veil .word {
+    margin-top:38px; color:rgba(217,237,255,0.62);
+    font:200 13px/1 system-ui, -apple-system, sans-serif;
+    letter-spacing:0.55em; text-transform:lowercase; text-indent:0.55em;
+    animation:breathe 4.6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%,100% { transform:scale(1); opacity:0.75; }
+    50%     { transform:scale(1.045); opacity:1; }
+  }
+
+  /* transition veil: a bloom of light that covers a mode cut */
+  #flash {
+    position:fixed; inset:0; pointer-events:none; opacity:0; z-index:5;
+    background:radial-gradient(58% 58% at 50% 46%,
+      rgba(217,237,255,0.95), rgba(102,184,255,0.5) 42%, rgba(6,10,16,0) 78%);
+  }
+
+  /* passthrough entry glyph (shows only when immersive-ar exists) */
+  #xr {
+    position:fixed; right:26px; bottom:24px; z-index:6; display:none;
+    width:46px; height:46px; border-radius:50%; cursor:pointer;
+    border:1px solid rgba(102,184,255,0.4);
+    box-shadow:0 0 18px rgba(102,184,255,0.14);
+    background:radial-gradient(circle at 50% 50%, rgba(102,184,255,0.16), rgba(6,10,16,0.1));
+    transition:box-shadow .5s, border-color .5s;
+  }
+  #xr.show { display:block; }
+  #xr:hover { border-color:rgba(102,184,255,0.9); box-shadow:0 0 26px rgba(102,184,255,0.4); }
+  /* AR possible on this device class but blocked (insecure origin): amber, tappable for why */
+  #xr.blocked { border-color:rgba(212,164,88,0.55); box-shadow:0 0 18px rgba(212,164,88,0.18);
+    background:radial-gradient(circle at 50% 50%, rgba(212,164,88,0.16), rgba(6,10,16,0.1)); }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="flash"></div>
+<div id="veil"><div class="ring"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="18" width="4" height="10" rx="2" fill="#2F5B86"/><rect x="8" y="12" width="4" height="16" rx="2" fill="#2F5B86"/><rect x="14" y="4" width="4" height="24" rx="2" fill="#2F5B86"/><rect x="20" y="8" width="4" height="20" rx="2" fill="#66B8FF"/><rect x="26" y="20" width="4" height="8" rx="2" fill="#2F5B86"/></svg></div><div class="word">begin</div></div>
+<div id="xr" title="passthrough"></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
