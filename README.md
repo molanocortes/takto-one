@@ -26,7 +26,7 @@ every file needed to build one.
      inside a <div>. Do not wrap it in a <video> tag or in markdown link brackets, and do
      not swap it for a repo-relative path - GitHub's sanitiser strips <video> outright, and
      raw.githubusercontent serves .mp4 as application/octet-stream, so neither will play.
-     docs/media/TAKTO-ONE.mp4 is the durable in-repo copy, currently the v051 master.
+     docs/media/TAKTO-ONE.mp4 is the durable in-repo copy, currently the v052 master.
      When the film changes: replace that file, encode a sub-10MB copy (GitHub's inline
      limit), drag it into any issue comment to mint a fresh user-attachments URL, and
      swap the URL below. -->
