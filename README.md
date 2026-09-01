@@ -266,16 +266,20 @@ plain browser on the desktop, which is how the frames below were captured.
 
 <div align="center">
 
-<img src="docs/media/ar-modes-live.gif" alt="Three modes of the AR layer running: the articulated hand twin hovering, a touch object deforming under contact, and the capture panel waiting to record" width="100%">
+<img src="docs/media/ar-modes-live.gif" alt="Three modes of the AR layer running: the hand twin seen from a moving viewpoint, a touch object deforming under contact, and the atelier hub with its four reachable objects" width="100%">
 
-<sub>Three of the five modes, running live in the desktop preview: <b>twin</b>, the articulated
-hand suspended in the scene &nbsp;·&nbsp; <b>touch</b>, objects that answer the wearer's fingers
-&nbsp;·&nbsp; <b>capture</b>, recording a take from inside the room.</sub>
+<sub>Running live in the desktop preview: <b>twin</b>, the articulated hand seen from a moving
+viewpoint &nbsp;·&nbsp; <b>touch</b>, objects that answer the wearer's fingers &nbsp;·&nbsp;
+<b>atelier</b>, the hub, where the four modes are objects you reach toward rather than buttons.
+Butterflies drift through every one of them.</sub>
 
 </div>
 
 Five modes ship: `atelier` as the hub, plus `twin`, `touch`, `rhythm` and `capture`. The scene
-carries the device's own geometry, so what you reach toward is the machine on your arm.
+carries the device's own geometry, so what you reach toward is the machine on your arm. It is
+also inhabited: butterflies wander the room, settle on the desk edge to rest their wings, and
+lift off again, and rare comets cross the upper air. None of it competes with the work; it just
+means the space is alive while you are in it.
 
 > **Prototype, captured on the desktop preview** rather than in a headset. Known high-DPI bug:
 > the render target is sized from CSS pixels while the canvas backs at the device ratio, so on
