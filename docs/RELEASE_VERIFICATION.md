@@ -38,7 +38,7 @@ not a medical, mechanical, electrical, or worn-actuation certification.
 | Console external dependencies | None; no CDN, analytics, or third-party calls |
 | Secret patterns, private absolute paths, oversized files, symlinks | None found |
 | Published image metadata, author, camera, timestamp, GPS | None present |
-| Git history, files added then deleted, oversized blobs, author email | Clean; commits use a GitHub noreply address |
+| Git history, files added then deleted, oversized blobs, author email | Clean. Re-checked 2026-09-01: no private document has ever been committed on `main`; deleted paths are superseded media only. Commit identities are normalised to a GitHub noreply address before publication |
 
 ### End-to-end WebSocket verification
 
@@ -50,6 +50,13 @@ were already occupied. It has since been run to completion on a free port:
   `takes`, `envs`, `watch_catalog`, and `imu_cfg` messages.
 - A representative joint payload was well formed, e.g.
   `{"id": "index_mcp", "deg": 9.03, "ok": true, "calibrated": true}`.
+
+**Fresh-clone re-run, 2026-09-02.** Following the README's own commands on a brand-new clone
+(Python 3.12 venv, `--sim`), the bridge crashed on its first state write because the
+`SENSORYHAND_STATE_DIR` directory did not exist yet. The earlier check had run in a directory
+that already had one. The bridge now creates the directory on start; after the fix the same
+clone served `snap` frames with 12 joints and the console loaded from the `http.server`
+command. The firmware compile was not repeated for this re-run.
 
 ### Scope of these checks
 
@@ -65,13 +72,14 @@ this checklist established.
 ## Excluded from the release
 
 The submitted master's thesis, the personal arm scan, historical CAD and firmware branches,
-vendor CAD models, JLCPCB account and order history, AR and Android prototypes that are not
-ready for a polished release, papers, application documents, private photos, and build guides
-containing stale technical claims.
+vendor CAD models, JLCPCB account and order history, the Android companion and the
+sign-language stack, the AR layer's capture and asset tooling, papers, application documents,
+private photos, and build guides containing stale technical claims.
 
 ## Third-party material
 
-The vendored Three.js files and their MIT terms are recorded in
+The vendored Three.js and QR Code Generator files and their MIT terms, and the ORCA hand
+spool-station attribution, are recorded in
 [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
 
 ## Reviewer note

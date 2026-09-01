@@ -38,6 +38,9 @@ WS_PORT = 8765               # advertised in link.port for QR pairing
 # Tests set SENSORYHAND_STATE_DIR to an isolated dir so runs never touch the
 # real bench calibration in ~.
 STATE_DIR = os.environ.get("SENSORYHAND_STATE_DIR", os.path.expanduser("~"))
+# A fresh checkout has no state directory yet; the first atomic write would
+# otherwise fail on the .tmp file before the bridge ever serves a frame.
+os.makedirs(STATE_DIR, exist_ok=True)
 
 
 def _write_json_atomic(path, obj):
