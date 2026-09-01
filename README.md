@@ -113,10 +113,6 @@ Current status is stated plainly in [Where the project really stands](#where-the
 
 ---
 
-## Every angle
-
-<img src="docs/media/every-angle.png" alt="Plan, profile, front and isometric views" width="100%">
-
 ## Inside it
 
 Two custom boards, designed from scratch. Full KiCad sources and manufacturing outputs are in
