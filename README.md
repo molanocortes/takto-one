@@ -31,8 +31,8 @@ every file needed to build one.
      limit), drag it into any issue comment to mint a fresh user-attachments URL, and
      swap the URL below. -->
 
-https://github.com/user-attachments/assets/61bd30ab-620b-4f78-8545-289eb384499e
 
+https://github.com/user-attachments/assets/516c37a5-f75d-4038-a846-4bf30d13e018
 ---
 
 <div align="center">
