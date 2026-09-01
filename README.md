@@ -87,20 +87,16 @@ bridge's `--sim` synthetic joints. The browser sees the stream at 60 Hz, a displ
 the device's limit (see [On rates](#a-note-on-rates)). Every twin below renders the same
 articulated geometry that ships in [`cad/`](cad/).
 
-<div align="center">
+<!-- This bare URL is intentional: GitHub turns it into an inline video player.
+     docs/media/TAKTO-SURFACES.mp4 is the durable in-repo copy. -->
 
-<img src="docs/media/ui-web.gif" alt="The public front end, scrolled through its opening beats" width="100%">
+https://github.com/user-attachments/assets/2aae02ab-72c9-4c69-a44c-68a844239803
+
+<div align="center">
 
 <sub><b>The public front end.</b> One scroll-driven story: the device turns, the fingers move,
-and each claim sits next to the part of the machine that makes it.</sub>
-
-</div>
-
-<div align="center">
-
-<img src="docs/media/ui-console.gif" alt="The operator console with the live twin articulating" width="100%">
-
-<sub><b>The operator console.</b> Live 3D twin, twelve per-joint encoders, motor state, EMG
+and each claim sits next to the part of the machine that makes it.<br>
+<b>The operator console.</b> Live 3D twin, twelve per-joint encoders, motor state, EMG
 effort, current draw, the device's own round screen, and calibration. Shown on the simulator,
 which is why the link reads <i>mock</i>.</sub>
 
