@@ -41,6 +41,7 @@ https://github.com/user-attachments/assets/a3fa5804-f2de-467e-afde-5d7406f9e5a0
 
 </div>
 
+
 ---
 
 ## Why a hand, and why this one
@@ -76,119 +77,6 @@ protocol, which is what lets one hand drive another.
 Together they close the loop that matters: read a hand precisely, record it, and play it back
 into a hand.
 
-## Where it can go from here
-
-Read every finger and drive every finger, and a whole class of problems opens up. These are
-**directions, not delivered features**; each is a project of its own, and open-sourcing the
-platform is how they happen in parallel instead of one at a time. Every one of them starts
-from the files already in this repository.
-
-| | |
-| --- | --- |
-| **Drive a robot hand** | Per-joint angles map onto a robot hand with no camera rig and no capture volume. The exciting version is reach: a manipulator underwater, in a hot cell, or on another continent, driven by a hand that stays somewhere safe. |
-| **Train models on better data** | The capture above already produces clean per-joint ground truth. What is missing is scale: many hands, many tasks, a shared schema, a published dataset. That is community work. |
-| **Sign language** | Already begun. See [Sign language](#sign-language-a-worked-example). |
-| **Force feedback, per finger** | A tendon and a motor behind each finger means resistance that varies as you move: a surface that stops you, the give of soft tissue, the weight of a load, felt finger by finger instead of as one buzz through a handle. The control modes ship; the haptic rendering does not. |
-| **Rehabilitation and assessment** | Range of motion measured objectively across sessions, and assisted movement for a hand that cannot finish the motion alone. |
-| **Precision machine control** | Wherever a joystick is too blunt and a touchscreen impossible: gloved, wet, in the dark, eyes needed elsewhere. |
-
-Current status is stated plainly in [Where the project really stands](#where-the-project-really-stands).
-
-## The machine
-
-<img src="docs/media/turntable.gif" alt="TAKTO ONE, one full turn" width="100%">
-
-| | |
-| --- | --- |
-| **Mechanism** | Tendon-driven, four instrumented long-finger assemblies |
-| **Actuation** | Series-elastic, through elastic tendons and ratchet-based spools |
-| **Joint sensing** | 12 × AS5600 magnetic encoders, 3 per finger, read live together |
-| **EMG** | Embedded Ag/AgCl electrode interface for standard snap gel electrodes; envelope + RMS in every frame |
-| **Controller** | Teensy 4.1 |
-| **Motor bus** | Dynamixel Protocol 2.0 over a 74HC241 half-duplex interface, **the microcontroller owns the bus; no host PC required** |
-| **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
-| **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
-| **Structure** | 3D printed; as built, a mix of PETG and PLA |
-| **Parts** | 71 printed parts, 8 servos, 12 encoder boards. Full [bill of materials](docs/BOM.md) |
-
----
-
-## Inside it
-
-Two custom boards, designed from scratch. Full KiCad sources and manufacturing outputs are in
-[`electronics/`](electronics/); these renders come straight from those files.
-
-<table>
-<tr>
-<td width="42%"><img src="docs/media/pcb-encoder-board.png" alt="Encoder board" width="100%"></td>
-<td width="58%"><img src="docs/media/pcb-palm-carrier.png" alt="Palm carrier board" width="100%"></td>
-</tr>
-<tr>
-<td align="center"><sub><b>Encoder board</b>, AS5600 magnetic angle sensor, one per joint</sub></td>
-<td align="center"><sub><b>Palm carrier</b>, shaped to the hand, multiplexes the encoder fan-out</sub></td>
-</tr>
-</table>
-
-## How it fits together
-
-Sensing → aggregation → control → interface:
-
-![System architecture](docs/system-architecture.svg)
-
-And the full point-to-point wiring: every pin terminated, both I²C multiplexers, all fourteen
-encoder channels, three IMUs, and the 74HC241 servo bus. The
-[PDF](docs/global-wiring.pdf) is the printable version.
-
-<a href="docs/global-wiring.pdf"><img src="docs/media/global-wiring.png" alt="Global wiring schematic" width="100%"></a>
-
----
-
-## What it costs to build
-
-Eight motors, twelve instrumented joints, seventy-one printed parts. The servos are nearly the
-whole bill; every other group put together is under a fifth of it, which is why cutting the
-motor count is the most useful thing anyone could contribute.
-
-<div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/media/bom-cost-dark.svg">
-    <img src="docs/media/bom-cost-light.svg" alt="Parts cost by group: actuation EUR 1040 of a EUR 1244.44 total, then motion sensing 66.57, print stock 50.00, control 43.97, joint sensing 26.40, transmission 17.50" width="100%">
-  </picture>
-</div>
-
-Part numbers, suppliers, quantities and the caveats are in **[`docs/BOM.md`](docs/BOM.md)**,
-with a machine-readable copy in [`docs/bom.csv`](docs/bom.csv).
-
----
-
-## Start here
-
-Clone to a moving hand in under a minute: the console opens in simulation, so you can explore
-the whole stack before you print a single part.
-
-```bash
-git clone https://github.com/molanocortes/takto-one.git
-cd takto-one
-
-# see the console and 3D twin immediately, no hardware needed
-python3 -m http.server 8096 --directory software/console/app
-# open http://localhost:8096/
-```
-
-Then read [`docs/README.md`](docs/README.md): system architecture, the illustrated build
-guide, and the known corrections between the documentation and the current hardware.
-
-| Step | Where |
-| --- | --- |
-| Source the parts | [`docs/BOM.md`](docs/BOM.md) |
-| Choose and print parts | [`cad/README.md`](cad/README.md) |
-| Order and wire the boards | [`electronics/README.md`](electronics/README.md) |
-| Flash the Teensy | [`firmware/README.md`](firmware/README.md) |
-| Connect the twin to hardware | [`software/README.md`](software/README.md) |
-
-The embedded Dynamixel driver is also maintained standalone as
-[**dynamixel-on-device**](https://github.com/molanocortes/dynamixel-on-device).
-
 ---
 
 ## The browser surfaces
@@ -218,6 +106,7 @@ which is why the link reads <i>mock</i>.</sub>
 
 </div>
 
+
 ---
 
 ## Session replay: motion, played back in space
@@ -243,6 +132,7 @@ straight in. The environment store is wired end to end, but dense room reconstru
 Quest 3S is still open work: the viewer, the store and the upload path are all waiting for it,
 and putting a real scanned room behind these trajectories is one of the most satisfying
 contributions this project has to offer. See [Contributing](#contributing).
+
 
 ---
 
@@ -276,6 +166,7 @@ means the space is alive while you are in it.
 > a 2x display the scene draws into a quarter of the canvas. Force a device pixel ratio of 1 as
 > a workaround; fixing it properly is a good first contribution.
 
+
 ---
 
 ## The Android companion
@@ -298,6 +189,7 @@ activation as they arrive</sub>
 
 The app is a working prototype and its source is being prepared separately. If it is the piece
 you need, open an issue and say so; that is the fastest way to get it prioritised.
+
 
 ---
 
@@ -333,6 +225,8 @@ two design languages, and <b>idle</b> breathing.</sub>
 The **thesis** face is the one used throughout the thesis work. Source, the face engine, the
 frame budget and the flashing runbook are in
 [`firmware/takto_one/watch/`](firmware/takto_one/watch/).
+
+---
 
 ## EMG in the loop
 
@@ -375,6 +269,8 @@ stated as exactly that: signal-processing and control research, ready for hardwa
 claims about human experiments. If multi-source intent detection is your field, this device
 was built to be your testbed.
 
+---
+
 ## Sign language: a worked example
 
 The clearest proof that this is a platform is **TAKTO-SIGN**: a German Sign Language capture,
@@ -388,6 +284,127 @@ and a measured cross-signer result. It is not open-vocabulary translation.
 
 One application, built by one person, on this platform. An example of what the hardware
 supports, not the limit of it.
+
+## Where it can go from here
+
+Read every finger and drive every finger, and a whole class of problems opens up. These are
+**directions, not delivered features**; each is a project of its own, and open-sourcing the
+platform is how they happen in parallel instead of one at a time. Every one of them starts
+from the files already in this repository.
+
+| | |
+| --- | --- |
+| **Drive a robot hand** | Per-joint angles map onto a robot hand with no camera rig and no capture volume. The exciting version is reach: a manipulator underwater, in a hot cell, or on another continent, driven by a hand that stays somewhere safe. |
+| **Train models on better data** | The capture above already produces clean per-joint ground truth. What is missing is scale: many hands, many tasks, a shared schema, a published dataset. That is community work. |
+| **Sign language** | Already begun. See [Sign language](#sign-language-a-worked-example). |
+| **Force feedback, per finger** | A tendon and a motor behind each finger means resistance that varies as you move: a surface that stops you, the give of soft tissue, the weight of a load, felt finger by finger instead of as one buzz through a handle. The control modes ship; the haptic rendering does not. |
+| **Rehabilitation and assessment** | Range of motion measured objectively across sessions, and assisted movement for a hand that cannot finish the motion alone. |
+| **Precision machine control** | Wherever a joystick is too blunt and a touchscreen impossible: gloved, wet, in the dark, eyes needed elsewhere. |
+
+Current status is stated plainly in [Where the project really stands](#where-the-project-really-stands).
+
+---
+
+## The machine
+
+<img src="docs/media/turntable.gif" alt="TAKTO ONE, one full turn" width="100%">
+
+| | |
+| --- | --- |
+| **Mechanism** | Tendon-driven, four instrumented long-finger assemblies |
+| **Actuation** | Series-elastic, through elastic tendons and ratchet-based spools |
+| **Joint sensing** | 12 × AS5600 magnetic encoders, 3 per finger, read live together |
+| **EMG** | Embedded Ag/AgCl electrode interface for standard snap gel electrodes; envelope + RMS in every frame |
+| **Controller** | Teensy 4.1 |
+| **Motor bus** | Dynamixel Protocol 2.0 over a 74HC241 half-duplex interface, **the microcontroller owns the bus; no host PC required** |
+| **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
+| **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
+| **Structure** | 3D printed; as built, a mix of PETG and PLA |
+| **Parts** | 71 printed parts, 8 servos, 12 encoder boards. Full [bill of materials](docs/BOM.md) |
+
+
+---
+
+## Inside it
+
+Two custom boards, designed from scratch. Full KiCad sources and manufacturing outputs are in
+[`electronics/`](electronics/); these renders come straight from those files.
+
+<table>
+<tr>
+<td width="42%"><img src="docs/media/pcb-encoder-board.png" alt="Encoder board" width="100%"></td>
+<td width="58%"><img src="docs/media/pcb-palm-carrier.png" alt="Palm carrier board" width="100%"></td>
+</tr>
+<tr>
+<td align="center"><sub><b>Encoder board</b>, AS5600 magnetic angle sensor, one per joint</sub></td>
+<td align="center"><sub><b>Palm carrier</b>, shaped to the hand, multiplexes the encoder fan-out</sub></td>
+</tr>
+</table>
+
+---
+
+## How it fits together
+
+Sensing → aggregation → control → interface:
+
+![System architecture](docs/system-architecture.svg)
+
+And the full point-to-point wiring: every pin terminated, both I²C multiplexers, all fourteen
+encoder channels, three IMUs, and the 74HC241 servo bus. The
+[PDF](docs/global-wiring.pdf) is the printable version.
+
+<a href="docs/global-wiring.pdf"><img src="docs/media/global-wiring.png" alt="Global wiring schematic" width="100%"></a>
+
+
+---
+
+## What it costs to build
+
+Eight motors, twelve instrumented joints, seventy-one printed parts. The servos are nearly the
+whole bill; every other group put together is under a fifth of it, which is why cutting the
+motor count is the most useful thing anyone could contribute.
+
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/bom-cost-dark.svg">
+    <img src="docs/media/bom-cost-light.svg" alt="Parts cost by group: actuation EUR 1040 of a EUR 1244.44 total, then motion sensing 66.57, print stock 50.00, control 43.97, joint sensing 26.40, transmission 17.50" width="100%">
+  </picture>
+</div>
+
+Part numbers, suppliers, quantities and the caveats are in **[`docs/BOM.md`](docs/BOM.md)**,
+with a machine-readable copy in [`docs/bom.csv`](docs/bom.csv).
+
+
+---
+
+## Start here
+
+Clone to a moving hand in under a minute: the console opens in simulation, so you can explore
+the whole stack before you print a single part.
+
+```bash
+git clone https://github.com/molanocortes/takto-one.git
+cd takto-one
+
+# see the console and 3D twin immediately, no hardware needed
+python3 -m http.server 8096 --directory software/console/app
+# open http://localhost:8096/
+```
+
+Then read [`docs/README.md`](docs/README.md): system architecture, the illustrated build
+guide, and the known corrections between the documentation and the current hardware.
+
+| Step | Where |
+| --- | --- |
+| Source the parts | [`docs/BOM.md`](docs/BOM.md) |
+| Choose and print parts | [`cad/README.md`](cad/README.md) |
+| Order and wire the boards | [`electronics/README.md`](electronics/README.md) |
+| Flash the Teensy | [`firmware/README.md`](firmware/README.md) |
+| Connect the twin to hardware | [`software/README.md`](software/README.md) |
+
+The embedded Dynamixel driver is also maintained standalone as
+[**dynamixel-on-device**](https://github.com/molanocortes/dynamixel-on-device).
+
 
 ## Where the project really stands
 
@@ -436,7 +453,6 @@ Keep actuator power independently removable, begin with torque disabled, test aw
 body, confirm mechanical limits, and validate watchdog and fault behavior before any worn
 experiment.
 
----
 
 ## Contributing
 
