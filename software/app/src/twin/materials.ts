@@ -114,3 +114,68 @@ export function keyDirection(radius: number) {
     radius * Math.cos(el) * Math.cos(az),
   );
 }
+
+/**
+ * Rendering looks, for exploring how the machine should read on black.
+ * Each is a complete material set; the lighting rig is shared and each look
+ * carries the exposure it wants.
+ */
+export type Look = 'studio' | 'graphite' | 'clay' | 'ceramic' | 'ink' | 'xray';
+export const LOOKS: Look[] = ['studio', 'graphite', 'clay', 'ceramic', 'ink', 'xray'];
+
+const basic = (color: string, opacity: number) =>
+  new THREE.MeshBasicMaterial({
+    color: new THREE.Color(color), transparent: true, opacity, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+
+export function makeLookMaterials(look: Look): Materials {
+  switch (look) {
+    case 'studio': return makeGraphiteMaterials();
+    case 'graphite': return {
+      shell: phys('#2B2C30', 0.5, 0.05, 0.35, 0.3),
+      link: phys('#3A3B40', 0.5, 0.08, 0.25, 0.3),
+      pin: phys('#9A9CA2', 0.35, 0.6),
+      bank: phys('#050505', 0.45, 0.05, 0.3, 0.3),
+      board: phys('#1E1E21', 0.5, 0.1),
+      glass: Object.assign(phys('#0B0B0D', 0.1, 0.2, 1, 0.03), { emissive: new THREE.Color('#FF5B2E'), emissiveIntensity: 0.9 }),
+      spool: phys('#D9D9D9', 0.6, 0, 0.1, 0.5),
+    } as Materials;
+    case 'clay': {
+      // one tone, no black, no gloss: the form and nothing else
+      const c = (k: string) => phys(k, 0.9, 0, 0, 1);
+      return {
+        shell: c('#C9C6C0'), link: c('#BDBAB4'), pin: c('#8F8C86'), bank: c('#A8A5A0'),
+        board: c('#A8A5A0'), glass: Object.assign(c('#B5B2AC'), { emissive: new THREE.Color('#000000'), emissiveIntensity: 0 }),
+        spool: c('#D2CFC9'),
+      } as Materials;
+    }
+    case 'ceramic': return {
+      // glazed white: strong clearcoat, the room mirrored in every curve
+      shell: phys('#E8E8E8', 0.25, 0, 1, 0.08),
+      link: phys('#D6D6D8', 0.3, 0, 1, 0.1),
+      pin: phys('#3A3B40', 0.3, 0.9),
+      bank: phys('#0A0A0A', 0.3, 0.1, 1, 0.1),
+      board: phys('#232326', 0.5, 0.1),
+      glass: Object.assign(phys('#0E1A2E', 0.05, 0.2, 1, 0.02), { emissive: new THREE.Color('#1E66E0'), emissiveIntensity: 0.8 }),
+      spool: phys('#EDEDED', 0.3, 0, 1, 0.1),
+    } as Materials;
+    case 'ink': return {
+      // the inverse: black satin device, white spools, the accent screen
+      shell: phys('#141416', 0.55, 0.05, 0.3, 0.4),
+      link: phys('#1E1F22', 0.55, 0.05, 0.2, 0.4),
+      pin: phys('#C8CACF', 0.35, 0.7),
+      bank: phys('#0A0A0A', 0.5, 0.05, 0.2, 0.4),
+      board: phys('#2A2A2E', 0.5, 0.1),
+      glass: Object.assign(phys('#0B0B0D', 0.1, 0.2, 1, 0.03), { emissive: new THREE.Color('#FF5B2E'), emissiveIntensity: 1.1 }),
+      spool: phys('#E6E6E6', 0.6, 0, 0.15, 0.5),
+    } as Materials;
+    case 'xray': return {
+      // additive glass: the mechanism seen through itself
+      shell: basic('#4F8DFF', 0.10), link: basic('#7FB0FF', 0.16), pin: basic('#FFFFFF', 0.35),
+      bank: basic('#2A5BD6', 0.18), board: basic('#9CC4FF', 0.25),
+      glass: Object.assign(std('#BFDBFF', 0.2), { emissive: new THREE.Color('#8FC0FF'), emissiveIntensity: 1.2, transparent: true, opacity: 0.85 }),
+      spool: basic('#CFE2FF', 0.3),
+    } as unknown as Materials;
+  }
+}

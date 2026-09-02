@@ -20,7 +20,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame } from './canvas';
 import { loadHand } from './loadHand';
-import { makeMaterials, makeGraphiteMaterials, materialFor, type Materials } from './materials';
+import { makeMaterials, makeLookMaterials, materialFor, type Materials, type Look } from './materials';
 import { fingerPose, spoolAngleDeg, SPOOL_STATIONS, type FingerPose } from '../data/kinematics';
 import { FINGERS, type Finger } from '../ui/tokens';
 import { session } from '../data/session';
@@ -110,11 +110,11 @@ function buildRig(scene: THREE.Object3D, mats: Materials): Rig {
   return { root, size, fingers, spools, screen: mats.glass };
 }
 
-export function Hand({ onReady, colourway = 'white' }: {
-  onReady?: (size: number) => void; colourway?: 'white' | 'graphite';
+export function Hand({ onReady, colourway = 'white', look = 'studio' }: {
+  onReady?: (size: number) => void; colourway?: 'white' | 'graphite'; look?: Look;
 }) {
   const [rig, setRig] = useState<Rig | null>(null);
-  const mats = useMemo(colourway === 'graphite' ? makeGraphiteMaterials : makeMaterials, [colourway]);
+  const mats = useMemo(() => colourway === 'graphite' ? makeLookMaterials(look) : makeMaterials(), [colourway, look]);
   const q = useRef(new THREE.Quaternion()).current;
 
   useEffect(() => {

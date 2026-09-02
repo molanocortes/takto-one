@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Canvas, useFrame, useThree } from './canvas';
 import { Hand } from './Hand';
-import { STUDIO, keyDirection } from './materials';
+import { STUDIO, keyDirection, LOOKS, type Look } from './materials';
 import { C } from '../ui/tokens';
 
 const VIEW = {
@@ -28,7 +28,7 @@ const VIEW = {
 
 type Orbit = { yaw: number; pitch: number; drifting: boolean; t: number };
 
-function Rig({ orbit, colourway, scale = 1 }: { orbit: React.MutableRefObject<Orbit>; colourway: 'white' | 'graphite'; scale?: number }) {
+function Rig({ orbit, colourway, scale = 1, look }: { orbit: React.MutableRefObject<Orbit>; colourway: 'white' | 'graphite'; scale?: number; look: Look }) {
   // TWO frames, deliberately. The outer group turns about the WORLD vertical,
   // which is what a turntable is; the inner group carries the fixed rotation
   // that stands the device up (+Z is distal in the CAD, so the fingers point
@@ -68,7 +68,7 @@ function Rig({ orbit, colourway, scale = 1 }: { orbit: React.MutableRefObject<Or
   return (
     <group ref={turn} rotation={[0, VIEW.yaw0, 0]} scale={scale}>
       <group rotation={[-Math.PI / 2, 0, 0]}>
-        <Hand colourway={colourway} />
+        <Hand colourway={colourway} look={look} />
       </group>
     </group>
   );
@@ -121,10 +121,22 @@ function Lights({ shadow, dark }: { shadow: boolean; dark: boolean }) {
   );
 }
 
-export function Twin({ style, shadow = true, stage = 'dark', scale = 1 }: {
-  style?: StyleProp<ViewStyle>; shadow?: boolean; stage?: 'dark' | 'light'; scale?: number;
+/** The look the dark stage renders. On web, ?look= overrides it for exploration. */
+export const DEFAULT_LOOK: Look = 'studio';
+function urlLook(): Look {
+  if (Platform.OS === 'web' && typeof location !== 'undefined') {
+    const l = new URLSearchParams(location.search).get('look') as Look | null;
+    if (l && LOOKS.includes(l)) return l;
+  }
+  return DEFAULT_LOOK;
+}
+
+export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look }: {
+  style?: StyleProp<ViewStyle>; shadow?: boolean; stage?: 'dark' | 'light'; scale?: number; look?: Look;
 }) {
   const dark = stage === 'dark';
+  const theLook = look ?? urlLook();
+  const exposure = { studio: 0.92, graphite: 1.15, clay: 1.05, ceramic: 0.85, ink: 1.2, xray: 1.0 }[theLook];
   const orbit = useRef<Orbit>({ yaw: 0, pitch: 0, drifting: true, t: 0 });
   const start = useRef({ yaw: 0, pitch: 0 });
 
@@ -165,7 +177,7 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1 }: {
             // A filmic transform and a neutral room environment: the graphite
             // shell needs something to reflect, or it reads as flat plastic.
             gl.toneMapping = THREE.ACESFilmicToneMapping;
-            gl.toneMappingExposure = 0.92;
+            gl.toneMappingExposure = exposure;
             const pmrem = new THREE.PMREMGenerator(gl);
             scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
             scene.environmentIntensity = 0.45;
@@ -176,7 +188,7 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1 }: {
         }}
       >
         <Lights shadow={shadow} dark={dark} />
-        <Rig orbit={orbit} colourway={dark ? 'graphite' : 'white'} scale={scale} />
+        <Rig orbit={orbit} colourway={dark ? 'graphite' : 'white'} scale={scale} look={theLook} />
         {/* the ground exists only to catch the one shadow; on black there is none to catch */}
         {!dark && (
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.52, 0]} receiveShadow>
