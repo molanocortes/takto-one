@@ -70,8 +70,9 @@ is liquid glass floating over it. Four rules keep it honest:
   through a filmic transform. No floor, no gradient: the machine is the only
   thing lit. Seventeen other looks live in `src/twin/materials.ts` (matte
   tones, ceramic, frost, and x-ray tints) behind `?look=` on the web build,
-  and `?part=hand` renders the hand without the housing; `DEFAULT_LOOK` in
-  `src/twin/Twin.tsx` picks the shipped one.
+  and the app renders the hand without the housing (`?part=device` on web
+  brings it back); `DEFAULT_LOOK` and `DEFAULT_PART` in `src/twin/Twin.tsx`
+  pick the shipped ones.
 - **Glass, not cards.** Every control is a lens: backdrop blur, a faint milk
   fill, a highlight pooling along the top edge, a rim brightest on the lit
   side, a soft lift. The header's round buttons, the picker chips, the nav,

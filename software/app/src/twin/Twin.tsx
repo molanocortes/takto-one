@@ -132,12 +132,14 @@ function urlLook(): Look {
   }
   return DEFAULT_LOOK;
 }
-/** ?part=hand renders the hand alone, without the forearm housing */
+/** The app shows the hand alone; ?part=device on web brings the housing back. */
+export const DEFAULT_PART: 'device' | 'hand' = 'hand';
 function urlPart(): 'device' | 'hand' {
   if (Platform.OS === 'web' && typeof location !== 'undefined') {
-    if (new URLSearchParams(location.search).get('part') === 'hand') return 'hand';
+    const p = new URLSearchParams(location.search).get('part');
+    if (p === 'hand' || p === 'device') return p;
   }
-  return 'device';
+  return DEFAULT_PART;
 }
 
 export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, part }: {
