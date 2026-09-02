@@ -136,7 +136,7 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look }: 
 }) {
   const dark = stage === 'dark';
   const theLook = look ?? urlLook();
-  const exposure = { studio: 0.92, graphite: 1.15, clay: 1.05, ceramic: 0.85, ink: 1.2, xray: 1.0 }[theLook];
+  const exposure = ({ studio: 0.92, graphite: 1.15, clay: 1.05, ceramic: 0.85, ink: 1.2, xray: 1.0, midnight: 1.3, slate: 1.15, frost: 0.9 } as Partial<Record<Look, number>>)[theLook] ?? 1.05;
   const orbit = useRef<Orbit>({ yaw: 0, pitch: 0, drifting: true, t: 0 });
   const start = useRef({ yaw: 0, pitch: 0 });
 

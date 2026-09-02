@@ -120,8 +120,42 @@ export function keyDirection(radius: number) {
  * Each is a complete material set; the lighting rig is shared and each look
  * carries the exposure it wants.
  */
-export type Look = 'studio' | 'graphite' | 'clay' | 'ceramic' | 'ink' | 'xray';
-export const LOOKS: Look[] = ['studio', 'graphite', 'clay', 'ceramic', 'ink', 'xray'];
+export type Look =
+  | 'studio' | 'graphite' | 'clay' | 'ceramic' | 'ink' | 'xray'
+  | 'bone' | 'terracotta' | 'sage' | 'slate' | 'midnight' | 'oxide'
+  | 'xray-amber' | 'xray-white' | 'xray-solid' | 'frost' | 'blueprint' | 'chalk';
+export const LOOKS: Look[] = [
+  'studio', 'graphite', 'clay', 'ceramic', 'ink', 'xray',
+  'bone', 'terracotta', 'sage', 'slate', 'midnight', 'oxide',
+  'xray-amber', 'xray-white', 'xray-solid', 'frost', 'blueprint', 'chalk',
+];
+
+/** one matte tone for the whole device, an optional second for the spools and the pins */
+function matte(body: string, spools = body, pins = body, screen = body, glow?: string): Materials {
+  const m = (k: string) => phys(k, 0.92, 0, 0, 1);
+  return {
+    shell: m(body), link: m(shade(body, -0.06)), pin: m(pins), bank: m(shade(body, -0.16)),
+    board: m(shade(body, -0.16)),
+    glass: Object.assign(m(screen), { emissive: new THREE.Color(glow ?? '#000000'), emissiveIntensity: glow ? 0.5 : 0 }),
+    spool: m(spools),
+  } as Materials;
+}
+/** lighten (+) or darken (-) a hex colour by a fraction */
+function shade(hex: string, f: number) {
+  const c = new THREE.Color(hex);
+  const hsl = { h: 0, s: 0, l: 0 }; c.getHSL(hsl);
+  c.setHSL(hsl.h, hsl.s, Math.max(0, Math.min(1, hsl.l + f)));
+  return '#' + c.getHexString();
+}
+/** additive glass in one tint, the pins and spools brighter so the joints read */
+function xray(tint: string, bright: string, solidSpools = false): Materials {
+  return {
+    shell: basic(tint, 0.10), link: basic(shade(tint, 0.15), 0.16), pin: basic(bright, 0.35),
+    bank: basic(shade(tint, -0.15), 0.18), board: basic(shade(tint, 0.2), 0.25),
+    glass: Object.assign(std(bright, 0.2), { emissive: new THREE.Color(bright), emissiveIntensity: 1.2, transparent: true, opacity: 0.85 }),
+    spool: solidSpools ? phys('#E6E6E6', 0.6, 0, 0.15, 0.5) : basic(shade(tint, 0.3), 0.3),
+  } as unknown as Materials;
+}
 
 const basic = (color: string, opacity: number) =>
   new THREE.MeshBasicMaterial({
@@ -170,6 +204,26 @@ export function makeLookMaterials(look: Look): Materials {
       glass: Object.assign(phys('#0B0B0D', 0.1, 0.2, 1, 0.03), { emissive: new THREE.Color('#FF5B2E'), emissiveIntensity: 1.1 }),
       spool: phys('#E6E6E6', 0.6, 0, 0.15, 0.5),
     } as Materials;
+    case 'bone': return matte('#E3DED2', '#EFEBE1', '#5A5650', '#1C1B19', '#1E66E0');
+    case 'terracotta': return matte('#B8654A', '#E9D9C7', '#3D2A22', '#2A1F1B', '#FF8A5B');
+    case 'sage': return matte('#8FA08C', '#E6EAE0', '#3C463A', '#1E231E', '#CFE8C8');
+    case 'slate': return matte('#4B5560', '#C9CED4', '#1E2328', '#14171A', '#7FB0FF');
+    case 'midnight': return matte('#1B2233', '#8E9BB5', '#0C1019', '#0A0D14', '#4F8DFF');
+    case 'oxide': return matte('#C9401B', '#F1E9E0', '#2A1F1B', '#1A1210', '#FFB199');
+    case 'chalk': return matte('#F2F1EC', '#F7F6F2', '#3A3936', '#1E1E1C', '#1E66E0');
+    case 'frost': return {
+      // milk glass: the shell lets a little light through, the bank stays dark
+      shell: Object.assign(phys('#F4F4F4', 0.35, 0, 0.6, 0.3), { transparent: true, opacity: 0.72 }),
+      link: Object.assign(phys('#E4E4E6', 0.4, 0, 0.4, 0.4), { transparent: true, opacity: 0.8 }),
+      pin: phys('#3A3B40', 0.3, 0.9), bank: phys('#0A0A0A', 0.45, 0.05, 0.3, 0.3),
+      board: phys('#232326', 0.5, 0.1),
+      glass: Object.assign(phys('#0E1A2E', 0.05, 0.2, 1, 0.02), { emissive: new THREE.Color('#1E66E0'), emissiveIntensity: 0.8 }),
+      spool: phys('#EDEDED', 0.5, 0, 0.3, 0.4),
+    } as Materials;
+    case 'blueprint': return xray('#2456C8', '#DCE8FF', false);
+    case 'xray-amber': return xray('#C86A1E', '#FFE2B8', false);
+    case 'xray-white': return xray('#9A9A9A', '#FFFFFF', false);
+    case 'xray-solid': return xray('#4F8DFF', '#FFFFFF', true);
     case 'xray': return {
       // additive glass: the mechanism seen through itself
       shell: basic('#4F8DFF', 0.10), link: basic('#7FB0FF', 0.16), pin: basic('#FFFFFF', 0.35),
