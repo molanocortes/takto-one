@@ -19,6 +19,13 @@ const LOOP = 32;
 const LAG: Record<Finger, number> = { index: 0, middle: 0.14, ring: 0.28, pinky: 0.42 };
 /** resting spread of each finger, signed degrees */
 const SPREAD: Record<Finger, number> = { index: 1, middle: 0.3, ring: -0.3, pinky: -1 };
+/**
+ * The resting curl, 0..1. A hand at rest is never flat: the fingers hold a
+ * soft cascade, the index the straightest and the pinky the most curled, the
+ * shape a hand takes when the tendons are slack. Every movement departs from
+ * this and returns to it.
+ */
+const REST: Record<Finger, number> = { index: 0.20, middle: 0.26, ring: 0.32, pinky: 0.38 };
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 function smoothstep(a: number, b: number, x: number) {
@@ -47,8 +54,9 @@ function curlOf(finger: Finger, t: number): { curl: number; ab: number } {
   const lag = LAG[finger];
   const fi = FINGERS.indexOf(finger);
 
-  // breathing runs underneath everything, so the hand is never dead still
-  const breath = 0.08 + 0.10 * (0.5 - 0.5 * Math.cos(((x - lag * 2) / 6) * TAU));
+  // breathing runs underneath everything, so the hand is never dead still:
+  // the resting cascade, swelling by a few degrees and settling again
+  const breath = REST[finger] + 0.05 * (0.5 - 0.5 * Math.cos(((x - lag * 2) / 6) * TAU));
 
   // ripple: taps outward then back, three passes
   const rip = envelope(x, 5.6, 6.4, 11.6, 12.4);
@@ -79,17 +87,14 @@ function curlOf(finger: Finger, t: number): { curl: number; ab: number } {
   const overshoot = pulse((x - 31.0) / 1.4) * 0.05;
   const graspAmount = 0.84 + fi * 0.03;
 
-  const curl = clamp01(
-    breath * (1 - Math.max(rip, fist, wv, gr) * 0.6)
-    + rip * taps * 0.55
-    + fist * 0.78
-    + wv * travel * 0.8
-    + gr * graspAmount
-    - overshoot,
-  );
+  // each movement blends from the rest pose toward its own shape, so the
+  // fingers never snap flat between phrases
+  const away = Math.max(rip * taps, fist, wv * travel, gr);
+  const target = rip * taps * (REST[finger] + 0.5) + fist * 0.8 + wv * travel * (REST[finger] + 0.55) + gr * graspAmount;
+  const curl = clamp01(breath * (1 - away) + target - overshoot);
 
   // abduction: a resting whisper, narrowing as the hand closes, fanning in the bloom
-  const rest = SPREAD[finger] * (2.2 + Math.sin(x * 0.45 + fi) * 0.8);
+  const rest = SPREAD[finger] * (3.0 + Math.sin(x * 0.45 + fi) * 0.8);
   const ab = (rest * (1 - curl * 0.8)) + fan * SPREAD[finger] * 12 + sway * 4 * SPREAD[finger];
   return { curl, ab };
 }

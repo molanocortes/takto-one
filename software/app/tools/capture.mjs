@@ -31,17 +31,17 @@ const W = 390, H = 844;                      // iPhone 14 points
 
 /** stills: every surface, each at a moment worth looking at */
 const STILLS = [
-  { name: 'welcome', q: 'screen=welcome&t=15.6' },
-  { name: 'live', q: 'screen=live&t=15.6' },
-  { name: 'live-fingers', q: 'screen=live&t=15.6', scroll: 640 },
+  { name: 'welcome', q: 'screen=welcome&t=2.0' },
+  { name: 'live', q: 'screen=live&t=2.0' },
+  { name: 'live-fingers', q: 'screen=live&t=21.4', scroll: 640 },
   { name: 'replay-library', q: 'screen=replay&t=6.2', noTwin: true },
   { name: 'replay', q: 'screen=replay&take=take_demo_signature&t=6.2' },
-  { name: 'data', q: 'screen=data&t=15.6', noTwin: true },
+  { name: 'data', q: 'screen=data&t=2.0', noTwin: true },
 ];
 
 /** the loop: the travelling wave, index to pinky, which is the clearest
  *  demonstration that twelve joints are being driven independently */
-const GIF = { from: 6.7, to: 13.3, frames: 44, scale: 1.5, screen: 'live' };
+const GIF = { from: 18.4, to: 25.2, frames: 44, scale: 1.5, screen: 'live' };
 
 async function open(ctx, url, needsTwin = true, scroll = 0) {
   const page = await ctx.newPage();
