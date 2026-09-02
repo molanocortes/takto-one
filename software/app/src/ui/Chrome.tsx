@@ -110,7 +110,7 @@ export function Sheet({ children, open, onClose, share = 0.78, title, subtitle }
     <Animated.View style={[st.sheet, { height: share * height, transform: [{ translateY: y }] }]}>
       <BlurView intensity={70} tint="dark" style={StyleSheet.absoluteFill} />
       <View style={[StyleSheet.absoluteFill, { backgroundColor: C.sheet }]} />
-      <LinearGradient colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0)']} locations={[0, 0.25]}
+      <LinearGradient colors={['rgba(255,255,255,0.07)', 'rgba(255,255,255,0)']} locations={[0, 0.3]}
         style={StyleSheet.absoluteFill} pointerEvents="none" />
       <View style={st.sheetLine} pointerEvents="none" />
       <Pressable onPress={onClose} style={st.handle} hitSlop={10}>
@@ -187,7 +187,7 @@ const st = StyleSheet.create({
     position: 'absolute', left: 0, right: 0, bottom: 0, overflow: 'hidden',
     borderTopLeftRadius: R.r4, borderTopRightRadius: R.r4,
   },
-  sheetLine: { position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.4)' },
+  sheetLine: { position: 'absolute', top: 0, left: 0, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.28)' },
   handle: { alignItems: 'center', paddingTop: 10, paddingBottom: 2 },
   sheetHead: { paddingHorizontal: S.s5, paddingTop: S.s2, paddingBottom: S.s3 },
   row: { flexDirection: 'row', alignItems: 'center', gap: S.s3, paddingVertical: 15 },

@@ -68,12 +68,11 @@ export function Glass({ children, style, intensity = 50, radius = R.r3, strong =
       <View style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: 'hidden' }]} pointerEvents="none">
         <BlurView intensity={intensity} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={[StyleSheet.absoluteFill, { backgroundColor: strong ? C.glassStrong : C.glass }]} />
-        <LinearGradient colors={['rgba(255,255,255,0.22)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0)']}
-          locations={[0, 0.32, 0.62]} style={StyleSheet.absoluteFill} />
-        <LinearGradient colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.09)']}
-          locations={[0.72, 1]} style={StyleSheet.absoluteFill} />
-        <LinearGradient colors={['rgba(255,255,255,0.10)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0.06)']}
-          locations={[0, 0.3, 0.7, 1]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} />
+        {/* light entering at the top: a shallow pool, never a band */}
+        <LinearGradient colors={['rgba(255,255,255,0.10)', 'rgba(255,255,255,0.02)', 'rgba(255,255,255,0)']}
+          locations={[0, 0.4, 0.75]} style={StyleSheet.absoluteFill} />
+        {/* the inner edge of the lens: a hair of shade just inside the rim */}
+        <View style={[StyleSheet.absoluteFill, { borderRadius: radius, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)' }]} />
       </View>
       <View style={[st.liquidRim, { borderRadius: radius }]} pointerEvents="none" />
       <View style={[padded && { padding: S.s5 }]}>{children}</View>
@@ -193,10 +192,13 @@ export function Segmented<K extends string>({ options, value, onChange, style }:
 const st = StyleSheet.create({
   liquidOuter: { ...(LIFT as object) },
   liquidRim: {
-    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.42)', borderLeftColor: 'rgba(255,255,255,0.26)',
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.30)', borderLeftColor: 'rgba(255,255,255,0.20)',
     borderRightColor: 'rgba(255,255,255,0.16)', borderBottomColor: 'rgba(255,255,255,0.12)',
-    ...(Platform.OS === 'web' ? { boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(255,255,255,0.06)' } as any : {}),
+    ...(Platform.OS === 'web' ? {
+      borderWidth: 0,
+      boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.13), inset 0 1px 0 rgba(255,255,255,0.20), inset 0 -0.5px 0 rgba(255,255,255,0.06)',
+    } as any : {}),
   },
   card: { backgroundColor: C.card, borderRadius: R.r3, borderWidth: 1, borderColor: C.glassLine },
   chip: {

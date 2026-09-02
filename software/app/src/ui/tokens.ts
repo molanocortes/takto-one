@@ -17,8 +17,8 @@ export const C = {
   stageMid: '#111214',
   stageBot: '#0A0A0B',
   /** frosted glass, the only surface text sits on */
-  glass: 'rgba(255,255,255,0.07)',
-  glassStrong: 'rgba(255,255,255,0.11)',
+  glass: 'rgba(255,255,255,0.075)',
+  glassStrong: 'rgba(255,255,255,0.10)',
   glassLine: 'rgba(255,255,255,0.12)',
   glassLineStrong: 'rgba(255,255,255,0.22)',
   /** the sheet: near-black glass */
@@ -79,7 +79,7 @@ export const SHADOW = Platform.select({
 
 /** The lift under a piece of liquid glass: soft, wide, never a hard drop. */
 export const LIFT = Platform.select({
-  web: { boxShadow: '0 12px 32px rgba(0,0,0,0.38), 0 1px 2px rgba(0,0,0,0.3)' } as any,
+  web: { boxShadow: '0 10px 30px rgba(0,0,0,0.30), 0 1px 1px rgba(0,0,0,0.25)' } as any,
   default: {
     shadowColor: '#000', shadowOpacity: 0.38, shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 }, elevation: 8,
