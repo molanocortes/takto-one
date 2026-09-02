@@ -61,24 +61,25 @@ phone, use the machine's LAN address instead of localhost.
 
 ## The look
 
-The machine fills the screen and everything you read floats over it on
-frosted glass. That is the whole idea, and four rules keep it honest:
+The machine fills the screen on one tone of black, and everything you touch
+is liquid glass floating over it. Four rules keep it honest:
 
-- **One stage.** The twin is the graphite colourway from the product hero
-  still, lit by one key, one cool rim and a neutral room environment, through
-  a filmic transform. The studio fades to black at the feet so the sheet has
-  somewhere to land. Those values live in `src/twin/materials.ts` and
-  `src/twin/Twin.tsx`.
-- **Glass, not cards.** Every surface is a real backdrop blur (`expo-blur`)
-  with a hairline border: the header's round buttons, the picker chips under
-  the title, the one floating summary card, the bottom sheet. Nothing is
-  opaque except the primary button.
+- **One stage, one subject.** The twin is the white device from the product
+  stills: satin shell under a thin clearcoat, links a half step deeper so the
+  lattice separates, the bank true black, the screen glowing blue. One warm
+  key, one cool rim, a low warm bounce and a neutral room environment through
+  a filmic transform. No floor, no gradient: the machine is the only thing
+  lit. Values in `src/twin/materials.ts` and `src/twin/Twin.tsx`.
+- **Glass, not cards.** Every control is a lens: backdrop blur, a faint milk
+  fill, a highlight pooling along the top edge, a rim brightest on the lit
+  side, a soft lift. The header's round buttons, the picker chips, the nav,
+  the segmented control and the sheet all sit on the same `Glass` surface.
+- **Nothing on the twin.** The summary number stands on the stage with no
+  card under it. Detail lives in a sheet that is hidden until asked for and
+  is glass when it comes.
 - **Light type, one accent.** Inter throughout, weight 300 for the big
-  numerals, tabular so tickers hold still. The accent is the oxide of the lit
-  beat in the TAKTO mark, brightened one step for a dark ground, and it is
-  spent only on state: a live channel, a value at its limit, the playhead.
-- **The machine keeps the drag.** The sheet owns its own scroll and rises on
-  a tap of its handle, so the area above it always orbits the twin.
+  numerals, tabular so tickers hold still. The accent is spent only on
+  state: a live channel, a value at its limit, the playhead.
 
 Tokens are stated once in `src/ui/tokens.ts`; the shapes every screen is
 built from are `src/ui/primitives.tsx` and `src/ui/Chrome.tsx`.
