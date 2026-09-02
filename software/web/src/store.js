@@ -135,7 +135,8 @@ class Store {
       put("p:" + m.id, m.pos_deg);
       put("v:" + m.id, m.vel_dps);
     }
-    // SEA control layer (Fable/sea runner via the bridge): tensions and
+    // SEA control layer (the host-side SEA runner, not in this release, via
+    // the bridge): tensions and
     // stretches are ESTIMATES from the spring model - series names say so
     if (s.sea && s.sea.joints) {
       for (const [j, d] of Object.entries(s.sea.joints)) {

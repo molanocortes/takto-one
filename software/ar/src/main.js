@@ -383,7 +383,7 @@ if (navigator.xr && navigator.xr.isSessionSupported) {
 } else if (!window.isSecureContext) {
   // WebXR only exists on secure origins: over plain http://<LAN-IP> the Quest
   // hides navigator.xr entirely, which used to hide this button silently.
-  xrBlocked = "AR needs a secure origin.\nOpen this page over https (run Fable/ar/serve_https.py, then https://<PC-IP>:8443) or via adb reverse + http://localhost.";
+  xrBlocked = "AR needs a secure origin.\nServe this page over https (any static server with a self-signed certificate, and the bridge with --ssl-cert/--ssl-key for wss://) or via adb reverse + http://localhost.";
   xrGlyph.classList.add("show", "blocked");
 }
 let xrSession = null;

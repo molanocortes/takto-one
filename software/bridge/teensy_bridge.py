@@ -2672,9 +2672,12 @@ def _camera_follow_probe_tick(now):
         CAMERA_FOLLOW["reason"] = "%s direction learned; test the other joint" % p["axis"].upper()
 
 
-# ----- SEA control layer (post-thesis; Fable/sea) ---------------------------
-# The SEA runner (python3 -m sea.runner) OWNS the motor bus (host-routed via
-# U2D2) and connects here as a client: it PUBLISHES its state as
+# ----- SEA control layer (post-thesis; host-side runner, not in this release) -
+# The SEA runner is an optional bench-tuning tool that drives the motors from
+# the host through a U2D2. When it runs, the Teensy must NOT take the bus
+# (single master: the firmware's M,t,1 listens first and refuses); in the
+# normal architecture the Teensy owns the bus and this block stays idle. The
+# runner connects here as a client: it PUBLISHES its state as
 # {"cmd":"sea", "sea":{...}} (~15 Hz) which the bridge mirrors into every
 # snapshot while fresh, and it OBEYS the last {"cmd":"sea_target", ...} a UI
 # sent, relayed in snapshots as `sea_cmd` (the runner watches `seq`). All
@@ -4752,8 +4755,8 @@ def handle_command(c, raw):
 
     if name == "doom":            # easter egg: forward the game key bitmask to the Teensy
         # The website's DOOM controller sends {cmd:"doom", keys:<mask>} whenever the
-        # pressed-key set changes. <mask> is the OR of the K_* bits (see
-        # Fable/doom/firmware/takto_doom/doom.h). We relay it as one "G,<mask>\n"
+        # pressed-key set changes. <mask> is the OR of the K_* bits defined by
+        # the DOOM firmware image (not in this release). We relay it as one "G,<mask>\n"
         # line; a full-state mask means a dropped packet never sticks a key down.
         # In --sim (no Teensy) send_teensy is a no-op, so the browser preview still
         # plays its own copy of the game - the device just isn't driven.
@@ -4823,7 +4826,7 @@ if __name__ == "__main__":
     ap.add_argument("--ws-port", type=int, default=8765)
     ap.add_argument("--hz", type=int, default=HZ)   # default 60 (latency pass); tests pin 30
     ap.add_argument("--takes-file", default=None, help="override the take-library JSON path")
-    # optional TLS (same self-signed pair as Fable/ar/serve_https.py): an https
+    # optional TLS (a self-signed cert/key pair works): an https
     # page on the Quest may only open wss:// sockets (mixed content rule)
     ap.add_argument("--ssl-cert", default=None, help="PEM cert -> serve wss://")
     ap.add_argument("--ssl-key", default=None, help="PEM key for --ssl-cert")

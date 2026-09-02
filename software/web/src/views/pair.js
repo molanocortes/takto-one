@@ -1,6 +1,6 @@
 // pair.js - "#/pair": the console shows a QR of the bridge's ws URL; the
-// TAKTO ONE Companion app scans it and is connected in seconds
-// (Fable/android ACCEPTANCE.md #3). The bridge advertises its LAN address in
+// TAKTO ONE Companion app (not in this release) scans it and is connected in
+// seconds. The bridge advertises its LAN address in
 // link.lan/link.port (DATA_CONTRACT 2026-07-18); until a snapshot arrives we
 // fall back to this page's own ?ws= target.
 import { el } from "../ui.js";

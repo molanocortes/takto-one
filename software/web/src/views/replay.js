@@ -742,7 +742,7 @@ export function mountReplay(rootHost) {
     });
     showState(el("span", null,
       "Replay needs the live bridge - this page is on SIMULATED data.",
-      el("br"), "Start it with Fable/ar/run_quest_stack.sh (or bridge-sim), then:",
+      el("br"), "Start the bridge (see software/README.md), then:",
       el("br"), connect));
   } else if (_requestedTake) {
     const id = _requestedTake;

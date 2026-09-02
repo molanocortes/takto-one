@@ -1,5 +1,5 @@
 // bench.js - SEA bench view: the live tuning aid for the series-elastic
-// tendon controller (Fable/sea, BENCH-DAY.md section 4).
+// tendon controller (the host-side SEA runner, not in this release).
 //
 // Renders what the SEA runner publishes through the bridge (snap.sea):
 // commanded vs measured joint angle, ESTIMATED flexor/extensor tension and

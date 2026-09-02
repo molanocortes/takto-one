@@ -1,11 +1,11 @@
 // schema.js - the ONE feature-schema contract for TAKTO-SIGN.
 //
-// SHARED SOURCE OF TRUTH. The Python mirror at Fable/signlang/dataset/schema.py
-// must agree column-for-column; tools/signlang_test.py enforces the parity
+// SHARED SOURCE OF TRUTH. The Python mirror in the TAKTO-SIGN dataset code
+// (not in this release) must agree column-for-column; its test suite enforces the parity
 // (the same discipline as kinematics.js <-> the python sizing engine).
 //
 // A captured frame is a fixed-width vector drawn from the bridge snapshot
-// (Fable/web/DATA_CONTRACT.md). Two column groups:
+// (the bridge's snapshot contract). Two column groups:
 //
 //   DEVICE (24, always present): what TAKTO ONE physically senses.
 //     Per finger f in {idx, mid, rng, pnk}, three angles in DEGREES:

@@ -1,8 +1,8 @@
 // kinematics.js - the ONE mechanical model both digital twins render from.
 //
-// SHARED SOURCE OF TRUTH. The byte-identical copy at
-// Fable/ar/app/src/kinematics.js is enforced by ecosystem_test.py; edit THIS
-// file and re-copy (never edit the AR copy directly).
+// SHARED SOURCE OF TRUTH. software/web, software/console and software/ar
+// each carry a byte-identical copy of this file; edit one and re-copy to the
+// others (the project's test suite, not in this release, enforces the parity).
 //
 // Every constant and law here has a provenance in the thesis or the validated
 // engineering code. Nothing is visual tuning:
@@ -11,8 +11,8 @@
 //   standoff h above the anatomical axis, so flexion demands a slide in the
 //   link spanning the joint (thesis ch3, eq:sliding ~ h*theta linearised).
 //   The EXACT relation (thesis eq:sliding-exact) is implemented in the
-//   validated sizing engine (hand_measure/sizing.py sliding_travel, mirrored
-//   in Fable/linkmodel/kinematics.py slide_exact, FD-validated):
+//   validated sizing engine (the project's Python link model, not in this
+//   release; finite-difference validated):
 //       dx = a + b cos(t) + h sin(t)
 //       dy = h (1 - cos(t)) + b sin(t)
 //       ds = hypot(dx, dy) - (a + b)          [signed, mm]
@@ -62,8 +62,9 @@
 //   (which was always the split here - under SEA it is now mandatory, not
 //   just correct). seaWireState() exposes the dual-rate spring law so a
 //   surface can render spring stretch / tension estimates it receives from
-//   the host (snap.sea) or sanity-check them; the numbers are the Fable/sea
-//   config values and are UNIDENTIFIED until the bench closes them.
+//   the host (snap.sea) or sanity-check them; the numbers are the SEA
+//   runner's config values (a host-side tool, not in this release) and are
+//   UNIDENTIFIED until the bench closes them.
 
 export const KIN_VERSION = 3;   // v3: SEA dual-rate wire law (series-elastic tendons)
 
@@ -246,8 +247,9 @@ export function curlToJoints(c) {
 }
 
 // ---------------------------------------------------------------------------
-// Series-elastic wire law (mirrors Fable/sea/config.py + geometry.Wire; the
-// python spec parity-checks the shared constants against this file via node).
+// Series-elastic wire law (mirrors the SEA runner's config and wire geometry,
+// a host-side Python tool not in this release, whose spec parity-checks the
+// shared constants against this file via node).
 // Dual-rate: closed-wound extension spring (rate K_SEA_SPRING, initial
 // tension SEA_P_INIT) in parallel with a slack bypass loop that goes taut at
 // extension = SEA_STROKE_MM (rate K_SEA_LOOP beyond). ALL FOUR VALUES ARE
@@ -276,8 +278,8 @@ export function seaWireRegime(xMm) {
 }
 
 // Which series element each joint's wire pair actually carries in the demo
-// routing. Mirrors Fable/sea/config.py WIRE_KIND (sea/spec.py section B
-// parity-checks this constant). The MCP wires are SHORT-RUN and un-sprung:
+// routing. Mirrors the SEA runner's WIRE_KIND (its spec parity-checks this
+// constant). The MCP wires are SHORT-RUN and un-sprung:
 // a stiff loop from zero extension, so they have NO soft band and cannot be
 // labelled with the dual-rate law. Only the PIP wires carry the inline
 // series-elastic element, so only they have a force-sensing regime.

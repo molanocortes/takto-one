@@ -8,8 +8,8 @@
 //   hinge 3 (*_dip): PIP FLEXION   - curls (local X)
 //   (no DIP joint on the robot)
 //
-// Each hinge node's local axis IS the physical hinge, baked by
-// Fable/web/tools/build_hand_glb_v7.py, so a joint is one local rotation:
+// Each hinge node's local axis IS the physical hinge, baked into the GLB by
+// the project's export tooling (not in this release), so a joint is one local rotation:
 // node.quaternion = baseQuat * rot(axis, angle). The forearm + spool bank
 // exist in the GLB but are skipped here for the headset budget.
 

@@ -7,8 +7,8 @@
 // can actually test: a sealed rep is persisted the instant it seals, so losing
 // the tab or the socket never costs more than the rep in flight.
 //
-// The website view (Fable/web/app/src/views/sign.js) and the headless harness
-// (capture_node.mjs) both drive THIS module; the sim signer and the live bridge
+// The website view (views/sign.js) and TAKTO-SIGN's headless harness (not in
+// this release) both drive THIS module; the sim signer and the live bridge
 // are just two frame sources feeding the same onFrame(). No em dashes.
 
 import {
