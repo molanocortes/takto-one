@@ -20,8 +20,11 @@ not a medical, mechanical, electrical, or worn-actuation certification.
 - **Added after this record was first written:** the public web front end, the AR layer and the
   watch-face engine. They were audited the same way as the tree above — no absolute paths, no
   secrets, no third-party reference models — but the check table below predates them, so treat
-  it as covering the original set. The Android companion and the sign-language stack remain
-  outside this release.
+  it as covering the original set. **Added 2026-09-02:** the phone companion in
+  `software/app/`, an Expo project whose media were captured from its own web target; its
+  `node_modules` and capture output are ignored and it carries no other build artefacts. It
+  supersedes an earlier Android-only build, which remains unpublished. The sign-language stack
+  remains outside this release.
 
 ## Checks performed
 
@@ -72,9 +75,9 @@ this checklist established.
 ## Excluded from the release
 
 The submitted master's thesis, the personal arm scan, historical CAD and firmware branches,
-vendor CAD models, JLCPCB account and order history, the Android companion and the
-sign-language stack, the AR layer's capture and asset tooling, papers, application documents,
-private photos, and build guides containing stale technical claims.
+vendor CAD models, JLCPCB account and order history, the earlier Android-only companion and
+the sign-language stack, the AR layer's capture and asset tooling, papers, application
+documents, private photos, and build guides containing stale technical claims.
 
 ## Third-party material
 

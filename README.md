@@ -83,7 +83,7 @@ into a hand.
 ## The browser surfaces
 
 Four surfaces, one data path: the front end and the console below, then the AR layer and the
-Android companion in their own sections. All of them run with no hardware at all, on the
+phone companion in their own sections. All of them run with no hardware at all, on the
 bridge's `--sim` synthetic joints. The browser sees the stream at 60 Hz, a display rate, not
 the device's limit (see [On rates](#a-note-on-rates)). Every twin below renders the same
 articulated geometry that ships in [`cad/`](cad/).
@@ -166,26 +166,41 @@ means the space is alive while you are in it.
 
 ---
 
-## The Android companion
+## The phone companion
 
-**Source not included in this release.** The screens below are emulator captures from the build.
+**Source included:** [`software/app/`](software/app/)
 
-A phone app for the times the laptop is not the right instrument: run a session, watch the
-twin, review a recording, and see what the device's round screen is showing, all from the same
-stream and protocol as everything else here.
+A pocket instrument for the times the laptop is not the right one: watch the twin, replay a
+recorded session, and read the twelve joints and the activation channel, from the same stream
+and protocol as everything else here. One Expo codebase for iOS, Android and the browser.
 
 <div align="center">
 
-<img src="docs/media/android-app.png" alt="Four screens of the Android companion" width="100%">
+<img src="docs/media/app-live.gif" alt="The companion app running: the twin curling finger by finger while the twelve joint read-outs and the effort meter follow" width="46%">
 
-<sub><b>Today</b>, starting a session &nbsp;·&nbsp; <b>Replay</b>, the articulated twin
-scrubbing through a recorded take &nbsp;·&nbsp; <b>Live</b>, all twelve joints, orientation and
-activation as they arrive</sub>
+<sub>The travelling wave, index to pinky, on the synthetic feed. Twelve joints driven
+independently, the effort trace leading the motion, and the forearm screen lighting with
+activity.</sub>
 
 </div>
 
-The app is a working prototype and its source is being prepared separately. If it is the piece
-you need, open an issue and say so; that is the fastest way to get it prioritised.
+<div align="center">
+
+<img src="docs/media/app-screens.png" alt="Live, Replay and Data" width="100%">
+
+<sub><b>Live</b>, the device now &nbsp;·&nbsp; <b>Replay</b>, a recorded take played back into
+the same twin &nbsp;·&nbsp; <b>Data</b>, the channels and where the stream comes from</sub>
+
+</div>
+
+The twin is the real CAD driven by the shared mechanical model in
+[`kinematics.js`](software/app/src/data/kinematics.js): the angles, the telescopic slides those
+angles demand, and the spool rotations that produce them. It runs with no hardware at all on
+the same synthetic feed as every other surface, and the three bundled sessions are the
+repository's own sample takes. Point it at a bridge and it reads a real device.
+
+An earlier Android-only build is superseded by this one; its emulator captures are gone from
+this page.
 
 
 ---

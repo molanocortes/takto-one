@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "TAKTO",
+    "slug": "takto-one",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "takto",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#EFEDE7",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "one.takto.companion"
+    },
+    "android": {
+      "package": "one.takto.companion",
+      "adaptiveIcon": {
+        "backgroundColor": "#EFEDE7",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    }
+  }
+}

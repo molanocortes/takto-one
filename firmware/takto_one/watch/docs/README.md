@@ -28,8 +28,8 @@ this repository; step 6 of the flash runbook is how to take them.
 | the browser mirrors of Ferro and Rams | [`../../../../software/web/src/watch_face_renderers.js`](../../../../software/web/src/watch_face_renderers.js) |
 
 Not in this release: the host render and fidelity-test harness, the Ferro
-design canon the second face was ported from, and the Android companion's
-selector. The documents here describe them where the history matters.
+design canon the second face was ported from, and a watch-face selector for
+the phone companion (the app in `software/app/` does not carry one yet). The documents here describe them where the history matters.
 
 ## The rule that keeps it consistent
 

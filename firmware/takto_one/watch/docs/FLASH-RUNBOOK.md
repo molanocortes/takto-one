@@ -167,8 +167,7 @@ Open `http://localhost:8096/?ws=ws://localhost:8765/ws#/operator`, expand
 - The caption under the swatches should now read that the **device confirmed
   it**. With no device attached it reads "held by the host", which is the
   honesty rule: until the Teensy echoes, nothing claims the screen changed.
-- Any other client of the bridge (the Android companion, not in this release,
-  has the same selector) shows the same state, since everything reads
+- Any other client of the bridge shows the same state, since everything reads
   `snap.watch`.
 
 ## 8. Failure modes and what they mean
