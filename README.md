@@ -474,7 +474,8 @@ interesting problems are still unclaimed.
 - **Firmware, bridge, console.** Bugs, features, and platform ports.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). Open an issue with questions, ideas, or photos of
-your build; showing what you made is always welcome.
+your build; showing what you made is always welcome. For anything that does not belong in a
+public issue, write to [sebastian.molano.29@gmail.com](mailto:sebastian.molano.29@gmail.com).
 
 ## License
 
@@ -491,5 +492,6 @@ not covered by any licence above. Build it, change it, sell it, and say it is ba
 ONE; just give your own version its own name. Details in [`LICENSE.md`](LICENSE.md).
 
 <div align="center">
-<sub>Designed and built by Sebastian Molano · Hochschule Anhalt · Made in Germany</sub>
+<sub>Designed and built by Sebastian Molano · Hochschule Anhalt · Made in Germany<br>
+<a href="mailto:sebastian.molano.29@gmail.com">sebastian.molano.29@gmail.com</a></sub>
 </div>
