@@ -123,11 +123,13 @@ export function keyDirection(radius: number) {
 export type Look =
   | 'studio' | 'graphite' | 'clay' | 'ceramic' | 'ink' | 'xray'
   | 'bone' | 'terracotta' | 'sage' | 'slate' | 'midnight' | 'oxide'
-  | 'xray-amber' | 'xray-white' | 'xray-solid' | 'frost' | 'blueprint' | 'chalk';
+  | 'xray-amber' | 'xray-white' | 'xray-solid' | 'frost' | 'blueprint' | 'chalk'
+  | 'cobalt' | 'plum' | 'forest' | 'copper' | 'sand' | 'coral' | 'teal' | 'lilac' | 'olive' | 'charcoal' | 'ivory' | 'rose';
 export const LOOKS: Look[] = [
   'studio', 'graphite', 'clay', 'ceramic', 'ink', 'xray',
   'bone', 'terracotta', 'sage', 'slate', 'midnight', 'oxide',
   'xray-amber', 'xray-white', 'xray-solid', 'frost', 'blueprint', 'chalk',
+  'cobalt', 'plum', 'forest', 'copper', 'sand', 'coral', 'teal', 'lilac', 'olive', 'charcoal', 'ivory', 'rose',
 ];
 
 /** one matte tone for the whole device, an optional second for the spools and the pins */
@@ -211,6 +213,18 @@ export function makeLookMaterials(look: Look): Materials {
     case 'midnight': return matte('#2A3450', '#9AA8C4', '#111624', '#0A0D14', '#4F8DFF');
     case 'oxide': return matte('#C9401B', '#F1E9E0', '#2A1F1B', '#1A1210', '#FFB199');
     case 'chalk': return matte('#F2F1EC', '#F7F6F2', '#3A3936', '#1E1E1C', '#1E66E0');
+    case 'cobalt': return matte('#2F4FBF', '#C9D4F5', '#111A3A', '#0A0F22', '#8FB3FF');
+    case 'plum': return matte('#4A2B4F', '#D8C6DB', '#1E1020', '#150B17', '#C88FD1');
+    case 'forest': return matte('#2E4A3A', '#C7D6CB', '#12201A', '#0B1510', '#8FD1A8');
+    case 'copper': return matte('#9A5A3A', '#EAD6C8', '#3A2218', '#241510', '#FFB088');
+    case 'sand': return matte('#D3C2A6', '#EFE7D8', '#4A4034', '#2A241C', '#FFD9A6');
+    case 'coral': return matte('#E5715F', '#F6DAD3', '#4A2420', '#2A1512', '#FFB0A3');
+    case 'teal': return matte('#2E7C86', '#C9E4E7', '#10343A', '#0A2226', '#8FE0EA');
+    case 'lilac': return matte('#9A8FC4', '#E4E0F2', '#3A3452', '#221E32', '#D3C9FF');
+    case 'olive': return matte('#7A7A4E', '#E1E1CC', '#33331E', '#1F1F12', '#D6D68F');
+    case 'charcoal': return matte('#3A3B3E', '#C6C7CA', '#141516', '#0C0C0D', '#7FB0FF');
+    case 'ivory': return matte('#F0E9D8', '#F8F4EA', '#4A4538', '#2A2720', '#1E66E0');
+    case 'rose': return matte('#C97A8C', '#F3DCE2', '#4A2A32', '#2A171C', '#FFB7C6');
     case 'frost': return {
       // milk glass: the shell lets a little light through, the bank stays dark
       shell: Object.assign(phys('#F4F4F4', 0.35, 0, 0.6, 0.3), { transparent: true, opacity: 0.72 }),
