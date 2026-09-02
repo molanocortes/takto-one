@@ -25,7 +25,7 @@ const SPREAD: Record<Finger, number> = { index: 1, middle: 0.3, ring: -0.3, pink
  * shape a hand takes when the tendons are slack. Every movement departs from
  * this and returns to it.
  */
-const REST: Record<Finger, number> = { index: 0.20, middle: 0.26, ring: 0.32, pinky: 0.38 };
+const REST: Record<Finger, number> = { index: 0.06, middle: 0.09, ring: 0.12, pinky: 0.15 };
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 function smoothstep(a: number, b: number, x: number) {
@@ -94,8 +94,9 @@ function curlOf(finger: Finger, t: number): { curl: number; ab: number } {
   const curl = clamp01(breath * (1 - away) + target - overshoot);
 
   // abduction: a resting whisper, narrowing as the hand closes, fanning in the bloom
-  const rest = SPREAD[finger] * (3.0 + Math.sin(x * 0.45 + fi) * 0.8);
-  const ab = (rest * (1 - curl * 0.8)) + fan * SPREAD[finger] * 12 + sway * 4 * SPREAD[finger];
+  // at rest the hand lies open on a table: fingers spread wide, a whisper of drift
+  const rest = SPREAD[finger] * (9.5 + Math.sin(x * 0.45 + fi) * 0.8);
+  const ab = (rest * (1 - curl * 0.8)) + fan * SPREAD[finger] * 5 + sway * 4 * SPREAD[finger];
   return { curl, ab };
 }
 
