@@ -132,9 +132,9 @@
  * "Adafruit GC9A01A" via Library Manager. The BNO085 driver is tiny_bno085.h
  * here (reentrant, three instances) - the Adafruit library is single-instance
  * and cannot do this.
- * No warranty: compile, flash, then work through
- * Working/Final-Hardening-2026-07/BENCH-RUNBOOK-FIRMWARE.md with the device on
- * the bench before trusting a joint.
+ * No warranty: compile, flash, then follow the bring-up order in
+ * firmware/README.md with the device on the bench, motor power disconnected,
+ * before trusting a joint.
  */
 
 #include <Wire.h>

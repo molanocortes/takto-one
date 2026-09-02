@@ -1,6 +1,6 @@
 // Browser mirrors of the two alternate 240 x 240 firmware faces.
 //
-// The physical device remains authoritative (Fable/watch/faces).  This module
+// The physical device remains authoritative (firmware/takto_one/watch/).  This module
 // intentionally shares its state vocabulary and measurements so the console
 // preview never substitutes the old generic sapphire page when Ferro or Rams
 // is selected.  Thesis continues to use device_screen.js's submitted layouts.

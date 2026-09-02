@@ -1,8 +1,9 @@
 // doom.js - TAKTO ONE easter egg (web side): a REMOTE CONTROL for the real
 // id Software DOOM that runs on the watch's Teensy.
 //
-// The game itself lives on the device (Fable/doom/firmware/takto_doomgeneric,
-// the actual 1993 DOOM engine via doomgeneric). This page does NOT run a game;
+// The game itself lives on the device: a separate firmware image, not in this
+// release, running the actual 1993 DOOM engine via doomgeneric. This page does
+// NOT run a game;
 // it is a gamepad. Every time the pressed-key set changes it sends the 12-bit
 // key mask to the bridge as {cmd:"doom", keys:<mask>}; teensy_bridge.py relays
 // it to the Teensy as "G,<mask>\n" and DOOM plays on the round screen.

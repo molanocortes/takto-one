@@ -1,12 +1,12 @@
 // face_thesis.h — FACE 1: THESIS. A PRESERVATION PORT, not an improvement.
 //
-// Every painter below is moved verbatim from
-// Working/Firmware-and-Code/DeviceFirmware/DeviceFirmware.ino (the on-wrist UI
-// as submitted): same geometry, same constants, same quantized animation
+// Every painter below is moved verbatim from the submitted thesis firmware's
+// DeviceFirmware.ino (the on-wrist UI as submitted): same geometry, same
+// constants, same quantized animation
 // phases. The only mechanical changes are (a) millis() becomes the engine's
 // state clock, (b) the palette is indirected through a Palette struct so a
 // colorway can be selected, and (c) the paint signature moved into
-// signature(). The host fidelity test (host/fidelity_test.cpp) CRC-compares a
+// signature(). A host fidelity test (not in this release) CRC-compares a
 // verbatim legacy copy of the sketch's painters against this port, state by
 // state, and fails on any pixel difference.
 //

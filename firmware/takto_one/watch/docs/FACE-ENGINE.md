@@ -1,33 +1,31 @@
 # TAKTO watch face engine
 
 Three complete watch faces for the on-device round screen (GC9A01, 240x240,
-RGB565, Teensy 4.1), switchable at runtime from the web console and the Android
-app, with the choice persisted on the device.
+RGB565, Teensy 4.1), switchable at runtime from the console, with the choice
+persisted on the device.
 
-**Status: the firmware COMPILES and every face is verified visually on the host.
-It has NOT been flashed. Nothing here is evidence about the physical panel until
-the flash runbook is walked.** See `FLASH-RUNBOOK.md`.
+**What the evidence is:** every face is verified visually on a host build of
+the same C++ the Teensy runs. Those renders are not photographs of the panel,
+and the on-device frame-budget numbers have not been recorded in this
+repository. `FLASH-RUNBOOK.md` is how to take them.
 
 ```
-Fable/watch/
-  faces/            the engine. Compiles unchanged for Teensy AND for the host.
-    watch_state.h     DeviceState, FaceState, Colorway, the WatchFace interface
-    watch_gfx.h       the RGB565 rasterizer + MiniCanvas1 text
-    watch_fonts.h     the three stock Adafruit GFX fonts
-    face_thesis.h     FACE 1, a preservation port of the submitted UI
-    face_ferro.h      FACE 2, a port of the approved Ferro canon
-    face_rams.h       FACE 3, a new Braun/Rams instrument face
-    watch_engine.h    registry, selection, finger-amplitude law, carousel
-  canon/            the imported Ferro design canon (see canon/PROVENANCE.md)
-  host/             the preview + verification target
-    watch_render.cpp  renders any face x state x colorway x time to PPM
-    fidelity_test.cpp the gate that keeps the thesis face pixel-faithful
-    legacy_thesis.h   a verbatim copy of the submitted painters, for that gate
-    sim_feed.h        the canon's simulated hand (MOCK, labelled everywhere)
-  tools/sheet.py    PPM frames -> contact sheets and animated strips
-  catalog.json      GENERATED from the registry; the only face list anything reads
-  out/              review renders (gitignored; regenerate with `make sheets`)
+firmware/takto_one/watch/        the engine. Compiles unchanged for Teensy and for a host
+  watch_state.h                    DeviceState, FaceState, Colorway, the WatchFace interface
+  watch_gfx.h                      the RGB565 rasterizer + MiniCanvas1 text
+  watch_fonts.h                    the three stock Adafruit GFX fonts
+  watch_presentation.h             the presentation filters and paint cadence
+  face_thesis.h                    FACE 1, a preservation port of the submitted UI
+  face_ferro.h                     FACE 2, a port of the approved Ferro canon
+  face_rams.h                      FACE 3, a new Braun/Rams instrument face
+  watch_engine.h                   registry, selection, finger-amplitude law, carousel
+software/watch/catalog.json      generated from the registry; the only face list anything reads
 ```
+
+Not included in this release: the host render and fidelity-test harness
+(`watch_render`, `fidelity_test`, the verbatim legacy copy and the mock feed),
+the Ferro design canon, and the review renders. Where this document cites them
+it is describing how the faces were verified, not files you will find here.
 
 ## The architecture
 
@@ -53,9 +51,8 @@ PNG. That is the verification backbone: every face, state and colorway is looked
 at as an image before anything is flashed. Only the font tables come from
 outside the repo (the stock `Adafruit_GFX_Library` the firmware already needs).
 
-The sketch reaches the engine through a symlink,
-`Working/Firmware-and-Code/DeviceFirmware/DeviceFirmware/watch -> Fable/watch/faces`,
-so there is exactly one copy of the face code and no install step.
+The sketch includes the engine directly from `firmware/takto_one/watch/`, so
+there is exactly one copy of the face code and no install step.
 
 ## Face 1 - THESIS (preservation)
 
@@ -64,14 +61,14 @@ The on-wrist UI exactly as submitted. Every painter is moved verbatim from
 phases. The only mechanical changes are that `millis()` became the engine clock
 and the palette is indirected so a colorway can be selected.
 
-`host/fidelity_test.cpp` is the gate. It renders a **verbatim copy** of the
-submitted painters (`host/legacy_thesis.h`) and the engine's port side by side
+A host fidelity test (not in this release) is the gate. It renders a
+**verbatim copy** of the submitted painters and the engine's port side by side
 for every original state at eight animation phases and compares them byte for
-byte, plus it checks the text rasterizer against the raw font tables. Current
-result: **68 assertions, 0 failures, 0 differing pixels.**
+byte, plus it checks the text rasterizer against the raw font tables. Result at
+the time of the port: **68 assertions, 0 failures, 0 differing pixels.**
 
-If the port and the copy ever disagree, the **engine** is wrong. Do not edit
-`legacy_thesis.h` to make the test pass.
+If the port and the copy ever disagree, the **engine** is wrong; the submitted
+painters are the reference.
 
 Sapphire Depth is the original palette and the only canonical colorway. The two
 extras are explicitly non-canonical recolors that change nothing but the palette
@@ -79,11 +76,12 @@ entries.
 
 ## Face 2 - FERRO (canon port)
 
-A port of the approved canon in `canon/`, not a redesign. Every parameter curve
-is transcribed from `ferro-lang.js` / `ferro-v2.js` with the numbers unchanged;
-the translation is JS canvas to RGB565 software rasterizer.
+A port of an approved design canon (a set of JavaScript canvas sketches, not
+included here), not a redesign. Every parameter curve is transcribed from those
+sketches with the numbers unchanged; the translation is JS canvas to RGB565
+software rasterizer.
 
-Per `canon/SELECTION.md`: finger v5 Mass-lobe, boot v3 Fusion, idle v3 Breathe,
+Per the canon's selection record: finger v5 Mass-lobe, boot v3 Fusion, idle v3 Breathe,
 linked L1 Moon (the one explicit owner pick), standalone v3 Drift, teleop v3
 Channel, recording recA Witness orbit, calib v3 Settle, stop v3 Freeze+invert,
 fault v3 Fracture, battery v3 Thin/feed.
@@ -121,9 +119,8 @@ caption went entirely (it cost a row and pushed the meter off the axis), and
 the ring numerals went (the majors and the centre numeral already say it). The
 accent is spent only on state signals, never on routine readings.
 
-Verified at 240 px, at physical scale (141 px = 32.5 mm at 110 DPI), blurred
-for the squint test, and before/after per state: see `out/rams-*.png`,
-regenerated by `tools/verify_rams.py`.
+Verified on host renders at 240 px, at physical scale (141 px = 32.5 mm at
+110 DPI), blurred for the squint test, and before/after per state.
 
 Motion is information: the index breathes at rest and goes steady and accent
 when engaged, teleop adds a second hollow index for commanded torque and fills
@@ -143,7 +140,7 @@ undocumented.
 | Gap | The truth |
 |---|---|
 | `FS_BATTERY` | The board has **no fuel gauge**. The firmware never enters this state and always reports `battery = -1`. Both new faces implement it, and the harness exercises it, because the Ferro canon specifies it and a future board may have one. |
-| `DeviceState.torque` | Host-fed, and there is no channel for it yet, so the firmware always sends **0**. The host owns the motor bus via the U2D2; the device never measures torque. Rams' commanded index and Ferro's channel therefore show none on real hardware. |
+| `DeviceState.torque` | Measured, not commanded. The Teensy owns the motor bus, and the sketch fills this field with the largest measured motor current normalised by the software current cap (`I_CAP_MA`), or 0 whenever the bus is not taken or torque is off. It is a current-effort proxy, not a torque measurement at the finger; the faces label it as effort. |
 | Thesis face, battery screen | The submitted firmware has **no battery screen**. The one here is an engine-era addition built from the thesis face's own vocabulary, and it is excluded from the pixel-fidelity gate because there is no original to be faithful to. |
 | Ferro, `FS_SAVED` | The canon never explored a saved state. It is rendered as the canon's own documented recording exit (pinch-off, rejoin, completion ring-out), so no new vocabulary is invented, but it is canon-**derived**, not canon-selected. |
 | Ferro, battery phases | The canon's battery entry is an 18 s demo **loop**. The device has real values, so the three phases are selected by `(battery, charging)` instead of by loop time. The curves inside each phase are unchanged. |
@@ -175,16 +172,11 @@ fake ones.
 
 ## Regenerating everything
 
-```bash
-cd Fable/watch/host
-make            # watch_render + fidelity_test
-make test       # the thesis-face pixel gate
-make catalog    # regenerate ../catalog.json from the registry
-./watch_render --list
-./watch_render --profile
-```
+The host harness that rendered the review sheets and regenerated the catalog is
+not part of this release. What matters for a contributor is the invariant it
+enforced:
 
-`catalog.json` is generated from the C++ registry and is the **only** face list
-the bridge, the web console and the Android app are allowed to read. If you add
-a face or a colorway, run `make catalog` or every other surface goes stale.
-`ecosystem_test.py` section M asserts the served catalog matches the file.
+`software/watch/catalog.json` mirrors the C++ registry in `watch_engine.h` and
+is the **only** face list the bridge and the console are allowed to read. If
+you add a face or a colorway, update `catalog.json` in the same change, or
+every other surface goes stale. The bridge refuses to start without the file.

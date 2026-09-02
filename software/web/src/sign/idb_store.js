@@ -1,8 +1,8 @@
 // idb_store.js - the IndexedDB persistence adapter for SignCapture in the
-// browser. SHARED SOURCE: vendored byte-identical into
-// Fable/web/app/src/sign/idb_store.js (parity enforced by signlang_test.py,
-// gate 2a2) so the store real operators depend on is the exact code the
-// adversarial suite exercises in Node (against a fake indexedDB).
+// browser. SHARED SOURCE: kept byte-identical with the copy in the
+// sign-language stack (TAKTO-SIGN, not in this release), whose test suite
+// enforces the parity so the store real operators depend on is the exact code
+// its adversarial suite exercises in Node (against a fake indexedDB).
 //
 // Mirrors fs_store.mjs semantics:
 //   - a sealed rep is persisted the instant it seals (one record per rep),

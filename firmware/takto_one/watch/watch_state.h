@@ -37,9 +37,10 @@ struct DeviceState {
                         // computed by watchEngineUpdate: a=min(1,4|dv/dt|),
                         // instant attack, exp(-dt/0.45 s) decay)
   float emg;            // activation envelope 0..1 (self-normalized)
-  float torque;         // motor effort 0..1 — HOST-FED; 0 on today's bench
-                        // (the host owns the motor bus; the device never
-                        // measures torque itself)
+  float torque;         // motor effort 0..1: the largest measured motor
+                        // current normalised by the software current cap.
+                        // The Teensy owns the bus; 0 when it is not taken
+                        // or torque is off. An effort proxy, not finger torque.
   float roll;           // hand roll, rad (from the hand IMU quaternion)
   // health lamps (the thesis-face pentagon)
   bool imuOk, encOk, emgOk, motOk, link;

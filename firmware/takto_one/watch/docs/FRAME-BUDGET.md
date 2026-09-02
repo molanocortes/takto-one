@@ -4,8 +4,9 @@ A face that drops the sensor loop is a failure however good it looks. This is
 what is known, what is measured, and what is still pending.
 
 **Nothing here is a device measurement.** Every number below is from the host
-target. The device numbers come from the firmware's own `T` report and are
-PENDING until the board is flashed (`FLASH-RUNBOOK.md`, step 6).
+target. The device numbers come from the firmware's own `T` report and have not
+been recorded in this repository; `FLASH-RUNBOOK.md`, step 6, is how to take
+them.
 
 ## What the engine costs
 

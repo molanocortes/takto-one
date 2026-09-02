@@ -1,8 +1,9 @@
 # Flash runbook: the watch face engine on the physical screen
 
-**Status: the firmware compiles clean for Teensy 4.1 and has NOT been flashed.
-Every image produced so far is a host render of the same face code, not a
-photograph of the panel. On-device behaviour is PENDING until you walk this.**
+**What this establishes.** The face renders in this repository are host renders
+of the same face code, not photographs of the panel, and the on-device
+frame-budget numbers have not been recorded here. Walking this runbook on your
+build is what turns the host evidence into device evidence.
 
 Budget about 20 minutes. Nothing here needs the motors, the SEA runner, or a
 host connection except where it says so.
@@ -11,23 +12,22 @@ host connection except where it says so.
 
 ## 0. Before you start
 
-You need the Teensy connected by USB and the Arduino IDE's `arduino-cli`, which
-is already on this machine:
+You need the Teensy connected by USB and `arduino-cli` with the Teensy board
+package installed (the Arduino IDE bundles one; see
+[`../../../README.md`](../../../README.md) for the compile line).
 
 ```bash
-/Applications/Arduino\ IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli version
+arduino-cli version
 ```
 
-The sketch reaches the face engine through a symlink
-(`DeviceFirmware/watch -> Fable/watch/faces`). If you ever copy the sketch
-folder somewhere else, copy it with `cp -R` so the symlink resolves, or the
-build will fail with `watch/watch_engine.h: No such file`.
+The sketch includes the face engine from its own `watch/` subfolder, so the
+whole of `firmware/takto_one/` must be copied together if you move it.
 
 ## 1. Compile (should be identical to what is already verified)
 
 ```bash
 cd <repo>/firmware/takto_one
-"/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli" compile --fqbn teensy:avr:teensy41 .
+arduino-cli compile --fqbn teensy:avr:teensy41 .
 ```
 
 Expect roughly `FLASH: code:149484` and `RAM2: variables:250496`. A wildly
@@ -37,7 +37,7 @@ and something in `face_thesis.h` was edited.
 ## 2. Flash
 
 ```bash
-"/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli" upload --fqbn teensy:avr:teensy41 -p /dev/cu.usbmodem* .
+arduino-cli upload --fqbn teensy:avr:teensy41 -p /dev/cu.usbmodem* .
 ```
 
 If the Teensy Loader does not pick it up, press the button on the board and
@@ -90,18 +90,18 @@ the geometry must.
 
 **Thesis.** Sapphire on a soft dark vignette. No host: the searching comet.
 Host connected and idle: the TAKTO five-bar mark near the top, a breathing azure
-heart at centre, and a pentagon of five lamps (IMU, ENC, EMG, MOT, LNK). MOT is
-a hollow gold ring, not a fault, because the host owns the motor bus. A real
-drop-out turns a lamp coral and names it underneath.
+heart at centre, and a pentagon of five lamps (IMU, ENC, EMG, MOT, LNK). MOT
+stays a hollow gold ring, not a fault, until the Teensy has taken the bus and
+enabled torque (`M,t,1` then `M,e,1`); with motor power off that is the
+expected state. A real drop-out turns a lamp coral and names it underneath.
 
 **Ferro.** A dark ferrofluid pool on a near-black field with a lit rim. **This
 is the one to scrutinise.** The canon puts the mass at #15181C on a #050607
 field, which is a genuinely subtle 6 % luminance difference before the panel's
 own gamma touches it. On the host render the body reads as a dark mass with a
 bright rim. If on the panel it reads as an empty outline with nothing inside,
-that is a real legibility finding and worth telling me: it is a property of the
-approved canon, not a porting bug, and changing it is a design decision that is
-yours to make.
+that is a real legibility finding and worth an issue: it is a property of the
+approved canon, not a porting bug, and changing it is a design decision.
 
 Move your instrumented finger and the mass should bulge toward that finger's
 bearing along the top arc, with a small counter-lobe opposite. If nothing moves,
@@ -155,19 +155,21 @@ than the animation running too quickly.
 With the bridge running against the real device:
 
 ```bash
-cd <repo>/software/bridge
-python3 teensy_bridge.py --port /dev/cu.usbmodem*
-python3 -m http.server 8096 --directory ../app     # in another shell
+cd <repo>
+SENSORYHAND_STATE_DIR=.takto-state python3 software/bridge/teensy_bridge.py --port /dev/cu.usbmodem*
+python3 -m http.server 8096 --directory software/console/app     # in another shell
 ```
 
-Open `http://localhost:8096/#/operator`, expand **Tools**, then **Watch face**.
+Open `http://localhost:8096/?ws=ws://localhost:8765/ws#/operator`, expand
+**Tools**, then **Watch face**.
 
 - Pick a face and a colorway. The screen should change within a second.
 - The caption under the swatches should now read that the **device confirmed
   it**. With no device attached it reads "held by the host", which is the
   honesty rule: until the Teensy echoes, nothing claims the screen changed.
-- The Android app's Settings has the same selector and should show the same
-  state, since both read `snap.watch`.
+- Any other client of the bridge (the Android companion, not in this release,
+  has the same selector) shows the same state, since everything reads
+  `snap.watch`.
 
 ## 8. Failure modes and what they mean
 
@@ -176,51 +178,23 @@ Open `http://localhost:8096/#/operator`, expand **Tools**, then **Watch face**.
 | Blank screen, serial fine | SPI or panel wiring, not the engine |
 | Comes up on the wrong face | EEPROM holds an older selection. Send the face you want; it saves |
 | Always boots thesis/sapphire despite saving | The EEPROM write is failing or `WATCH_EE_ADDR` (64) collides with something. Check the `E,watch,...,1` echo is arriving |
-| `E,watch,...,0` on a valid id | The index is out of range for the registry. Regenerate `catalog.json` (`make catalog` in `Fable/watch/host`) so the host and the firmware agree |
+| `E,watch,...,0` on a valid id | The index is out of range for the registry. Bring `software/watch/catalog.json` back in step with `watch_engine.h` so the host and the firmware agree |
 | Console offers a face the device refuses | `catalog.json` is stale relative to the firmware. Same fix |
 | Ferro looks like an empty outline | Expected-ish; see step 5. A legibility finding, not a port bug |
 | Joint bars flat, Ferro does not deform | Encoders are only sampled while streaming or recording. Connect the bridge, or send `j` |
 | Loop rate collapses on Ferro | The real frame-budget failure. Report the `T` numbers |
 
-## 8b. The DOOM build (a SEPARATE image, optional, do it last)
+## 8b. The DOOM build
 
-`Fable/doom/firmware/takto_doomgeneric` is a different sketch that also uses
-this face engine: it boots to the normal watch and hides real id DOOM behind a
-crown sequence. It is not part of the face-engine verification and it does no
-sensing. Walk it only after steps 1 to 7 above are green, because it needs
-hardware the sensing build does not.
-
-Extra hardware it needs, which the guards report on screen if missing:
-**PSRAM soldered** (8 MB, the bottom QSPI pads) and a **FAT32 microSD** holding
-`DOOM1.WAD` at the card root (`Fable/doom/server/fetch_wad.sh --to <card>`).
-
-```bash
-ACLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli"
-"$ACLI" compile --fqbn "teensy:avr:teensy41:opt=oslto" Fable/doom/firmware/takto_doomgeneric
-# stop teensy_bridge.py first, then upload with -p <PORT>
-```
-
-Host-verified figures to check against on the bench (2026-07-30):
-FLASH code 187,904 + data 180,880; **RAM1 free for locals 36,640 B**;
-RAM2 free 155,520 B. That RAM1 headroom is the number to watch: it is the stack
-DOOM runs in, and it is less than half what the DOOM-only build had before the
-face engine was linked in. It has NOT been proven on hardware.
-
-| symptom | cause |
-|---|---|
-| `NO PSRAM` / `NO SD CARD` / `NO DOOM1.WAD` on entry | exactly what it says; the watch stays usable, the gate just refuses |
-| The crown sequence never opens anything | steps time out at 1.5 s apart. Three pips at the bottom of the dial mean you are three steps in |
-| It opens DOOM and then immediately returns to the watch | the stall watchdog. The engine booted but never drew: suspect the SD read or the zone heap |
-| It opens DOOM and hangs with no way out | the one failure the gate cannot catch, because a hang inside a tic stops the loop that services it. Report it: this is the case that would need the hardware watchdog |
-| Long press does not leave | the gate is not seeing crown events; check `uiIn.begin` pins against `dg_config.h` |
-
-Report the RAM1 stack headroom under load and whether E1M1 holds frame rate.
-Until then `README-EGG.md` says the watch build compiles and has not been
-flashed, because that is what is true.
+A separate firmware image, not in this release, links this same face engine and
+hides a port of the 1993 DOOM behind a crown sequence on the round screen; the
+remote-control page for it is still present in `software/web/src/views/doom.js`.
+It needs soldered PSRAM and a FAT32 card holding the game data, and it is not
+part of the face-engine verification. It is mentioned so the console's DOOM
+route is not a mystery, not because there is anything here to flash.
 
 ## 9. When it works
 
-Tell me and I will replace the PENDING notes in `FACE-ENGINE.md` and
-`FRAME-BUDGET.md` with the measured numbers, and record the on-device state in
-memory. Until then every document in this directory says the firmware compiles
-and has not been flashed, because that is what is true.
+Open an issue with the `T` numbers from step 6 for each face, loaded and
+unloaded. Those are the measurements `FRAME-BUDGET.md` is waiting for, and a
+photograph of each face on the panel is worth more than any render here.

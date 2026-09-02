@@ -1,8 +1,8 @@
 // face_ferro.h — FACE 2: FERRO. A PORT OF THE APPROVED CANON, not a redesign.
 //
-// Source of truth: Fable/watch/canon/ (FERRO-SPEC.md, SELECTION.md,
-// design/ferro-lang.js, design/ferro-v2.js), imported from the Claude Design
-// project "Gallery review: Eight directions" (2026-07-27). Every parameter
+// Source of truth: the Ferro design canon (FERRO-SPEC.md, SELECTION.md,
+// ferro-lang.js, ferro-v2.js; JavaScript canvas sketches, not included in this
+// release), reviewed and selected on 2026-07-27. Every parameter
 // curve below is transcribed from STATES[] / drawFerro() / l1() with the
 // numbers unchanged; the only translation is JS canvas -> RGB565 software
 // rasterizer.

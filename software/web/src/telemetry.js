@@ -50,7 +50,7 @@ function quatFromRPY(r, p, y) {
   return [cr*cp*cy + sr*sp*sy, sr*cp*cy - cr*sp*sy, cr*sp*cy + sr*cp*sy, cr*cp*sy - sr*sp*cy];
 }
 
-// MOCK DATA ONLY: a copy of Fable/watch/catalog.json so ?mock=1 can exercise the
+// MOCK DATA ONLY: a copy of software/watch/catalog.json so ?mock=1 can exercise the
 // watch-face panel with no bridge. The real catalog is generated from the
 // firmware registry and served by the host; nothing but this mock may hold a
 // face list, and the UI still reads it from the watch_catalog frame.

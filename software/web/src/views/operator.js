@@ -305,9 +305,10 @@ export function mountOperator(rootHost) {
     blendWord.textContent = a < 0.15 ? "transparent" : a > 0.85 ? "assisted" : "blended";
   }));
 
-  // motors: which are online + working. The motor bus is host-owned (U2D2), so
-  // this stays "offline" until the motor host is bridged; then each motor lights
-  // up here (green = torque on / working, amber = online but idle).
+  // motors: which are online + working. The Teensy owns the motor bus, so this
+  // stays "offline" until the firmware has taken the bus (M,t,1) and the bridge
+  // relays its telemetry; then each motor lights up here (green = torque on /
+  // working, amber = online but idle).
   const motorStatusRows = {};   // id -> { dot, val, node }
   const motorStatusList = el("div", { class: "vital-rows motor-status-list" });
   const motorStatusEmpty = el("div", { class: "vital-row motor-status-empty" },

@@ -55,8 +55,8 @@ struct TinyBNO085 {
 
   // Orientation source for THIS instance. 0x05 (rotation vector) is magnetometer
   // fused: absolute heading, but it sits next to twelve neodymium magnets
-  // (Working/Thumb-IMU/REQUIREMENTS.md S1 measured 3401 uT at 10 mm against
-  // Earth's ~50 uT). 0x08 (game rotation vector) is magnet-immune, bought with
+  // (a bench measurement during thumb-IMU bring-up read 3401 uT at 10 mm
+  // against Earth's ~50 uT). 0x08 (game rotation vector) is magnet-immune, bought with
   // yaw drift. Construct per sensor; both are parsed either way, so switching is
   // a one-argument change and the OTHER quaternion stays available for compare.
   uint8_t  rotReport = RPT_ROTVEC;
