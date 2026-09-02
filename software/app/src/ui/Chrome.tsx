@@ -8,7 +8,7 @@ import { BlurView } from 'expo-blur';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Twin } from '../twin/Twin';
-import { T, IconButton } from './primitives';
+import { T, Num, IconButton, Glass } from './primitives';
 import { C, S, R } from './tokens';
 
 export const NAV_H = 64;
@@ -17,9 +17,11 @@ export const NAV_GAP = 14;
 /** The app mark: a white disc with the letter. */
 export function Mark({ size = 44 }: { size?: number }) {
   return (
-    <View style={[st.mark, { width: size, height: size, borderRadius: size / 2 }]}>
-      <T size={Math.round(size * 0.4)} weight="600" color={C.t1} tracking={-1}>T</T>
-    </View>
+    <Glass radius={size / 2} style={{ width: size, height: size }}>
+      <View style={[st.mark, { width: size, height: size }]}>
+        <T size={Math.round(size * 0.4)} weight="600" color={C.t1} tracking={-1}>T</T>
+      </View>
+    </Glass>
   );
 }
 
@@ -62,12 +64,14 @@ export function GlassChip({ icon, label, onPress, chevron, tone = 'glass' }: {
 }) {
   const fg = tone === 'accent' ? C.accent : tone === 'live' ? C.live : C.t1;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [st.chip, { opacity: pressed ? 0.8 : 1 }]}>
-      <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: C.glassStrong }]} />
-      {icon && <Feather name={icon} size={15} color={fg} />}
-      <T size={13.5} weight="500" color={fg}>{label}</T>
-      {chevron && <Feather name="chevron-down" size={15} color={C.t2} style={{ marginLeft: 2 }} />}
+    <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}>
+      <Glass radius={R.pill}>
+        <View style={st.chip}>
+          {icon && <Feather name={icon} size={15} color={fg} />}
+          <T size={13.5} weight="500" color={fg}>{label}</T>
+          {chevron && <Feather name="chevron-down" size={15} color={C.t2} style={{ marginLeft: 2 }} />}
+        </View>
+      </Glass>
     </Pressable>
   );
 }
@@ -78,8 +82,8 @@ export function Backdrop({ dim = 0, lift = 0.0, scale = 1 }: { dim?: number; lif
   return (
     <View style={StyleSheet.absoluteFill}>
       <Twin style={[StyleSheet.absoluteFill, { top: -height * lift, bottom: height * lift }]} stage="dark" scale={scale} />
-      <LinearGradient colors={['rgba(10,10,11,0.85)', 'rgba(10,10,11,0)']} style={st.fadeTop} pointerEvents="none" />
-      <LinearGradient colors={['rgba(10,10,11,0)', 'rgba(10,10,11,0.9)']} style={st.fadeBot} pointerEvents="none" />
+      <LinearGradient colors={['rgba(10,10,11,0.6)', 'rgba(10,10,11,0)']} style={st.fadeTop} pointerEvents="none" />
+      <LinearGradient colors={['rgba(10,10,11,0)', 'rgba(10,10,11,0.75)']} style={st.fadeBot} pointerEvents="none" />
       {dim > 0 && <View style={[StyleSheet.absoluteFill, { backgroundColor: `rgba(10,10,11,${dim})` }]} pointerEvents="none" />}
     </View>
   );
@@ -89,25 +93,28 @@ export function Backdrop({ dim = 0, lift = 0.0, scale = 1 }: { dim?: number; lif
  * The bottom sheet. It owns its own scroll, so the machine above it keeps
  * the drag. A tap on the handle toggles peek and open.
  */
-export function Sheet({ children, peek = 0.36, open = 0.82, title, subtitle, initial = 'peek' }: {
-  children: React.ReactNode; peek?: number; open?: number; title?: string; subtitle?: string;
-  initial?: 'peek' | 'open';
+export function Sheet({ children, open, onClose, share = 0.78, title, subtitle }: {
+  children: React.ReactNode; open: boolean; onClose: () => void; share?: number; title?: string; subtitle?: string;
 }) {
   const { height } = useWindowDimensions();
   const inset = useSafeAreaInsets();
-  const [isOpen, setOpen] = useState(initial === 'open');
-  const h = useRef(new Animated.Value((isOpen ? open : peek) * height)).current;
-  const toggle = () => {
-    const next = !isOpen; setOpen(next);
-    Animated.spring(h, { toValue: (next ? open : peek) * height, useNativeDriver: false, bounciness: 4 }).start();
-  };
+  const y = useRef(new Animated.Value(open ? 0 : height)).current;
+  const [mounted, setMounted] = useState(open);
+  React.useEffect(() => {
+    if (open) setMounted(true);
+    Animated.spring(y, { toValue: open ? 0 : height, useNativeDriver: true, bounciness: 2, speed: 14 })
+      .start(({ finished }) => { if (finished && !open) setMounted(false); });
+  }, [open]);
+  if (!mounted) return null;
   return (
-    <Animated.View style={[st.sheet, { height: h }]}>
-      <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
+    <Animated.View style={[st.sheet, { height: share * height, transform: [{ translateY: y }] }]}>
+      <BlurView intensity={70} tint="dark" style={StyleSheet.absoluteFill} />
       <View style={[StyleSheet.absoluteFill, { backgroundColor: C.sheet }]} />
+      <LinearGradient colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0)']} locations={[0, 0.25]}
+        style={StyleSheet.absoluteFill} pointerEvents="none" />
       <View style={st.sheetLine} pointerEvents="none" />
-      <Pressable onPress={toggle} style={st.handle} hitSlop={10}>
-        <Feather name={isOpen ? 'chevron-down' : 'chevron-up'} size={18} color={C.t2} />
+      <Pressable onPress={onClose} style={st.handle} hitSlop={10}>
+        <Feather name="chevron-down" size={18} color={C.t2} />
       </Pressable>
       {title && (
         <View style={st.sheetHead}>
@@ -144,6 +151,20 @@ export function Row({ icon, label, note, value, badge, tone, onPress, last }: {
   );
 }
 
+/** A big number standing on the stage, no card under it. */
+export function StageNumber({ label, value, unit, note }: { label: string; value: string; unit?: string; note?: string }) {
+  return (
+    <View>
+      <T size={13} weight="500" color={C.t2}>{label}</T>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+        <Num size={64} weight="300" tracking={-2.5}>{value}</Num>
+        {unit && <T size={22} weight="300" color={C.t2} style={{ marginLeft: 4 }}>{unit}</T>}
+      </View>
+      {note && <T size={13} color={C.t3} style={{ marginTop: -4 }}>{note}</T>}
+    </View>
+  );
+}
+
 /** Padding under scroll content so the floating nav never hides the last card. */
 export function useBottomPad() {
   const inset = useSafeAreaInsets();
@@ -151,7 +172,7 @@ export function useBottomPad() {
 }
 
 const st = StyleSheet.create({
-  mark: { backgroundColor: C.glassStrong, borderWidth: 1, borderColor: C.glassLineStrong, alignItems: 'center', justifyContent: 'center' },
+  mark: { alignItems: 'center', justifyContent: 'center' },
   badge: {
     position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, borderRadius: 9,
     backgroundColor: C.stop, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5,
@@ -159,17 +180,14 @@ const st = StyleSheet.create({
   header: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, paddingHorizontal: S.s5 },
   headerRow: { flexDirection: 'row', alignItems: 'center' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: S.s2, marginTop: S.s4 },
-  chip: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingHorizontal: 16,
-    borderRadius: R.pill, overflow: 'hidden', borderWidth: 1, borderColor: C.glassLine,
-  },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingHorizontal: 16 },
   fadeTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 200 },
   fadeBot: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 260 },
   sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0, overflow: 'hidden',
     borderTopLeftRadius: R.r4, borderTopRightRadius: R.r4,
   },
-  sheetLine: { position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: C.glassLineStrong },
+  sheetLine: { position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.4)' },
   handle: { alignItems: 'center', paddingTop: 10, paddingBottom: 2 },
   sheetHead: { paddingHorizontal: S.s5, paddingTop: S.s2, paddingBottom: S.s3 },
   row: { flexDirection: 'row', alignItems: 'center', gap: S.s3, paddingVertical: 15 },

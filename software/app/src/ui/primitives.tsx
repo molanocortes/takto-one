@@ -5,8 +5,9 @@ import {
   type StyleProp, type ViewStyle, type TextStyle,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
-import { C, S, R, SHADOW, fontFor } from './tokens';
+import { C, S, R, SHADOW, LIFT, fontFor } from './tokens';
 
 type TW = TextStyle['fontWeight'];
 
@@ -52,18 +53,29 @@ export function Label({ children, color = C.t3, style }: {
 }
 
 /**
- * Frosted glass. On web this is a real backdrop blur; on native expo-blur
- * renders the same. The hairline border is what separates it from the stage.
+ * Liquid glass: a lens rather than a frosted pane. Backdrop blur, a faint
+ * milk fill, a highlight that pools along the top edge as if light entered
+ * there, a fainter one along the bottom where it leaves, a rim that is
+ * brightest on the lit side, and a soft shadow that lifts it off the stage.
+ * Every control in the app sits on this.
  */
-export function Glass({ children, style, intensity = 40, radius = R.r3, strong = false, padded = false }: {
+export function Glass({ children, style, intensity = 50, radius = R.r3, strong = false, padded = false }: {
   children?: React.ReactNode; style?: StyleProp<ViewStyle>; intensity?: number;
   radius?: number; strong?: boolean; padded?: boolean;
 }) {
   return (
-    <View style={[st.glassWrap, { borderRadius: radius }, style]}>
-      <BlurView intensity={intensity} tint="dark" style={StyleSheet.absoluteFill} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: strong ? C.glassStrong : C.glass }]} />
-      <View style={[st.glassBorder, { borderRadius: radius }]} pointerEvents="none" />
+    <View style={[st.liquidOuter, { borderRadius: radius }, style]}>
+      <View style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: 'hidden' }]} pointerEvents="none">
+        <BlurView intensity={intensity} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: strong ? C.glassStrong : C.glass }]} />
+        <LinearGradient colors={['rgba(255,255,255,0.22)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0)']}
+          locations={[0, 0.32, 0.62]} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.09)']}
+          locations={[0.72, 1]} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={['rgba(255,255,255,0.10)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0.06)']}
+          locations={[0, 0.3, 0.7, 1]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} />
+      </View>
+      <View style={[st.liquidRim, { borderRadius: radius }]} pointerEvents="none" />
       <View style={[padded && { padding: S.s5 }]}>{children}</View>
     </View>
   );
@@ -103,11 +115,18 @@ export function IconButton({ icon, onPress, size = 44, tone = 'glass', style, ic
   const bg = tone === 'white' ? C.white : tone === 'accent' ? C.accent : tone === 'ghost' ? 'transparent' : C.glassStrong;
   const fg = tone === 'white' ? C.ink : tone === 'accent' ? C.white : C.t1;
   return (
-    <Pressable onPress={onPress} hitSlop={8} style={({ pressed }) => [
-      st.iconBtn, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg, opacity: pressed ? 0.75 : 1 },
-      tone === 'glass' && st.iconBtnLine, style,
-    ]}>
-      <Feather name={icon} size={iconSize ?? Math.round(size * 0.42)} color={fg} />
+    <Pressable onPress={onPress} hitSlop={8} style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }, style]}>
+      {tone === 'glass' ? (
+        <Glass radius={size / 2} style={[st.iconBtn, { width: size, height: size }]}>
+          <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+            <Feather name={icon} size={iconSize ?? Math.round(size * 0.42)} color={fg} />
+          </View>
+        </Glass>
+      ) : (
+        <View style={[st.iconBtn, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg }]}>
+          <Feather name={icon} size={iconSize ?? Math.round(size * 0.42)} color={fg} />
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -156,7 +175,8 @@ export function Segmented<K extends string>({ options, value, onChange, style }:
   options: readonly { key: K; label: string }[]; value: K; onChange: (k: K) => void; style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <View style={[st.seg, style]}>
+    <Glass radius={R.pill} style={style}>
+    <View style={st.seg}>
       {options.map((o) => {
         const on = o.key === value;
         return (
@@ -166,12 +186,18 @@ export function Segmented<K extends string>({ options, value, onChange, style }:
         );
       })}
     </View>
+    </Glass>
   );
 }
 
 const st = StyleSheet.create({
-  glassWrap: { overflow: 'hidden' },
-  glassBorder: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderWidth: 1, borderColor: C.glassLine },
+  liquidOuter: { ...(LIFT as object) },
+  liquidRim: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.42)', borderLeftColor: 'rgba(255,255,255,0.26)',
+    borderRightColor: 'rgba(255,255,255,0.16)', borderBottomColor: 'rgba(255,255,255,0.12)',
+    ...(Platform.OS === 'web' ? { boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(255,255,255,0.06)' } as any : {}),
+  },
   card: { backgroundColor: C.card, borderRadius: R.r3, borderWidth: 1, borderColor: C.glassLine },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
@@ -184,8 +210,7 @@ const st = StyleSheet.create({
     height: 60, borderRadius: R.pill, paddingLeft: S.s5, paddingRight: 6, ...(SHADOW as object),
   },
   pillDisc: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-  seg: { flexDirection: 'row', backgroundColor: C.glass, borderRadius: R.pill, padding: 3, gap: 2,
-    borderWidth: 1, borderColor: C.glassLine },
+  seg: { flexDirection: 'row', padding: 3, gap: 2 },
   segItem: { flex: 1, height: 32, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: C.white },
 });

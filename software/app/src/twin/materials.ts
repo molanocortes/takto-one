@@ -51,40 +51,40 @@ export function makeMaterials() {
 }
 
 /**
- * The graphite colourway: the second device in the hero still. Same
- * discipline as the white one (matte, tonal, one bright detail) inverted:
- * a dark shell, links a half step lighter so the lattice separates, light
- * spools riding the black bank, and the screen glowing from within.
+ * The studio colourway for the dark stage: the WHITE device from the product
+ * stills, photographed on black. A satin shell under a thin clearcoat, so
+ * it picks up the room as a soft sheen; links a half step deeper so the
+ * lattice separates; dark steel pins; the bank true black; the screen
+ * glowing blue from within, as on the hero still.
  */
-export const GRAPHITE = {
-  shell: '#3A3B40',
-  link: '#4A4B51',
-  pin: '#9A9CA2',
-  bank: '#050505',
-  board: '#1E1E21',
-  spool: '#D9D9D9',
-  glass: '#0B0B0D',
+export const STUDIO_DARK = {
+  shell: '#CFCFCF',
+  link: '#B8B8BA',
+  pin: '#4A4B50',
+  bank: '#0A0A0A',
+  board: '#232326',
+  spool: '#D6D6D6',
+  glass: '#0E1A2E',
 } as const;
 
-const phys = (color: string, roughness: number, metalness = 0, clearcoat = 0) =>
+const phys = (color: string, roughness: number, metalness = 0, clearcoat = 0, clearcoatRoughness = 0.2) =>
   new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color(color), roughness, metalness, clearcoat, clearcoatRoughness: 0.35,
+    color: new THREE.Color(color), roughness, metalness, clearcoat, clearcoatRoughness,
+    envMapIntensity: 1,
   });
 
 export function makeGraphiteMaterials(): Materials {
   return {
-    // a satin shell with a thin clearcoat: it picks up the studio as a soft
-    // sheen rather than a hard reflection
-    shell: phys(GRAPHITE.shell, 0.48, 0.05, 0.5),
-    link: phys(GRAPHITE.link, 0.45, 0.1, 0.3),
-    pin: std(GRAPHITE.pin, 0.35, 0.6),
-    bank: std(GRAPHITE.bank, 0.45),
-    board: std(GRAPHITE.board, 0.5),
-    glass: Object.assign(std(GRAPHITE.glass, 0.2, 0.1), {
-      emissive: new THREE.Color('#FF5B2E'),
-      emissiveIntensity: 0.9,
+    shell: phys(STUDIO_DARK.shell, 0.42, 0.0, 0.9, 0.18),
+    link: phys(STUDIO_DARK.link, 0.5, 0.0, 0.5, 0.3),
+    pin: phys(STUDIO_DARK.pin, 0.3, 0.8, 0.0),
+    bank: phys(STUDIO_DARK.bank, 0.38, 0.05, 0.6, 0.25),
+    board: phys(STUDIO_DARK.board, 0.5, 0.1),
+    glass: Object.assign(phys(STUDIO_DARK.glass, 0.08, 0.2, 1.0, 0.03), {
+      emissive: new THREE.Color('#1E66E0'),
+      emissiveIntensity: 0.75,
     }),
-    spool: std(GRAPHITE.spool, 0.6),
+    spool: phys(STUDIO_DARK.spool, 0.55, 0.0, 0.3, 0.4),
   } as Materials;
 }
 

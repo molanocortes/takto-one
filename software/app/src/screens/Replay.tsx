@@ -7,7 +7,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, PanResponder, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Header, Backdrop, Sheet, Row, GlassChip, BadgeButton } from '../ui/Chrome';
+import { Header, Backdrop, Sheet, Row, GlassChip, BadgeButton, StageNumber, NAV_H, NAV_GAP } from '../ui/Chrome';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, Num, Label, Glass, IconButton, Segmented } from '../ui/primitives';
 import { Trace, Sparkline } from '../ui/Meters';
 import { C, S, R, FINGERS } from '../ui/tokens';
@@ -38,34 +39,27 @@ function Library() {
   const takes = useMemo(bundledTakes, []);
   const { height } = useWindowDimensions();
   const [featured] = takes;
+  const [sheet, setSheet] = useState(false);
+  const inset = useSafeAreaInsets();
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Backdrop dim={0.35} lift={0.13} scale={0.84} />
+      <Backdrop dim={0.25} lift={0.04} scale={0.92} />
       <Header title="Replay" right={<BadgeButton icon="folder" />}
         chips={<GlassChip icon="hard-drive" label="Bundled" chevron />} />
 
-      <Pressable onPress={() => session.setTake(featured)} style={[st.float, { top: height * 0.36 }]}>
-        <Glass intensity={70} strong>
-          <View style={{ padding: S.s5 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-              <View style={{ flex: 1 }}>
-                <T size={17} weight="500">{featured.title}</T>
-                <T size={13} color={C.t2} style={{ marginTop: 3 }} numberOfLines={2}>{featured.note}</T>
-              </View>
-              <Feather name="arrow-up-right" size={18} color={C.t2} />
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: S.s4 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Num size={56} weight="300" tracking={-2}>{featured.durationS.toFixed(0)}</Num>
-                <T size={16} weight="300" color={C.t2} style={{ marginLeft: 4 }}>s</T>
-              </View>
-              <View style={st.playDisc}><Feather name="play" size={20} color={C.ink} style={{ marginLeft: 2 }} /></View>
-            </View>
-          </View>
-        </Glass>
-      </Pressable>
+      <View style={[st.foot, { bottom: NAV_H + NAV_GAP * 2 + inset.bottom + S.s2 }]} pointerEvents="box-none">
+        <Pressable onPress={() => session.setTake(featured)}>
+          <StageNumber label={featured.title} value={featured.durationS.toFixed(0)} unit="s" note={featured.note} />
+        </Pressable>
+        <View style={{ flexDirection: 'row', gap: S.s2 }}>
+          <GlassChip icon="list" label="All takes" onPress={() => setSheet(true)} />
+          <Pressable onPress={() => session.setTake(featured)} style={st.playDisc}>
+            <Feather name="play" size={18} color={C.ink} style={{ marginLeft: 2 }} />
+          </Pressable>
+        </View>
+      </View>
 
-      <Sheet title="Sessions" peek={0.4}>
+      <Sheet title="Sessions" open={sheet} onClose={() => setSheet(false)} share={0.6}>
         {takes.map((t, i) => (
           <Row key={t.id} label={t.title} onPress={() => session.setTake(t)} last={i === takes.length - 1}
             icon="play"
@@ -92,6 +86,8 @@ function Transport() {
   const barW = useRef(1);
   const [w, setW] = useState(0);
   const trace = useMemo(() => effortTrace(play.take, 96), [play.take.id]);
+  const [sheet, setSheet] = useState(false);
+  const inset = useSafeAreaInsets();
   const share = play.t / Math.max(0.001, play.take.durationS);
 
   const seekAt = (x: number) => {
@@ -110,7 +106,7 @@ function Transport() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Backdrop lift={0.13} scale={0.84} />
+      <Backdrop lift={0.04} scale={0.92} />
       <Header title={play.take.title}
         left={<IconButton icon="arrow-left" size={48} onPress={() => session.setTake(null)} />}
         right={<BadgeButton icon={play.playing ? 'pause' : 'play'} onPress={() => session.togglePlay()} />}
@@ -119,24 +115,13 @@ function Transport() {
           <GlassChip icon="fast-forward" label={`${play.speed}×`} />
         </>} />
 
-      <Glass intensity={70} strong style={[st.float, { top: height * 0.40 }]}>
-        <View style={{ padding: S.s5, paddingBottom: S.s4 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-            <View style={{ flex: 1 }}>
-              <T size={17} weight="500">Elapsed</T>
-              <T size={13} color={C.t2} style={{ marginTop: 3 }}>{play.playing ? 'Playing' : 'Paused'} · {play.take.durationS.toFixed(0)} s</T>
-            </View>
-            <Pressable onPress={() => session.togglePlay()} hitSlop={8}>
-              <Feather name={play.playing ? 'pause' : 'play'} size={18} color={C.t1} />
-            </Pressable>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: S.s4 }}>
-            <Num size={56} weight="300" tracking={-2}>{clock}</Num>
-          </View>
-        </View>
-      </Glass>
+      <View style={[st.foot, { bottom: NAV_H + NAV_GAP * 2 + inset.bottom + S.s2 }]} pointerEvents="box-none">
+        <StageNumber label={play.playing ? 'Playing' : 'Paused'} value={clock}
+          note={`of ${play.take.durationS.toFixed(1)} s`} />
+        <GlassChip icon="sliders" label="Transport" onPress={() => setSheet(true)} />
+      </View>
 
-      <Sheet title="Transport">
+      <Sheet title="Transport" open={sheet} onClose={() => setSheet(false)} share={0.6}>
         <View style={st.scrub} {...scrub.panHandlers}
           onLayout={(e) => { barW.current = e.nativeEvent.layout.width; setW(e.nativeEvent.layout.width); }}>
           <Trace values={trace} width={w} height={64} color={C.white} />
@@ -166,7 +151,7 @@ function Transport() {
 }
 
 const st = StyleSheet.create({
-  float: { position: 'absolute', left: S.s5, width: 240 },
+  foot: { position: 'absolute', left: S.s5, right: S.s5, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   playDisc: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center' },
   scrub: { marginTop: S.s2, height: 64 },
   played: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: 'rgba(255,91,46,0.18)', borderRadius: 4 },

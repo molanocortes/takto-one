@@ -6,7 +6,8 @@
 import React, { useState } from 'react';
 import { View, TextInput, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Header, Backdrop, Sheet, Row, GlassChip, BadgeButton } from '../ui/Chrome';
+import { Header, Backdrop, Sheet, Row, GlassChip, BadgeButton, NAV_H, NAV_GAP } from '../ui/Chrome';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, Num, Label, Glass, PillButton, Hairline } from '../ui/primitives';
 import { Bar } from '../ui/Meters';
 import { C, S, R, FINGERS, FINGER_LABEL } from '../ui/tokens';
@@ -36,17 +37,19 @@ export function Data() {
   let live = 0;
   for (const f of FINGERS) live += (frame.ok[f].ab ? 1 : 0) + (frame.ok[f].mcp ? 1 : 0) + (frame.ok[f].pip ? 1 : 0);
   const isLive = session.link.live;
+  const [sheet, setSheet] = useState(false);
+  const inset = useSafeAreaInsets();
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Backdrop dim={0.4} lift={0.13} scale={0.84} />
+      <Backdrop dim={0.3} lift={0.04} scale={0.92} />
       <Header title="Data" right={<BadgeButton icon="settings" />}
         chips={<>
           <GlassChip icon={isLive ? 'radio' : 'cpu'} label={isLive ? 'Bridge' : 'Simulated'} tone={isLive ? 'live' : 'glass'} />
           <GlassChip icon="grid" label={`${live} / 12 live`} />
         </>} />
 
-      <Glass intensity={70} strong style={[st.float, { top: height * 0.30 }]}>
+      <Glass intensity={70} strong style={[st.float, { bottom: NAV_H + NAV_GAP * 2 + inset.bottom + S.s2 }]}>
         <View style={{ padding: S.s5 }}>
           <T size={17} weight="500">Bridge address</T>
           <T size={13} color={C.t2} style={{ marginTop: 3 }}>{session.link.detail}</T>
@@ -61,10 +64,14 @@ export function Data() {
               <T size={14} weight="500">Simulator</T>
             </Pressable>
           </View>
+          <Pressable onPress={() => setSheet(true)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: S.s4 }}>
+            <T size={14} weight="500" color={C.t2}>{live} of 12 channels</T>
+            <Feather name="chevron-up" size={18} color={C.t2} />
+          </Pressable>
         </View>
       </Glass>
 
-      <Sheet title="Channels" peek={0.34}>
+      <Sheet title="Channels" open={sheet} onClose={() => setSheet(false)}>
         {FINGERS.map((f) => (
           <View key={f} style={{ marginBottom: S.s4 }}>
             <Label style={{ marginBottom: 2 }}>{FINGER_LABEL[f]}</Label>

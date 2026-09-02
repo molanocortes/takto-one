@@ -11,7 +11,6 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { Canvas, useFrame, useThree } from './canvas';
 import { Hand } from './Hand';
 import { STUDIO, keyDirection } from './materials';
-import { LinearGradient } from 'expo-linear-gradient';
 import { C } from '../ui/tokens';
 
 const VIEW = {
@@ -78,20 +77,21 @@ function Rig({ orbit, colourway, scale = 1 }: { orbit: React.MutableRefObject<Or
 function Lights({ shadow, dark }: { shadow: boolean; dark: boolean }) {
   const key = useMemo(() => keyDirection(6), []);
   if (dark) {
-    // The dark studio: one soft key from high left, a cool rim from behind
-    // right so the silhouette separates from the black, and a low warm fill
-    // from the accent so the underside is not a hole.
+    // The black studio of a product shoot: one large soft key high left, a
+    // broad cool rim from behind right to draw the silhouette off the black,
+    // a low warm bounce so the underside is not a hole, and the room
+    // environment doing the rest as a sheen on the clearcoat.
     return (
       <>
-        <directionalLight position={key} intensity={3.4} castShadow={shadow}
-          shadow-mapSize-width={1024} shadow-mapSize-height={1024} shadow-radius={5}
-          shadow-bias={-0.0012} shadow-camera-near={0.5} shadow-camera-far={14}
+        <directionalLight position={key} intensity={1.9} color="#FFF6EC" castShadow={shadow}
+          shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-radius={8}
+          shadow-bias={-0.0008} shadow-normalBias={0.02} shadow-camera-near={0.5} shadow-camera-far={14}
           shadow-camera-left={-1.05} shadow-camera-right={1.05}
           shadow-camera-top={1.05} shadow-camera-bottom={-1.05} />
-        <directionalLight position={[-4, 3, -5]} intensity={4.5} color="#DDE6FF" />
-        <directionalLight position={[3, -2, 4]} intensity={0.18} color="#FF5B2E" />
-        <hemisphereLight args={['#8A8D94', '#141517', 1.1]} />
-        <ambientLight intensity={0.18} />
+        <directionalLight position={[-4, 2.5, -5]} intensity={2.2} color="#CFE0FF" />
+        <directionalLight position={[4, 1, -3]} intensity={1.2} color="#E8EEFF" />
+        <directionalLight position={[2, -3, 3]} intensity={0.35} color="#FFD9C4" />
+        <hemisphereLight args={['#6C6F76', '#050506', 0.6]} />
       </>
     );
   }
@@ -149,14 +149,7 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1 }: {
 
   return (
     <View style={[styles.wrap, dark && { backgroundColor: C.bg }, style]} {...pan.panHandlers}>
-      {dark && (
-        <>
-          <LinearGradient colors={[C.stageTop, C.stageMid, C.stageBot]} locations={[0, 0.55, 1]}
-            style={StyleSheet.absoluteFill} />
-          {/* the pool of light the machine stands in */}
-          <View style={styles.pool} pointerEvents="none" />
-        </>
-      )}
+      {/* the dark stage is one tone of black: the machine is the only thing lit */}
       <Canvas
         shadows={shadow}
         dpr={[1, 2]}
@@ -172,10 +165,10 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1 }: {
             // A filmic transform and a neutral room environment: the graphite
             // shell needs something to reflect, or it reads as flat plastic.
             gl.toneMapping = THREE.ACESFilmicToneMapping;
-            gl.toneMappingExposure = 1.35;
+            gl.toneMappingExposure = 0.88;
             const pmrem = new THREE.PMREMGenerator(gl);
             scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-            scene.environmentIntensity = 0.9;
+            scene.environmentIntensity = 0.7;
             pmrem.dispose();
           } else {
             gl.toneMapping = THREE.NoToneMapping;
@@ -184,11 +177,13 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1 }: {
       >
         <Lights shadow={shadow} dark={dark} />
         <Rig orbit={orbit} colourway={dark ? 'graphite' : 'white'} scale={scale} />
-        {/* the ground exists only to catch the one shadow */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.52, 0]} receiveShadow>
-          <planeGeometry args={[7, 7]} />
-          <shadowMaterial opacity={dark ? 0.55 : 0.19} />
-        </mesh>
+        {/* the ground exists only to catch the one shadow; on black there is none to catch */}
+        {!dark && (
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.52, 0]} receiveShadow>
+            <planeGeometry args={[7, 7]} />
+            <shadowMaterial opacity={0.19} />
+          </mesh>
+        )}
       </Canvas>
     </View>
   );
@@ -196,9 +191,4 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1 }: {
 
 const styles = StyleSheet.create({
   wrap: { backgroundColor: '#FFFFFF', overflow: 'hidden' },
-  pool: {
-    position: 'absolute', left: '-20%', right: '-20%', top: '8%', height: '70%',
-    borderRadius: 9999, backgroundColor: 'rgba(255,255,255,0.05)',
-    ...(Platform.OS === 'web' ? { filter: 'blur(60px)' } as any : {}),
-  },
 });

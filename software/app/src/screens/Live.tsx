@@ -6,7 +6,8 @@
 import React, { useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Header, Backdrop, Sheet, Row, GlassChip, BadgeButton } from '../ui/Chrome';
+import { Header, Backdrop, Sheet, Row, GlassChip, BadgeButton, StageNumber, NAV_H, NAV_GAP } from '../ui/Chrome';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Bar, Sparkline, JOINTS } from '../ui/Meters';
 import { T, Num, Label, Glass, IconButton } from '../ui/primitives';
 import { C, S, R, FINGERS, FINGER_LABEL, type Finger } from '../ui/tokens';
@@ -18,6 +19,8 @@ export function Live({ onOpenData }: { onOpenData: () => void }) {
   const history = useRef<number[]>([]).current;
   const { height } = useWindowDimensions();
   const [openFinger, setOpenFinger] = useState<Finger | null>('index');
+  const [sheet, setSheet] = useState(false);
+  const inset = useSafeAreaInsets();
 
   if (frame.emg >= 0) { history.push(frame.emg); if (history.length > 120) history.shift(); }
 
@@ -38,7 +41,7 @@ export function Live({ onOpenData }: { onOpenData: () => void }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Backdrop lift={0.13} scale={0.84} />
+      <Backdrop lift={0.04} scale={0.92} />
       <Header title="Live twin"
         right={<BadgeButton icon="bell" count={missing} onPress={onOpenData} />}
         chips={<>
@@ -47,24 +50,14 @@ export function Live({ onOpenData }: { onOpenData: () => void }) {
           <GlassChip icon="grid" label={`${liveJoints} / 12 joints`} />
         </>} />
 
-      {/* the floating summary */}
-      <Glass intensity={70} strong style={[st.float, { top: height * 0.40 }]}>
-        <View style={{ padding: S.s5, paddingBottom: S.s4 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-            <View style={{ flex: 1 }}>
-              <T size={17} weight="500">Mean flexion</T>
-              <T size={13} color={C.t2} style={{ marginTop: 3 }}>Peak {FINGER_LABEL[peakF].toLowerCase()} {peak.toFixed(0)}°</T>
-            </View>
-            <Feather name="arrow-up-right" size={18} color={C.t2} />
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: S.s4 }}>
-            <Num size={64} weight="300" tracking={-2}>{mean.toFixed(0)}</Num>
-            <T size={18} weight="300" color={C.t2} style={{ marginLeft: 4 }}>°</T>
-          </View>
-        </View>
-      </Glass>
+      {/* the summary stands on the stage; nothing covers the machine */}
+      <View style={[st.foot, { bottom: NAV_H + NAV_GAP * 2 + inset.bottom + S.s2 }]} pointerEvents="box-none">
+        <StageNumber label="Mean flexion" value={mean.toFixed(0)} unit="°"
+          note={`Peak ${FINGER_LABEL[peakF].toLowerCase()} ${peak.toFixed(0)}° · effort ${frame.emg < 0 ? '–' : emg.toFixed(2)}`} />
+        <GlassChip icon="list" label="Channels" onPress={() => setSheet(true)} />
+      </View>
 
-      <Sheet title="Channels">
+      <Sheet title="Channels" open={sheet} onClose={() => setSheet(false)}>
         <Row icon="zap" label="Effort" note="EMG" tone={emg > 0.8 ? 'accent' : undefined}
           value={<View style={{ flexDirection: 'row', alignItems: 'center', gap: S.s3 }}>
             <View style={{ width: 96, height: 18, justifyContent: 'flex-end' }}><Sparkline values={history} height={18} n={32} recent={4} /></View>
@@ -111,7 +104,7 @@ export function Live({ onOpenData }: { onOpenData: () => void }) {
 }
 
 const st = StyleSheet.create({
-  float: { position: 'absolute', left: S.s5, width: 232 },
+  foot: { position: 'absolute', left: S.s5, right: S.s5, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   detail: {
     flexDirection: 'row', gap: S.s2, paddingBottom: S.s4,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.glassLine,

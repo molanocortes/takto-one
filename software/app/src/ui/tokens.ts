@@ -13,16 +13,16 @@ export const C = {
   bg: '#0A0A0B',
   bg2: '#121214',
   /** the studio the machine stands in: lit at the top, dark at the feet */
-  stageTop: '#2A2B2F',
-  stageMid: '#151618',
+  stageTop: '#232428',
+  stageMid: '#111214',
   stageBot: '#0A0A0B',
   /** frosted glass, the only surface text sits on */
-  glass: 'rgba(255,255,255,0.08)',
-  glassStrong: 'rgba(255,255,255,0.13)',
+  glass: 'rgba(255,255,255,0.07)',
+  glassStrong: 'rgba(255,255,255,0.11)',
   glassLine: 'rgba(255,255,255,0.12)',
   glassLineStrong: 'rgba(255,255,255,0.22)',
   /** the sheet: near-black glass */
-  sheet: 'rgba(12,12,13,0.86)',
+  sheet: 'rgba(12,12,13,0.62)',
   /** a solid card for when glass is not over anything */
   card: '#161719',
   cardRaised: '#1D1E21',
@@ -74,6 +74,15 @@ export const SHADOW = Platform.select({
   default: {
     shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 30,
     shadowOffset: { width: 0, height: 16 }, elevation: 12,
+  } as any,
+});
+
+/** The lift under a piece of liquid glass: soft, wide, never a hard drop. */
+export const LIFT = Platform.select({
+  web: { boxShadow: '0 12px 32px rgba(0,0,0,0.38), 0 1px 2px rgba(0,0,0,0.3)' } as any,
+  default: {
+    shadowColor: '#000', shadowOpacity: 0.38, shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 }, elevation: 8,
   } as any,
 });
 
