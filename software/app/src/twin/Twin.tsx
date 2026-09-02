@@ -124,7 +124,7 @@ function Lights({ shadow, dark }: { shadow: boolean; dark: boolean }) {
 }
 
 /** The look the dark stage renders. On web, ?look= overrides it for exploration. */
-export const DEFAULT_LOOK: Look = 'studio';
+export const DEFAULT_LOOK: Look = 'midnight';
 function urlLook(): Look {
   if (Platform.OS === 'web' && typeof location !== 'undefined') {
     const l = new URLSearchParams(location.search).get('look') as Look | null;

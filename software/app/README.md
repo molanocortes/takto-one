@@ -64,12 +64,14 @@ phone, use the machine's LAN address instead of localhost.
 The machine fills the screen on one tone of black, and everything you touch
 is liquid glass floating over it. Four rules keep it honest:
 
-- **One stage, one subject.** The twin is the white device from the product
-  stills: satin shell under a thin clearcoat, links a half step deeper so the
-  lattice separates, the bank true black, the screen glowing blue. One warm
-  key, one cool rim, a low warm bounce and a neutral room environment through
-  a filmic transform. No floor, no gradient: the machine is the only thing
-  lit. Values in `src/twin/materials.ts` and `src/twin/Twin.tsx`.
+- **One stage, one subject.** The twin ships in the `midnight` look: one
+  matte tone of deep blue, lighter spools and pins, the screen glowing. One
+  warm key, one cool rim, a front fill and a neutral room environment
+  through a filmic transform. No floor, no gradient: the machine is the only
+  thing lit. Seventeen other looks live in `src/twin/materials.ts` (matte
+  tones, ceramic, frost, and x-ray tints) behind `?look=` on the web build,
+  and `?part=hand` renders the hand without the housing; `DEFAULT_LOOK` in
+  `src/twin/Twin.tsx` picks the shipped one.
 - **Glass, not cards.** Every control is a lens: backdrop blur, a faint milk
   fill, a highlight pooling along the top edge, a rim brightest on the lit
   side, a soft lift. The header's round buttons, the picker chips, the nav,
@@ -91,7 +93,10 @@ built from are `src/ui/primitives.tsx` and `src/ui/Chrome.tsx`.
 - The screen on the forearm lights with activity. That is the glass lighting
   up, not a capture of the panel: the model carries no display content.
 - The bundled takes are **choreographed and synthetic**, by their own README's
-  admission. No hand wore the device to make them.
+  admission. No hand wore the device to make them. The live synthetic feed is
+  the same kind of thing: a 32 s choreography in `src/data/sim.ts` that rests
+  open and spread, and departs from that pose into taps, a bloom, a wave and
+  a grasp.
 - The samples write anatomical values into the `{f}_mcp` column, which the
   device's wire contract uses for MCP **abduction**. This app maps columns the
   same way `software/web/src/views/replay.js` does, so replayed abduction can
