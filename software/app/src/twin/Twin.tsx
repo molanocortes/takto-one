@@ -67,7 +67,7 @@ function Rig({ orbit, colourway, scale = 1, look, part }: { orbit: React.Mutable
   });
 
   return (
-    <group ref={turn} rotation={[0, VIEW.yaw0, 0]} scale={scale * (part === 'hand' ? 0.8 : 1)}>
+    <group ref={turn} rotation={[0, VIEW.yaw0, 0]} scale={scale * (part === 'hand' ? 0.58 : 0.78)}>
       <group rotation={[-Math.PI / 2, 0, 0]}>
         <Hand colourway={colourway} look={look} part={part} />
       </group>
