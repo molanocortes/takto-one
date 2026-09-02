@@ -5,11 +5,13 @@
 // into a cluster and a raised camera opens the top face so the screen, the
 // spool bank and the finger array all read at once. Exactly ONE light casts.
 import React, { useMemo, useRef, useState } from 'react';
-import { View, PanResponder, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { View, PanResponder, StyleSheet, Platform, type StyleProp, type ViewStyle } from 'react-native';
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Canvas, useFrame, useThree } from './canvas';
 import { Hand } from './Hand';
 import { STUDIO, keyDirection } from './materials';
+import { LinearGradient } from 'expo-linear-gradient';
 import { C } from '../ui/tokens';
 
 const VIEW = {
@@ -27,7 +29,7 @@ const VIEW = {
 
 type Orbit = { yaw: number; pitch: number; drifting: boolean; t: number };
 
-function Rig({ orbit }: { orbit: React.MutableRefObject<Orbit> }) {
+function Rig({ orbit, colourway, scale = 1 }: { orbit: React.MutableRefObject<Orbit>; colourway: 'white' | 'graphite'; scale?: number }) {
   // TWO frames, deliberately. The outer group turns about the WORLD vertical,
   // which is what a turntable is; the inner group carries the fixed rotation
   // that stands the device up (+Z is distal in the CAD, so the fingers point
@@ -65,16 +67,34 @@ function Rig({ orbit }: { orbit: React.MutableRefObject<Orbit> }) {
   });
 
   return (
-    <group ref={turn} rotation={[0, VIEW.yaw0, 0]}>
+    <group ref={turn} rotation={[0, VIEW.yaw0, 0]} scale={scale}>
       <group rotation={[-Math.PI / 2, 0, 0]}>
-        <Hand />
+        <Hand colourway={colourway} />
       </group>
     </group>
   );
 }
 
-function Lights({ shadow }: { shadow: boolean }) {
+function Lights({ shadow, dark }: { shadow: boolean; dark: boolean }) {
   const key = useMemo(() => keyDirection(6), []);
+  if (dark) {
+    // The dark studio: one soft key from high left, a cool rim from behind
+    // right so the silhouette separates from the black, and a low warm fill
+    // from the accent so the underside is not a hole.
+    return (
+      <>
+        <directionalLight position={key} intensity={3.4} castShadow={shadow}
+          shadow-mapSize-width={1024} shadow-mapSize-height={1024} shadow-radius={5}
+          shadow-bias={-0.0012} shadow-camera-near={0.5} shadow-camera-far={14}
+          shadow-camera-left={-1.05} shadow-camera-right={1.05}
+          shadow-camera-top={1.05} shadow-camera-bottom={-1.05} />
+        <directionalLight position={[-4, 3, -5]} intensity={4.5} color="#DDE6FF" />
+        <directionalLight position={[3, -2, 4]} intensity={0.18} color="#FF5B2E" />
+        <hemisphereLight args={['#8A8D94', '#141517', 1.1]} />
+        <ambientLight intensity={0.18} />
+      </>
+    );
+  }
   return (
     <>
       {/* One casting light. Five casting lights smear five overlapping
@@ -101,7 +121,10 @@ function Lights({ shadow }: { shadow: boolean }) {
   );
 }
 
-export function Twin({ style, shadow = true }: { style?: StyleProp<ViewStyle>; shadow?: boolean }) {
+export function Twin({ style, shadow = true, stage = 'dark', scale = 1 }: {
+  style?: StyleProp<ViewStyle>; shadow?: boolean; stage?: 'dark' | 'light'; scale?: number;
+}) {
+  const dark = stage === 'dark';
   const orbit = useRef<Orbit>({ yaw: 0, pitch: 0, drifting: true, t: 0 });
   const start = useRef({ yaw: 0, pitch: 0 });
 
@@ -125,27 +148,46 @@ export function Twin({ style, shadow = true }: { style?: StyleProp<ViewStyle>; s
   );
 
   return (
-    <View style={[styles.wrap, style]} {...pan.panHandlers}>
+    <View style={[styles.wrap, dark && { backgroundColor: C.bg }, style]} {...pan.panHandlers}>
+      {dark && (
+        <>
+          <LinearGradient colors={[C.stageTop, C.stageMid, C.stageBot]} locations={[0, 0.55, 1]}
+            style={StyleSheet.absoluteFill} />
+          {/* the pool of light the machine stands in */}
+          <View style={styles.pool} pointerEvents="none" />
+        </>
+      )}
       <Canvas
         shadows={shadow}
         dpr={[1, 2]}
-        gl={{ antialias: true, alpha: false }}
+        gl={{ antialias: true, alpha: dark }}
         camera={{ fov: VIEW.fovDeg, near: 0.1, far: 40 }}
         onCreated={({ gl, scene }: any) => {
           // Standard view transform, no look. A filmic transform flattens a
           // white page to grey, which is the one thing this stage cannot do.
-          gl.toneMapping = THREE.NoToneMapping;
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.shadowMap.type = THREE.PCFSoftShadowMap;
-          scene.background = new THREE.Color(STUDIO.page);
+          scene.background = dark ? null : new THREE.Color(STUDIO.page);
+          if (dark) {
+            // A filmic transform and a neutral room environment: the graphite
+            // shell needs something to reflect, or it reads as flat plastic.
+            gl.toneMapping = THREE.ACESFilmicToneMapping;
+            gl.toneMappingExposure = 1.35;
+            const pmrem = new THREE.PMREMGenerator(gl);
+            scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+            scene.environmentIntensity = 0.9;
+            pmrem.dispose();
+          } else {
+            gl.toneMapping = THREE.NoToneMapping;
+          }
         }}
       >
-        <Lights shadow={shadow} />
-        <Rig orbit={orbit} />
+        <Lights shadow={shadow} dark={dark} />
+        <Rig orbit={orbit} colourway={dark ? 'graphite' : 'white'} scale={scale} />
         {/* the ground exists only to catch the one shadow */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.52, 0]} receiveShadow>
           <planeGeometry args={[7, 7]} />
-          <shadowMaterial opacity={0.19} />
+          <shadowMaterial opacity={dark ? 0.55 : 0.19} />
         </mesh>
       </Canvas>
     </View>
@@ -153,5 +195,10 @@ export function Twin({ style, shadow = true }: { style?: StyleProp<ViewStyle>; s
 }
 
 const styles = StyleSheet.create({
-  wrap: { backgroundColor: C.stage, overflow: 'hidden' },
+  wrap: { backgroundColor: '#FFFFFF', overflow: 'hidden' },
+  pool: {
+    position: 'absolute', left: '-20%', right: '-20%', top: '8%', height: '70%',
+    borderRadius: 9999, backgroundColor: 'rgba(255,255,255,0.05)',
+    ...(Platform.OS === 'web' ? { filter: 'blur(60px)' } as any : {}),
+  },
 });

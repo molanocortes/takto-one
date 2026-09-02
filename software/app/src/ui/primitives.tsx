@@ -1,61 +1,167 @@
 // primitives.tsx - the small set of shapes every screen is built from.
-// Nothing here draws anything the design system has not already decided.
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, type StyleProp, type ViewStyle, type TextStyle } from 'react-native';
-import { C, F, S, R, SHADOW } from './tokens';
+import {
+  View, Text, Pressable, StyleSheet, Platform,
+  type StyleProp, type ViewStyle, type TextStyle,
+} from 'react-native';
+import { BlurView } from 'expo-blur';
+import { Feather } from '@expo/vector-icons';
+import { C, S, R, SHADOW, fontFor } from './tokens';
 
-/** A section label: small, wide-tracked, quiet. Never a sentence. */
-export function Label({ children, style }: { children: React.ReactNode; style?: StyleProp<TextStyle> }) {
-  return <Text style={[st.label, style]}>{children}</Text>;
-}
+type TW = TextStyle['fontWeight'];
 
-/** Every numeral in this app goes through here, so columns always align. */
-export function Mono({
-  children, size = 15, weight = '500', color = C.ink, style, tracking = 0,
+/** Body and display type. Weight selects the Inter face on native. */
+export function T({
+  children, size = 15, weight = '400', color = C.t1, style, tracking, lineHeight, numberOfLines,
 }: {
-  children: React.ReactNode; size?: number; weight?: TextStyle['fontWeight'];
-  color?: string; style?: StyleProp<TextStyle>; tracking?: number;
+  children: React.ReactNode; size?: number; weight?: TW; color?: string;
+  style?: StyleProp<TextStyle>; tracking?: number; lineHeight?: number; numberOfLines?: number;
 }) {
+  const auto = size >= 28 ? -size * 0.035 : size >= 18 ? -size * 0.02 : 0;
   return (
-    <Text style={[{ fontFamily: F.mono, fontSize: size, fontWeight: weight, color,
-      letterSpacing: tracking, fontVariant: ['tabular-nums'] }, style]}>{children}</Text>
+    <Text numberOfLines={numberOfLines} style={[{
+      fontFamily: fontFor(weight),
+      fontSize: size, color, letterSpacing: tracking ?? auto,
+      lineHeight: lineHeight ?? Math.round(size * (size >= 28 ? 1.05 : 1.35)),
+    }, style]}>{children}</Text>
   );
 }
 
-export function UIText({
-  children, size = 15, weight = '400', color = C.ink, style,
+/** Every numeral goes through here: tabular, so columns and tickers hold still. */
+export function Num({
+  children, size = 15, weight = '600', color = C.t1, style, tracking,
 }: {
-  children: React.ReactNode; size?: number; weight?: TextStyle['fontWeight'];
-  color?: string; style?: StyleProp<TextStyle>;
+  children: React.ReactNode; size?: number; weight?: TW; color?: string;
+  style?: StyleProp<TextStyle>; tracking?: number;
 }) {
-  return <Text style={[{ fontFamily: F.ui, fontSize: size, fontWeight: weight, color }, style]}>{children}</Text>;
-}
-
-/** Raised paper. The stage variant is pure white and carries the machine. */
-export function Card({ children, style, padded = true }: {
-  children: React.ReactNode; style?: StyleProp<ViewStyle>; padded?: boolean;
-}) {
-  return <View style={[st.card, padded && { padding: S.s4 }, style]}>{children}</View>;
-}
-
-export function Hairline({ inset = 0 }: { inset?: number }) {
-  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: C.line, marginLeft: inset }} />;
-}
-
-/** iOS-style segmented control, flattened to the project's own language. */
-export function Segmented<T extends string>({
-  options, value, onChange,
-}: { options: readonly { key: T; label: string }[]; value: T; onChange: (v: T) => void }) {
   return (
-    <View style={st.seg}>
+    <T size={size} weight={weight} color={color} tracking={tracking ?? (size >= 28 ? -size * 0.04 : -0.2)}
+      style={[{ fontVariant: ['tabular-nums'] }, style]}>{children}</T>
+  );
+}
+
+/** Section label: small caps, wide tracking, quiet. */
+export function Label({ children, color = C.t3, style }: {
+  children: React.ReactNode; color?: string; style?: StyleProp<TextStyle>;
+}) {
+  return (
+    <T size={11} weight="600" color={color} tracking={1.4} style={[{ textTransform: 'uppercase' }, style]}>
+      {children}
+    </T>
+  );
+}
+
+/**
+ * Frosted glass. On web this is a real backdrop blur; on native expo-blur
+ * renders the same. The hairline border is what separates it from the stage.
+ */
+export function Glass({ children, style, intensity = 40, radius = R.r3, strong = false, padded = false }: {
+  children?: React.ReactNode; style?: StyleProp<ViewStyle>; intensity?: number;
+  radius?: number; strong?: boolean; padded?: boolean;
+}) {
+  return (
+    <View style={[st.glassWrap, { borderRadius: radius }, style]}>
+      <BlurView intensity={intensity} tint="dark" style={StyleSheet.absoluteFill} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: strong ? C.glassStrong : C.glass }]} />
+      <View style={[st.glassBorder, { borderRadius: radius }]} pointerEvents="none" />
+      <View style={[padded && { padding: S.s5 }]}>{children}</View>
+    </View>
+  );
+}
+
+/** A solid dark card, for lists that do not sit over the stage. */
+export function Card({ children, style, padded = true, raised = false }: {
+  children: React.ReactNode; style?: StyleProp<ViewStyle>; padded?: boolean; raised?: boolean;
+}) {
+  return (
+    <View style={[st.card, raised && { backgroundColor: C.cardRaised }, padded && { padding: S.s5 }, style]}>
+      {children}
+    </View>
+  );
+}
+
+/** A small rounded chip: an icon and a word, as in a spec row. */
+export function Chip({ icon, children, tone = 'glass', style }: {
+  icon?: keyof typeof Feather.glyphMap; children: React.ReactNode;
+  tone?: 'glass' | 'accent' | 'live' | 'white'; style?: StyleProp<ViewStyle>;
+}) {
+  const bg = tone === 'accent' ? C.accentSoft : tone === 'live' ? C.liveSoft : tone === 'white' ? C.white : C.glassStrong;
+  const fg = tone === 'accent' ? C.accent : tone === 'live' ? C.live : tone === 'white' ? C.ink : C.t2;
+  return (
+    <View style={[st.chip, { backgroundColor: bg }, style]}>
+      {icon && <Feather name={icon} size={12} color={fg} />}
+      <T size={12} weight="600" color={fg} tracking={0.2}>{children}</T>
+    </View>
+  );
+}
+
+/** Round icon button, glass or inverted. */
+export function IconButton({ icon, onPress, size = 44, tone = 'glass', style, iconSize }: {
+  icon: keyof typeof Feather.glyphMap; onPress?: () => void; size?: number;
+  tone?: 'glass' | 'white' | 'accent' | 'ghost'; style?: StyleProp<ViewStyle>; iconSize?: number;
+}) {
+  const bg = tone === 'white' ? C.white : tone === 'accent' ? C.accent : tone === 'ghost' ? 'transparent' : C.glassStrong;
+  const fg = tone === 'white' ? C.ink : tone === 'accent' ? C.white : C.t1;
+  return (
+    <Pressable onPress={onPress} hitSlop={8} style={({ pressed }) => [
+      st.iconBtn, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg, opacity: pressed ? 0.75 : 1 },
+      tone === 'glass' && st.iconBtnLine, style,
+    ]}>
+      <Feather name={icon} size={iconSize ?? Math.round(size * 0.42)} color={fg} />
+    </Pressable>
+  );
+}
+
+/** The primary control: a white pill with the arrow in its own black disc. */
+export function PillButton({ label, onPress, icon = 'arrow-right', tone = 'white', style }: {
+  label: string; onPress?: () => void; icon?: keyof typeof Feather.glyphMap;
+  tone?: 'white' | 'accent' | 'glass'; style?: StyleProp<ViewStyle>;
+}) {
+  const bg = tone === 'white' ? C.white : tone === 'accent' ? C.accent : C.glassStrong;
+  const fg = tone === 'glass' ? C.t1 : tone === 'accent' ? C.white : C.ink;
+  const discBg = tone === 'white' ? C.ink : tone === 'accent' ? 'rgba(0,0,0,0.28)' : C.white;
+  const discFg = tone === 'glass' ? C.ink : C.white;
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [
+      st.pill, { backgroundColor: bg, opacity: pressed ? 0.85 : 1 }, tone === 'glass' && st.iconBtnLine, style,
+    ]}>
+      <T size={16} weight="600" color={fg} tracking={-0.2} style={{ marginLeft: S.s2 }}>{label}</T>
+      <View style={[st.pillDisc, { backgroundColor: discBg }]}>
+        <Feather name={icon} size={17} color={discFg} />
+      </View>
+    </Pressable>
+  );
+}
+
+/** A live dot with a soft halo. */
+export function Dot({ tone = 'idle', size = 7 }: { tone?: 'live' | 'accent' | 'idle'; size?: number }) {
+  const c = tone === 'live' ? C.live : tone === 'accent' ? C.accent : C.t3;
+  return (
+    <View style={{ width: size * 2.2, height: size * 2.2, alignItems: 'center', justifyContent: 'center' }}>
+      {tone !== 'idle' && (
+        <View style={{ position: 'absolute', width: size * 2.2, height: size * 2.2, borderRadius: size * 1.1,
+          backgroundColor: c, opacity: 0.25 }} />
+      )}
+      <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: c }} />
+    </View>
+  );
+}
+
+export function Hairline({ style }: { style?: StyleProp<ViewStyle> }) {
+  return <View style={[{ height: StyleSheet.hairlineWidth, backgroundColor: C.glassLine }, style]} />;
+}
+
+/** Segmented pills for a small set of choices. */
+export function Segmented<K extends string>({ options, value, onChange, style }: {
+  options: readonly { key: K; label: string }[]; value: K; onChange: (k: K) => void; style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <View style={[st.seg, style]}>
       {options.map((o) => {
         const on = o.key === value;
         return (
-          <Pressable key={o.key} onPress={() => onChange(o.key)}
-            style={[st.segItem, on && st.segItemOn]}>
-            <Text style={[st.segLabel, { color: on ? C.ink : C.ink2, fontWeight: on ? '600' : '500' }]}>
-              {o.label}
-            </Text>
+          <Pressable key={o.key} onPress={() => onChange(o.key)} style={[st.segItem, on && st.segOn]}>
+            <T size={12.5} weight="600" color={on ? C.ink : C.t2}>{o.label}</T>
           </Pressable>
         );
       })}
@@ -63,22 +169,23 @@ export function Segmented<T extends string>({
   );
 }
 
-/** A state dot. Accent means live; ink3 means simulated or idle. */
-export function Dot({ on, color }: { on?: boolean; color?: string }) {
-  return <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: color ?? (on ? C.accent : C.ink3) }} />;
-}
-
 const st = StyleSheet.create({
-  label: {
-    fontFamily: F.ui, fontSize: 11, fontWeight: '600', letterSpacing: 1.1,
-    color: C.ink3, textTransform: 'uppercase',
+  glassWrap: { overflow: 'hidden' },
+  glassBorder: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderWidth: 1, borderColor: C.glassLine },
+  card: { backgroundColor: C.card, borderRadius: R.r3, borderWidth: 1, borderColor: C.glassLine },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+    paddingHorizontal: 10, height: 28, borderRadius: R.pill,
   },
-  card: { backgroundColor: C.card, borderRadius: R.r2, ...(SHADOW as object) },
-  seg: {
-    flexDirection: 'row', backgroundColor: C.paperSunk, borderRadius: R.r1,
-    padding: 2, gap: 2,
+  iconBtn: { alignItems: 'center', justifyContent: 'center' },
+  iconBtnLine: { borderWidth: 1, borderColor: C.glassLineStrong },
+  pill: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    height: 60, borderRadius: R.pill, paddingLeft: S.s5, paddingRight: 6, ...(SHADOW as object),
   },
-  segItem: { flex: 1, paddingVertical: 7, borderRadius: R.r1 - 2, alignItems: 'center' },
-  segItemOn: { backgroundColor: C.card, ...(SHADOW as object) },
-  segLabel: { fontFamily: F.ui, fontSize: 12.5, letterSpacing: 0.2 },
+  pillDisc: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  seg: { flexDirection: 'row', backgroundColor: C.glass, borderRadius: R.pill, padding: 3, gap: 2,
+    borderWidth: 1, borderColor: C.glassLine },
+  segItem: { flex: 1, height: 32, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center' },
+  segOn: { backgroundColor: C.white },
 });

@@ -5,159 +5,171 @@
 // take format and the real column layout. A take recorded by the device drops
 // in unchanged, which is the whole point of not inventing a format.
 import React, { useMemo, useRef, useState } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, PanResponder } from 'react-native';
-import { Twin } from '../twin/Twin';
-import { Card, Label, Mono, UIText, Hairline, Segmented } from '../ui/primitives';
-import { Sparkline } from '../ui/Meters';
+import { View, StyleSheet, Pressable, PanResponder, useWindowDimensions } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { Header, Backdrop, Sheet, Row, GlassChip, BadgeButton } from '../ui/Chrome';
+import { T, Num, Label, Glass, IconButton, Segmented } from '../ui/primitives';
+import { Trace, Sparkline } from '../ui/Meters';
 import { C, S, R, FINGERS } from '../ui/tokens';
 import { useSession } from '../data/session';
-import { bundledTakes } from '../data/takes';
+import { bundledTakes, type Take } from '../data/takes';
 
 const SPEEDS = [
-  { key: '0.5', label: '0.5×' },
-  { key: '1', label: '1×' },
-  { key: '2', label: '2×' },
+  { key: '0.5', label: '0.5×' }, { key: '1', label: '1×' }, { key: '2', label: '2×' },
 ] as const;
 
-export function Replay({ stageHeight }: { stageHeight: number }) {
+function effortTrace(take: Take, n = 64) {
+  const step = Math.max(1, Math.floor(take.frames.length / n));
+  return take.frames.filter((_, i) => i % step === 0).map((f) => Math.max(0, f.emg));
+}
+function peakFlexion(take: Take) {
+  let m = 0;
+  for (const f of take.frames) for (const k of FINGERS) m = Math.max(m, f.joints[k].mcp, f.joints[k].pip);
+  return m;
+}
+
+export function Replay() {
+  const session = useSession();
+  return session.play ? <Transport /> : <Library />;
+}
+
+function Library() {
   const session = useSession();
   const takes = useMemo(bundledTakes, []);
-  const [speed, setSpeed] = useState<(typeof SPEEDS)[number]['key']>('1');
-  const play = session.play;
-  const barW = useRef(1);
+  const { height } = useWindowDimensions();
+  const [featured] = takes;
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Backdrop dim={0.35} lift={0.13} scale={0.84} />
+      <Header title="Replay" right={<BadgeButton icon="folder" />}
+        chips={<GlassChip icon="hard-drive" label="Bundled" chevron />} />
 
-  // the take's own effort trace, sampled thin enough to read as a shape
-  const trace = useMemo(() => {
-    if (!play) return [];
-    const n = 56;
-    const step = Math.max(1, Math.floor(play.take.frames.length / n));
-    return play.take.frames.filter((_, i) => i % step === 0).map((f) => Math.max(0, f.emg));
-  }, [play?.take.id]);
+      <Pressable onPress={() => session.setTake(featured)} style={[st.float, { top: height * 0.36 }]}>
+        <Glass intensity={70} strong>
+          <View style={{ padding: S.s5 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+              <View style={{ flex: 1 }}>
+                <T size={17} weight="500">{featured.title}</T>
+                <T size={13} color={C.t2} style={{ marginTop: 3 }} numberOfLines={2}>{featured.note}</T>
+              </View>
+              <Feather name="arrow-up-right" size={18} color={C.t2} />
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: S.s4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                <Num size={56} weight="300" tracking={-2}>{featured.durationS.toFixed(0)}</Num>
+                <T size={16} weight="300" color={C.t2} style={{ marginLeft: 4 }}>s</T>
+              </View>
+              <View style={st.playDisc}><Feather name="play" size={20} color={C.ink} style={{ marginLeft: 2 }} /></View>
+            </View>
+          </View>
+        </Glass>
+      </Pressable>
 
-  const scrub = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (e) => seekAt(e.nativeEvent.locationX),
-        onPanResponderMove: (e) => seekAt(e.nativeEvent.locationX),
-      }),
-    [play?.take.id],
+      <Sheet title="Sessions" peek={0.4}>
+        {takes.map((t, i) => (
+          <Row key={t.id} label={t.title} onPress={() => session.setTake(t)} last={i === takes.length - 1}
+            icon="play"
+            value={<View style={{ flexDirection: 'row', alignItems: 'center', gap: S.s3 }}>
+              <View style={{ width: 48, height: 18, justifyContent: 'flex-end' }}>
+                <Sparkline values={effortTrace(t, 14)} n={14} height={18} recent={0} dim />
+              </View>
+              <Num size={14} weight="400" color={C.t2}>{t.durationS.toFixed(0)}s</Num>
+            </View>} />
+        ))}
+        <T size={11.5} color={C.t4} style={{ textAlign: 'center', marginTop: S.s6 }}>
+          Choreographed samples, not recordings of a person.
+        </T>
+      </Sheet>
+    </View>
   );
+}
+
+function Transport() {
+  const session = useSession();
+  const play = session.play!;
+  const { height } = useWindowDimensions();
+  const [speed, setSpeed] = useState<(typeof SPEEDS)[number]['key']>(String(play.speed) as any);
+  const barW = useRef(1);
+  const [w, setW] = useState(0);
+  const trace = useMemo(() => effortTrace(play.take, 96), [play.take.id]);
+  const share = play.t / Math.max(0.001, play.take.durationS);
+
   const seekAt = (x: number) => {
-    const p = session.play;
-    if (!p) return;
+    const p = session.play; if (!p) return;
     session.seek(Math.max(0, Math.min(1, x / Math.max(1, barW.current))) * p.take.durationS);
   };
+  const scrub = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: (e) => seekAt(e.nativeEvent.locationX),
+    onPanResponderMove: (e) => seekAt(e.nativeEvent.locationX),
+  }), [play.take.id]);
+
+  const mm = Math.floor(play.t / 60), ss = play.t - mm * 60;
+  const clock = `${mm}:${ss.toFixed(1).padStart(4, '0')}`;
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={st.content}
-      showsVerticalScrollIndicator={false}>
-      {play ? (
-        <>
-          <Card style={[st.stage, { height: stageHeight }]} padded={false}>
-            <Twin style={{ flex: 1 }} />
-            <View style={st.stageFoot} pointerEvents="none">
-              <Label style={{ fontSize: 9.5 }}>{play.take.title}</Label>
-              <Label style={{ fontSize: 9.5 }}>{play.take.id}</Label>
-            </View>
-          </Card>
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Backdrop lift={0.13} scale={0.84} />
+      <Header title={play.take.title}
+        left={<IconButton icon="arrow-left" size={48} onPress={() => session.setTake(null)} />}
+        right={<BadgeButton icon={play.playing ? 'pause' : 'play'} onPress={() => session.togglePlay()} />}
+        chips={<>
+          <GlassChip icon="clock" label={`${play.take.durationS.toFixed(0)} s`} />
+          <GlassChip icon="fast-forward" label={`${play.speed}×`} />
+        </>} />
 
-          <Card style={st.card}>
-            <View style={st.timeRow}>
-              <Mono size={26} weight="500">{play.t.toFixed(2)}</Mono>
-              <Mono size={13} color={C.ink3}>/ {play.take.durationS.toFixed(2)} s</Mono>
+      <Glass intensity={70} strong style={[st.float, { top: height * 0.40 }]}>
+        <View style={{ padding: S.s5, paddingBottom: S.s4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+            <View style={{ flex: 1 }}>
+              <T size={17} weight="500">Elapsed</T>
+              <T size={13} color={C.t2} style={{ marginTop: 3 }}>{play.playing ? 'Playing' : 'Paused'} · {play.take.durationS.toFixed(0)} s</T>
             </View>
-            <View style={st.scrubWrap} {...scrub.panHandlers}
-              onLayout={(e) => { barW.current = e.nativeEvent.layout.width; }}>
-              <Sparkline values={trace} height={26} />
-              <View style={st.scrubTrack}>
-                <View style={[st.scrubFill, {
-                  width: `${(play.t / Math.max(0.001, play.take.durationS)) * 100}%`,
-                }]} />
-              </View>
-              <View style={[st.playhead, {
-                left: `${(play.t / Math.max(0.001, play.take.durationS)) * 100}%`,
-              }]} />
-            </View>
-            <View style={st.controls}>
-              <Pressable onPress={() => session.togglePlay()} style={st.transport}>
-                {play.playing
-                  ? <View style={st.pause}><View style={st.pauseBar} /><View style={st.pauseBar} /></View>
-                  : <View style={st.playTri} />}
-              </Pressable>
-              <View style={{ flex: 1 }} />
-              <View style={{ width: 150 }}>
-                <Segmented options={SPEEDS} value={speed}
-                  onChange={(k) => { setSpeed(k); session.setSpeed(Number(k)); }} />
-              </View>
-            </View>
-          </Card>
-
-          <Pressable onPress={() => session.setTake(null)}>
-            <Card style={st.exit}>
-              <UIText size={14} color={C.ink2}>Close take</UIText>
-            </Card>
-          </Pressable>
-        </>
-      ) : (
-        <>
-          <Card style={{ padding: S.s4 }}>
-            <Label>Bundled sessions</Label>
-            <View style={{ height: S.s3 }} />
-            {takes.map((t, i) => (
-              <View key={t.id}>
-                {i > 0 && <Hairline />}
-                <Pressable onPress={() => session.setTake(t)} style={st.takeRow}>
-                  <View style={{ flex: 1 }}>
-                    <UIText size={16} weight="500">{t.title}</UIText>
-                    <UIText size={12.5} color={C.ink2} style={{ marginTop: 2 }}>{t.note}</UIText>
-                  </View>
-                  <Mono size={12} color={C.ink3}>{t.durationS.toFixed(0)}s</Mono>
-                </Pressable>
-              </View>
-            ))}
-          </Card>
-          <View style={st.note}>
-            <Mono size={10.5} color={C.ink3}>Choreographed samples, not recordings of a person.</Mono>
+            <Pressable onPress={() => session.togglePlay()} hitSlop={8}>
+              <Feather name={play.playing ? 'pause' : 'play'} size={18} color={C.t1} />
+            </Pressable>
           </View>
-        </>
-      )}
-    </ScrollView>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: S.s4 }}>
+            <Num size={56} weight="300" tracking={-2}>{clock}</Num>
+          </View>
+        </View>
+      </Glass>
+
+      <Sheet title="Transport">
+        <View style={st.scrub} {...scrub.panHandlers}
+          onLayout={(e) => { barW.current = e.nativeEvent.layout.width; setW(e.nativeEvent.layout.width); }}>
+          <Trace values={trace} width={w} height={64} color={C.white} />
+          <View style={[st.played, { width: `${share * 100}%` }]} pointerEvents="none" />
+          <View style={[st.head, { left: `${share * 100}%` }]} pointerEvents="none" />
+        </View>
+        <View style={st.marks}>
+          <Num size={11} color={C.t3}>0:00</Num>
+          <Label style={{ fontSize: 10 }}>Effort</Label>
+          <Num size={11} color={C.t3}>{Math.floor(play.take.durationS / 60)}:{(play.take.durationS % 60).toFixed(0).padStart(2, '0')}</Num>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: S.s3, marginTop: S.s5 }}>
+          <IconButton icon="skip-back" onPress={() => session.seek(0)} />
+          <View style={{ flex: 1 }}>
+            <Segmented options={SPEEDS} value={speed} onChange={(k) => { setSpeed(k); session.setSpeed(Number(k)); }} />
+          </View>
+          <IconButton icon="skip-forward" onPress={() => session.seek(play.take.durationS)} />
+        </View>
+        <View style={{ height: S.s5 }} />
+        <Row icon="info" label={play.take.note} note={`${play.take.frames.length} frames · ${peakFlexion(play.take).toFixed(0)}° peak`} last />
+        <T size={11.5} color={C.t4} style={{ marginTop: S.s4, lineHeight: 16 }}>
+          Sample takes write anatomical abduction into the MCP column; the twin clamps it at 16°.
+        </T>
+      </Sheet>
+    </View>
   );
 }
 
 const st = StyleSheet.create({
-  content: { padding: S.s4, paddingTop: S.s2, gap: S.s3, paddingBottom: S.s7 },
-  stage: { overflow: 'hidden' },
-  stageFoot: {
-    position: 'absolute', left: S.s4, right: S.s4, bottom: S.s3,
-    flexDirection: 'row', justifyContent: 'space-between',
-  },
-  card: { paddingVertical: S.s4 },
-  timeRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: S.s3 },
-  scrubWrap: { paddingVertical: S.s2 },
-  scrubTrack: {
-    height: 2, backgroundColor: 'rgba(23,22,20,0.10)', marginTop: 8, borderRadius: 1,
-  },
-  scrubFill: { height: 2, backgroundColor: C.ink, borderRadius: 1 },
-  playhead: {
-    position: 'absolute', bottom: 2, width: 2, height: 16,
-    backgroundColor: C.accent, marginLeft: -1,
-  },
-  controls: { flexDirection: 'row', alignItems: 'center', marginTop: S.s4 },
-  transport: {
-    width: 46, height: 46, borderRadius: 23, backgroundColor: C.paperSunk,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  playTri: {
-    width: 0, height: 0, marginLeft: 3,
-    borderTopWidth: 8, borderBottomWidth: 8, borderLeftWidth: 13,
-    borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: C.ink,
-  },
-  pause: { flexDirection: 'row', gap: 4 },
-  pauseBar: { width: 3.5, height: 15, backgroundColor: C.ink, borderRadius: 1 },
-  takeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: S.s3, gap: S.s3 },
-  exit: { paddingVertical: S.s3, alignItems: 'center' },
-  note: { alignItems: 'center' },
+  float: { position: 'absolute', left: S.s5, width: 240 },
+  playDisc: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center' },
+  scrub: { marginTop: S.s2, height: 64 },
+  played: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: 'rgba(255,91,46,0.18)', borderRadius: 4 },
+  head: { position: 'absolute', top: -4, bottom: -4, width: 2, backgroundColor: C.accent, marginLeft: -1 },
+  marks: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
 });

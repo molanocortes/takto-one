@@ -1,13 +1,15 @@
 // Data.tsx - the channels themselves, and where they are coming from.
 //
-// The rates card is not decoration. Loop rate, sampling rate, telemetry rate
+// The rates list is not decoration. Loop rate, sampling rate, telemetry rate
 // and display rate are four different numbers, and collapsing them into one
-// is the easiest way to mislead someone about this device. The app shows the
-// one it is actually drawing at, and names the others.
+// is the easiest way to mislead someone about this device.
 import React, { useState } from 'react';
-import { View, ScrollView, Pressable, TextInput, StyleSheet } from 'react-native';
-import { Card, Label, Mono, UIText, Hairline, Dot } from '../ui/primitives';
-import { C, S, R, F, FINGERS, FINGER_LABEL } from '../ui/tokens';
+import { View, TextInput, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { Header, Backdrop, Sheet, Row, GlassChip, BadgeButton } from '../ui/Chrome';
+import { T, Num, Label, Glass, PillButton, Hairline } from '../ui/primitives';
+import { Bar } from '../ui/Meters';
+import { C, S, R, FINGERS, FINGER_LABEL } from '../ui/tokens';
 import { useSession } from '../data/session';
 
 // The wire name and the mechanical name are not the same word, and this is
@@ -19,118 +21,88 @@ const SEGMENTS = [
   { key: 'mcp' as const, wire: 'pip', name: 'MCP flexion', limit: 90 },
   { key: 'pip' as const, wire: 'dip', name: 'PIP flexion', limit: 110 },
 ];
-
-const RATES = [
-  ['This app', '60 Hz', 'what you are watching'],
-  ['Firmware stream', '50 Hz', 'the serial line default'],
-  ['Control loop', 'up to 2 kHz', 'on the Teensy, next to the actuator'],
-  ['On-device capture', 'unbound', 'the SD log is not tied to any of these'],
+const RATES: { what: string; rate: string; note: string; icon: any }[] = [
+  { what: 'This app', rate: '60 Hz', note: 'what you are watching', icon: 'smartphone' },
+  { what: 'Firmware stream', rate: '50 Hz', note: 'the serial line default', icon: 'radio' },
+  { what: 'Control loop', rate: '2 kHz', note: 'on the Teensy, next to the actuator', icon: 'cpu' },
+  { what: 'On-device capture', rate: 'unbound', note: 'the SD log is not tied to any of these', icon: 'hard-drive' },
 ];
 
 export function Data() {
   const session = useSession();
   const frame = session.frame;
+  const { height } = useWindowDimensions();
   const [url, setUrl] = useState('ws://localhost:8765/ws');
+  let live = 0;
+  for (const f of FINGERS) live += (frame.ok[f].ab ? 1 : 0) + (frame.ok[f].mcp ? 1 : 0) + (frame.ok[f].pip ? 1 : 0);
+  const isLive = session.link.live;
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={st.content}
-      showsVerticalScrollIndicator={false}>
-      <Card style={{ padding: S.s4 }}>
-        <Label>Source</Label>
-        <View style={{ height: S.s3 }} />
-        <View style={st.srcRow}>
-          <Dot on={session.link.live} />
-          <UIText size={16} weight="500">{session.link.label}</UIText>
-          <View style={{ flex: 1 }} />
-          <Mono size={11.5} color={C.ink3}>{session.link.detail}</Mono>
-        </View>
-        <View style={{ height: S.s4 }} />
-        <Hairline />
-        <View style={{ height: S.s4 }} />
-        <Label>Bridge address</Label>
-        <TextInput value={url} onChangeText={setUrl} autoCapitalize="none"
-          autoCorrect={false} style={st.input} placeholderTextColor={C.ink3} />
-        <View style={st.btnRow}>
-          <Pressable style={[st.btn, st.btnPrimary]} onPress={() => session.connect(url)}>
-            <UIText size={14} weight="600" color="#FFFFFF">Connect</UIText>
-          </Pressable>
-          <Pressable style={st.btn} onPress={() => session.useSimulator()}>
-            <UIText size={14} weight="600" color={C.ink}>Simulator</UIText>
-          </Pressable>
-        </View>
-      </Card>
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Backdrop dim={0.4} lift={0.13} scale={0.84} />
+      <Header title="Data" right={<BadgeButton icon="settings" />}
+        chips={<>
+          <GlassChip icon={isLive ? 'radio' : 'cpu'} label={isLive ? 'Bridge' : 'Simulated'} tone={isLive ? 'live' : 'glass'} />
+          <GlassChip icon="grid" label={`${live} / 12 live`} />
+        </>} />
 
-      <Card style={{ padding: S.s4 }}>
-        <Label>Channels</Label>
-        <UIText size={11.5} color={C.ink3} style={{ marginTop: 5, lineHeight: 16 }}>
-          Wire name, then what the channel actually measures. A value past the
-          mechanism's limit shows in accent; the twin clamps it.
-        </UIText>
-        <View style={{ height: S.s3 }} />
-        {FINGERS.map((f, fi) => (
-          <View key={f}>
-            {fi > 0 && <View style={{ height: S.s3 }} />}
-            <Mono size={10.5} color={C.ink3} tracking={0.9}>{FINGER_LABEL[f]}</Mono>
-            <View style={{ height: 6 }} />
-            {SEGMENTS.map((s, si) => (
-              <View key={s.key}>
-                {si > 0 && <Hairline />}
-                <View style={st.chanRow}>
-                  <Mono size={12.5} color={C.ink2} style={{ width: 92 }}>
-                    {f}_{s.wire}
-                  </Mono>
-                  <UIText size={12.5} color={C.ink3} style={{ flex: 1 }}>{s.name}</UIText>
-                  <Mono size={15} weight="500"
-                    color={!frame.ok[f][s.key] ? C.ink3
-                      : Math.abs(frame.joints[f][s.key]) > s.limit ? C.accent : C.ink}>
-                    {frame.ok[f][s.key] ? `${frame.joints[f][s.key].toFixed(1)}°` : 'absent'}
-                  </Mono>
-                </View>
-              </View>
-            ))}
+      <Glass intensity={70} strong style={[st.float, { top: height * 0.30 }]}>
+        <View style={{ padding: S.s5 }}>
+          <T size={17} weight="500">Bridge address</T>
+          <T size={13} color={C.t2} style={{ marginTop: 3 }}>{session.link.detail}</T>
+          <View style={st.inputRow}>
+            <Feather name="link" size={15} color={C.t3} />
+            <TextInput value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false}
+              style={st.input} placeholderTextColor={C.t3} placeholder="ws://host:8765/ws" />
+          </View>
+          <View style={{ flexDirection: 'row', gap: S.s2, marginTop: S.s3 }}>
+            <PillButton label="Connect" onPress={() => session.connect(url)} style={{ flex: 1, height: 50 }} />
+            <Pressable onPress={() => session.useSimulator()} style={({ pressed }) => [st.ghost, { opacity: pressed ? 0.7 : 1 }]}>
+              <T size={14} weight="500">Simulator</T>
+            </Pressable>
+          </View>
+        </View>
+      </Glass>
+
+      <Sheet title="Channels" peek={0.34}>
+        {FINGERS.map((f) => (
+          <View key={f} style={{ marginBottom: S.s4 }}>
+            <Label style={{ marginBottom: 2 }}>{FINGER_LABEL[f]}</Label>
+            {SEGMENTS.map((s, i) => {
+              const on = frame.ok[f][s.key], v = frame.joints[f][s.key], over = Math.abs(v) > s.limit;
+              return (
+                <Row key={s.key} label={s.name} note={`${f}_${s.wire}`} last={i === SEGMENTS.length - 1}
+                  value={<View style={{ flexDirection: 'row', alignItems: 'center', gap: S.s3 }}>
+                    <View style={{ width: 56 }}><Bar value={v} max={s.limit} live={on} /></View>
+                    <Num size={17} weight="400" color={!on ? C.t3 : over ? C.accent : C.t1} style={{ width: 60, textAlign: 'right' }}>
+                      {on ? `${v.toFixed(1)}°` : 'absent'}
+                    </Num>
+                  </View>} />
+              );
+            })}
           </View>
         ))}
-      </Card>
-
-      <Card style={{ padding: S.s4 }}>
-        <Label>Rates</Label>
-        <View style={{ height: S.s3 }} />
-        {RATES.map(([what, rate, note], i) => (
-          <View key={what}>
-            {i > 0 && <Hairline />}
-            <View style={st.rateRow}>
-              <View style={{ flex: 1 }}>
-                <UIText size={14}>{what}</UIText>
-                <UIText size={11.5} color={C.ink3} style={{ marginTop: 1 }}>{note}</UIText>
-              </View>
-              <Mono size={14} weight="500">{rate}</Mono>
-            </View>
-          </View>
+        <Label style={{ marginBottom: 2 }}>Rates</Label>
+        {RATES.map((r, i) => (
+          <Row key={r.what} icon={r.icon} label={r.what} note={r.note} last={i === RATES.length - 1}
+            value={<Num size={15} weight="400">{r.rate}</Num>} />
         ))}
-      </Card>
-
-      <View style={st.note}>
-        <Mono size={10.5} color={C.ink3}>Research prototype. Not a medical device.</Mono>
-      </View>
-    </ScrollView>
+        <T size={11.5} color={C.t4} style={{ textAlign: 'center', marginTop: S.s6 }}>Research prototype. Not a medical device.</T>
+      </Sheet>
+    </View>
   );
 }
 
 const st = StyleSheet.create({
-  content: { padding: S.s4, paddingTop: S.s2, gap: S.s3, paddingBottom: S.s7 },
-  srcRow: { flexDirection: 'row', alignItems: 'center', gap: S.s2 },
-  input: {
-    fontFamily: F.mono, fontSize: 13, color: C.ink, marginTop: S.s2,
-    backgroundColor: C.paperSunk, borderRadius: R.r1, paddingHorizontal: S.s3,
-    paddingVertical: 11,
+  float: { position: 'absolute', left: S.s5, right: S.s5 },
+  inputRow: {
+    flexDirection: 'row', alignItems: 'center', gap: S.s2, marginTop: S.s4,
+    backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: R.r2, paddingHorizontal: S.s4, height: 48,
+    borderWidth: 1, borderColor: C.glassLine,
   },
-  btnRow: { flexDirection: 'row', gap: S.s2, marginTop: S.s3 },
-  btn: {
-    flex: 1, paddingVertical: 12, borderRadius: R.r1, alignItems: 'center',
-    backgroundColor: C.paperSunk,
+  input: { flex: 1, fontFamily: 'Inter_500Medium', fontSize: 14, color: C.t1 },
+  ghost: {
+    paddingHorizontal: S.s5, height: 50, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: C.glassLineStrong, backgroundColor: C.glass,
   },
-  btnPrimary: { backgroundColor: C.accent },
-  chanRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 9, gap: S.s2 },
-  rateRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: S.s3 },
-  note: { alignItems: 'center' },
 });

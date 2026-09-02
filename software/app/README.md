@@ -42,9 +42,12 @@ phone, use the machine's LAN address instead of localhost.
 
 ## What it is built on
 
-- **The real CAD.** `assets/model/zero_hand.glb` is the repository's own
-  web-decimated export of the V7 assembly, 154k triangles, names and
-  transforms untouched. The rig binds to the GLB's own node names, because
+- **The real CAD, at full resolution.** `assets/model/zero_hand_full.glb` is the
+  repository's own export of the V7 assembly, 607k triangles, names and
+  transforms untouched. It ships without normals, so the loader welds its
+  vertices and computes smooth ones; `zero_hand.glb` (143k, web-decimated)
+  stays beside it for low-memory devices, switched by one constant in
+  `src/twin/loadHand.ts`. The rig binds to the GLB's own node names, because
   those names are the mechanism.
 - **The shared mechanical model.** `src/data/kinematics.js` is carried
   byte-for-byte from `software/console`. Joint angles, the telescopic slides
@@ -58,23 +61,27 @@ phone, use the machine's LAN address instead of localhost.
 
 ## The look
 
-The app is the device's own instrument language scaled up, and two things are
-carried over deliberately rather than invented here.
+The machine fills the screen and everything you read floats over it on
+frosted glass. That is the whole idea, and four rules keep it honest:
 
-The **Rams watch face** that ships in the firmware
-(`firmware/takto_one/watch/face_rams.h`) is a strict grid, near-monochrome,
-with exactly one accent spent on state and nothing decorative in motion. This
-app obeys the same three rules. The accent is the oxide of the lit beat in the
-TAKTO mark, and it appears only when a value is at its limit, a channel is
-live, or a control is primary.
+- **One stage.** The twin is the graphite colourway from the product hero
+  still, lit by one key, one cool rim and a neutral room environment, through
+  a filmic transform. The studio fades to black at the feet so the sheet has
+  somewhere to land. Those values live in `src/twin/materials.ts` and
+  `src/twin/Twin.tsx`.
+- **Glass, not cards.** Every surface is a real backdrop blur (`expo-blur`)
+  with a hairline border: the header's round buttons, the picker chips under
+  the title, the one floating summary card, the bottom sheet. Nothing is
+  opaque except the primary button.
+- **Light type, one accent.** Inter throughout, weight 300 for the big
+  numerals, tabular so tickers hold still. The accent is the oxide of the lit
+  beat in the TAKTO mark, brightened one step for a dark ground, and it is
+  spent only on state: a live channel, a value at its limit, the playhead.
+- **The machine keeps the drag.** The sheet owns its own scroll and rises on
+  a tap of its handle, so the area above it always orbits the twin.
 
-The **white studio** of the product stills and the film is the twin's stage,
-by the numbers: a pure white page, a neutral shell reading 228-232 against it,
-finger links a half step deeper so the lattice separates, dark joint pins
-peppered through it for legibility, a motor bank that is true black in every
-frame, and exactly one casting light. Those values live in
-`src/twin/materials.ts`. The result is that the twin and the photography read
-as the same object.
+Tokens are stated once in `src/ui/tokens.ts`; the shapes every screen is
+built from are `src/ui/primitives.tsx` and `src/ui/Chrome.tsx`.
 
 ## Honest limits
 
@@ -87,17 +94,23 @@ as the same object.
 - The samples write anatomical values into the `{f}_mcp` column, which the
   device's wire contract uses for MCP **abduction**. This app maps columns the
   same way `software/web/src/views/replay.js` does, so replayed abduction can
-  read past the mechanism's 16 degree limit. The Data screen marks any such
-  value in accent and the twin clamps it.
+  read past the mechanism's 16 degree limit. The transport says so and the
+  twin clamps it.
+- The full mesh is 10.9 MB in the bundle and 607k triangles on the GPU. It
+  renders at 60 Hz on a laptop's software GL; on a low-end phone, flip
+  `MODEL` in `src/twin/loadHand.ts` to `lite`.
 - Verified on the **web** target, which is also what the capture tool renders
   and what every image on this page came from. The iOS and Android bundles
-  build clean from the same source (`npx expo export --platform ios` and
-  `--platform android`, 660 modules each), but neither has been run on a
-  device or a simulator here, so treat the native targets as compiling rather
-  than as exercised.
+  export from the same source (`npx expo export --platform ios` and
+  `--platform android`), but neither has been run on a device or a simulator
+  here, so treat the native targets as compiling rather than as exercised.
+  `expo-blur` on Android needs `experimentalBlurMethod` to blur at all, which
+  is an open item for the first device run.
 
 ## Regenerating the media
 
-The synthetic feed is a pure function of time and the app accepts `?t=` and
-`?screen=`, so every captured frame is reproducible. See
-[`tools/capture.mjs`](tools/capture.mjs).
+The synthetic feed is a pure function of time and the app accepts `?t=`,
+`?screen=` and `?take=`, so every captured frame is reproducible. See
+[`tools/capture.mjs`](tools/capture.mjs) for the stills and the loop frames,
+and [`tools/compose.mjs`](tools/compose.mjs) for the docs composite and the
+ffmpeg line that makes the GIF.

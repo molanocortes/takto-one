@@ -50,14 +50,52 @@ export function makeMaterials() {
   };
 }
 
-export type Materials = ReturnType<typeof makeMaterials>;
+/**
+ * The graphite colourway: the second device in the hero still. Same
+ * discipline as the white one (matte, tonal, one bright detail) inverted:
+ * a dark shell, links a half step lighter so the lattice separates, light
+ * spools riding the black bank, and the screen glowing from within.
+ */
+export const GRAPHITE = {
+  shell: '#3A3B40',
+  link: '#4A4B51',
+  pin: '#9A9CA2',
+  bank: '#050505',
+  board: '#1E1E21',
+  spool: '#D9D9D9',
+  glass: '#0B0B0D',
+} as const;
+
+const phys = (color: string, roughness: number, metalness = 0, clearcoat = 0) =>
+  new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(color), roughness, metalness, clearcoat, clearcoatRoughness: 0.35,
+  });
+
+export function makeGraphiteMaterials(): Materials {
+  return {
+    // a satin shell with a thin clearcoat: it picks up the studio as a soft
+    // sheen rather than a hard reflection
+    shell: phys(GRAPHITE.shell, 0.48, 0.05, 0.5),
+    link: phys(GRAPHITE.link, 0.45, 0.1, 0.3),
+    pin: std(GRAPHITE.pin, 0.35, 0.6),
+    bank: std(GRAPHITE.bank, 0.45),
+    board: std(GRAPHITE.board, 0.5),
+    glass: Object.assign(std(GRAPHITE.glass, 0.2, 0.1), {
+      emissive: new THREE.Color('#FF5B2E'),
+      emissiveIntensity: 0.9,
+    }),
+    spool: std(GRAPHITE.spool, 0.6),
+  } as Materials;
+}
+
+export type Materials = ReturnType<typeof makeMaterials> & { spool?: THREE.MeshStandardMaterial };
 
 /** Which material a GLB node wears, decided by the node's own name. */
 export function materialFor(name: string, m: Materials) {
   // The spool discs are light, riding a black rail: in the product stills the
   // white spools against the black bank are the device's most recognisable
   // detail, so they must not be lumped in with the bank.
-  if (name.startsWith('spool_')) return m.shell;
+  if (name.startsWith('spool_')) return m.spool ?? m.shell;
   if (name === 'motors') return m.bank;
   if (name === 'screen') return m.glass;
   if (name.endsWith('_enc')) return m.board;

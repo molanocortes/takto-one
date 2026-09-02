@@ -6,8 +6,8 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "takto",
-    "userInterfaceStyle": "light",
-    "backgroundColor": "#EFEDE7",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0A0A0B",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "one.takto.companion"
@@ -15,7 +15,7 @@
     "android": {
       "package": "one.takto.companion",
       "adaptiveIcon": {
-        "backgroundColor": "#EFEDE7",
+        "backgroundColor": "#0A0A0B",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },

@@ -1,12 +1,20 @@
 // loadHand.ts - one parse of the device's CAD, shared by every surface.
 //
-// assets/model/zero_hand.glb is the repository's own web-decimated export of
-// the V7 CAD (614k -> 154k triangles, names and transforms untouched). The
+// assets/model/zero_hand_full.glb is the repository's own full export of the
+// V7 CAD (607k triangles, names and transforms untouched); zero_hand.glb is
+// the web-decimated one (143k) kept for low-memory devices. The full export
+// ships without normals, so they are computed here after welding vertices:
+// smooth shading across the shell, which is what the product renders do. The
 // articulated node names it carries ARE the mechanism, so the rig in Hand.tsx
 // binds to them by name and nothing here invents geometry.
 import { Asset } from 'expo-asset';
 import { Platform } from 'react-native';
+import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+
+/** which export to load; the full one unless a device says otherwise */
+export const MODEL: 'full' | 'lite' = 'full';
 
 let cached: Promise<GLTF> | null = null;
 
@@ -39,13 +47,27 @@ async function readBuffer(uri: string): Promise<ArrayBuffer> {
 export function loadHand(): Promise<GLTF> {
   if (cached) return cached;
   cached = (async () => {
-    const asset = Asset.fromModule(require('../../assets/model/zero_hand.glb'));
+    const asset = Asset.fromModule(MODEL === 'full'
+      ? require('../../assets/model/zero_hand_full.glb')
+      : require('../../assets/model/zero_hand.glb'));
     await asset.downloadAsync();
     const uri = asset.localUri ?? asset.uri;
     const buf = await readBuffer(uri);
     const loader = new GLTFLoader();
-    return await new Promise<GLTF>((resolve, reject) =>
+    const gltf = await new Promise<GLTF>((resolve, reject) =>
       loader.parse(buf, '', resolve, reject));
+    gltf.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      let g = mesh.geometry as THREE.BufferGeometry;
+      if (!g.attributes.normal) {
+        // weld coincident vertices so the normals average across faces
+        g = mergeVertices(g, 1e-5);
+        g.computeVertexNormals();
+        mesh.geometry = g;
+      }
+    });
+    return gltf;
   })();
   return cached;
 }
