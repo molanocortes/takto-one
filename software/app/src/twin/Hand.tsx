@@ -61,9 +61,19 @@ function addPin(h: Hinge | null, axis: 'x' | 'y', r: number, len: number, mat: T
 }
 
 
-function buildRig(scene: THREE.Object3D, mats: Materials): Rig {
+/** the nodes that are the forearm housing, hidden when only the hand is shown */
+const FOREARM = new Set(['forearm', 'forearm_cover', 'motors', 'internals', 'screen']);
+
+function buildRig(scene: THREE.Object3D, mats: Materials, part: 'device' | 'hand' = 'device'): Rig {
   const root = new THREE.Group();
   const model = scene.clone(true);
+
+  if (part === 'hand') {
+    // drop the housing before normalising, so the hand fills the frame
+    const gone: THREE.Object3D[] = [];
+    model.traverse((o) => { if (FOREARM.has(o.name) || o.name.startsWith('spool_')) gone.push(o); });
+    for (const o of gone) o.parent?.remove(o);
+  }
 
   model.traverse((o) => {
     const mesh = o as THREE.Mesh;
@@ -110,8 +120,8 @@ function buildRig(scene: THREE.Object3D, mats: Materials): Rig {
   return { root, size, fingers, spools, screen: mats.glass };
 }
 
-export function Hand({ onReady, colourway = 'white', look = 'studio' }: {
-  onReady?: (size: number) => void; colourway?: 'white' | 'graphite'; look?: Look;
+export function Hand({ onReady, colourway = 'white', look = 'studio', part = 'device' }: {
+  onReady?: (size: number) => void; colourway?: 'white' | 'graphite'; look?: Look; part?: 'device' | 'hand';
 }) {
   const [rig, setRig] = useState<Rig | null>(null);
   const mats = useMemo(() => colourway === 'graphite' ? makeLookMaterials(look) : makeMaterials(), [colourway, look]);
@@ -122,7 +132,7 @@ export function Hand({ onReady, colourway = 'white', look = 'studio' }: {
     loadHand()
       .then((gltf) => {
         if (!live) return;
-        const built = buildRig(gltf.scene, mats);
+        const built = buildRig(gltf.scene, mats, part);
         setRig(built);
         onReady?.(built.size);
         // a flag the capture tool waits on, so a frame is never shot before
@@ -131,7 +141,7 @@ export function Hand({ onReady, colourway = 'white', look = 'studio' }: {
       })
       .catch((e) => console.warn('[twin] hand model failed to load:', e));
     return () => { live = false; };
-  }, [mats]);
+  }, [mats, part]);
 
   useFrame(() => {
     if (!rig) return;

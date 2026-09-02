@@ -28,7 +28,7 @@ const VIEW = {
 
 type Orbit = { yaw: number; pitch: number; drifting: boolean; t: number };
 
-function Rig({ orbit, colourway, scale = 1, look }: { orbit: React.MutableRefObject<Orbit>; colourway: 'white' | 'graphite'; scale?: number; look: Look }) {
+function Rig({ orbit, colourway, scale = 1, look, part }: { orbit: React.MutableRefObject<Orbit>; colourway: 'white' | 'graphite'; scale?: number; look: Look; part: 'device' | 'hand' }) {
   // TWO frames, deliberately. The outer group turns about the WORLD vertical,
   // which is what a turntable is; the inner group carries the fixed rotation
   // that stands the device up (+Z is distal in the CAD, so the fingers point
@@ -40,7 +40,8 @@ function Rig({ orbit, colourway, scale = 1, look }: { orbit: React.MutableRefObj
   useMemo(() => {
     const az = (VIEW.azimuth * Math.PI) / 180;
     const el = (VIEW.elevation * Math.PI) / 180;
-    const roll = (VIEW.rollDeg * Math.PI) / 180;
+    // the hand alone is a squarer object: no diagonal needed to fill the frame
+    const roll = ((part === 'hand' ? -4 : VIEW.rollDeg) * Math.PI) / 180;
     camera.position.set(
       VIEW.distance * Math.cos(el) * Math.sin(az),
       VIEW.distance * Math.sin(el),
@@ -50,7 +51,7 @@ function Rig({ orbit, colourway, scale = 1, look }: { orbit: React.MutableRefObj
     // frame, and the diagonal is a framing decision, not a pose.
     camera.up.set(Math.sin(roll), Math.cos(roll), 0);
     camera.lookAt(VIEW.target[0], VIEW.target[1], VIEW.target[2]);
-  }, [camera]);
+  }, [camera, part]);
 
   useFrame((_: any, dt: number) => {
     const g = turn.current;
@@ -66,9 +67,9 @@ function Rig({ orbit, colourway, scale = 1, look }: { orbit: React.MutableRefObj
   });
 
   return (
-    <group ref={turn} rotation={[0, VIEW.yaw0, 0]} scale={scale}>
+    <group ref={turn} rotation={[0, VIEW.yaw0, 0]} scale={scale * (part === 'hand' ? 0.8 : 1)}>
       <group rotation={[-Math.PI / 2, 0, 0]}>
-        <Hand colourway={colourway} look={look} />
+        <Hand colourway={colourway} look={look} part={part} />
       </group>
     </group>
   );
@@ -91,7 +92,8 @@ function Lights({ shadow, dark }: { shadow: boolean; dark: boolean }) {
         <directionalLight position={[-4, 2.5, -5]} intensity={1.5} color="#CFE0FF" />
         <directionalLight position={[4, 1, -3]} intensity={1.2} color="#E8EEFF" />
         <directionalLight position={[2, -3, 3]} intensity={0.35} color="#FFD9C4" />
-        <hemisphereLight args={['#6C6F76', '#050506', 0.6]} />
+        <hemisphereLight args={['#8A8D94', '#0A0A0C', 1.0]} />
+        <directionalLight position={[0, 4, 4]} intensity={0.6} color="#FFFFFF" />
       </>
     );
   }
@@ -130,12 +132,21 @@ function urlLook(): Look {
   }
   return DEFAULT_LOOK;
 }
+/** ?part=hand renders the hand alone, without the forearm housing */
+function urlPart(): 'device' | 'hand' {
+  if (Platform.OS === 'web' && typeof location !== 'undefined') {
+    if (new URLSearchParams(location.search).get('part') === 'hand') return 'hand';
+  }
+  return 'device';
+}
 
-export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look }: {
+export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, part }: {
   style?: StyleProp<ViewStyle>; shadow?: boolean; stage?: 'dark' | 'light'; scale?: number; look?: Look;
+  part?: 'device' | 'hand';
 }) {
   const dark = stage === 'dark';
   const theLook = look ?? urlLook();
+  const thePart = part ?? urlPart();
   const exposure = ({ studio: 0.92, graphite: 1.15, clay: 1.05, ceramic: 0.85, ink: 1.2, xray: 1.0, midnight: 1.3, slate: 1.15, frost: 0.9 } as Partial<Record<Look, number>>)[theLook] ?? 1.05;
   const orbit = useRef<Orbit>({ yaw: 0, pitch: 0, drifting: true, t: 0 });
   const start = useRef({ yaw: 0, pitch: 0 });
@@ -188,7 +199,7 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look }: 
         }}
       >
         <Lights shadow={shadow} dark={dark} />
-        <Rig orbit={orbit} colourway={dark ? 'graphite' : 'white'} scale={scale} look={theLook} />
+        <Rig orbit={orbit} colourway={dark ? 'graphite' : 'white'} scale={scale} look={theLook} part={thePart} />
         {/* the ground exists only to catch the one shadow; on black there is none to catch */}
         {!dark && (
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.52, 0]} receiveShadow>

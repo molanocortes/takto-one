@@ -134,7 +134,7 @@ export const LOOKS: Look[] = [
 function matte(body: string, spools = body, pins = body, screen = body, glow?: string): Materials {
   const m = (k: string) => phys(k, 0.92, 0, 0, 1);
   return {
-    shell: m(body), link: m(shade(body, -0.06)), pin: m(pins), bank: m(shade(body, -0.16)),
+    shell: m(body), link: m(shade(body, 0.03)), pin: m(pins), bank: m(shade(body, -0.16)),
     board: m(shade(body, -0.16)),
     glass: Object.assign(m(screen), { emissive: new THREE.Color(glow ?? '#000000'), emissiveIntensity: glow ? 0.5 : 0 }),
     spool: m(spools),
@@ -208,7 +208,7 @@ export function makeLookMaterials(look: Look): Materials {
     case 'terracotta': return matte('#B8654A', '#E9D9C7', '#3D2A22', '#2A1F1B', '#FF8A5B');
     case 'sage': return matte('#8FA08C', '#E6EAE0', '#3C463A', '#1E231E', '#CFE8C8');
     case 'slate': return matte('#4B5560', '#C9CED4', '#1E2328', '#14171A', '#7FB0FF');
-    case 'midnight': return matte('#1B2233', '#8E9BB5', '#0C1019', '#0A0D14', '#4F8DFF');
+    case 'midnight': return matte('#2A3450', '#9AA8C4', '#111624', '#0A0D14', '#4F8DFF');
     case 'oxide': return matte('#C9401B', '#F1E9E0', '#2A1F1B', '#1A1210', '#FFB199');
     case 'chalk': return matte('#F2F1EC', '#F7F6F2', '#3A3936', '#1E1E1C', '#1E66E0');
     case 'frost': return {
