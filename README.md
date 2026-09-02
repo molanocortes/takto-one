@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/media/hero.gif" alt="TAKTO ONE, both hands opening and closing" width="100%">
+<img src="docs/media/hero.png" alt="TAKTO ONE" width="100%">
 
 # TAKTO ONE
 
