@@ -112,5 +112,5 @@ built from are `src/ui/primitives.tsx` and `src/ui/Chrome.tsx`.
 The synthetic feed is a pure function of time and the app accepts `?t=`,
 `?screen=` and `?take=`, so every captured frame is reproducible. See
 [`tools/capture.mjs`](tools/capture.mjs) for the stills and the loop frames,
-and [`tools/compose.mjs`](tools/compose.mjs) for the docs composite and the
-ffmpeg line that makes the GIF.
+[`tools/compose.mjs`](tools/compose.mjs) for the docs composite, and
+[`tools/gif.mjs`](tools/gif.mjs) for the loop.

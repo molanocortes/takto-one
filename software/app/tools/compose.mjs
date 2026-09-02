@@ -2,8 +2,7 @@
 //
 //   NODE_PATH=/tmp/cap/node_modules node tools/compose.mjs tools/out ../../docs/media/app-screens.png [chromium-path]
 //
-// And the loop, from the frames capture.mjs wrote:
-//   ffmpeg -y -framerate 10 -i tools/out/frames/f%04d.png -vf "scale=390:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=sierra2_4a" ../../docs/media/app-live.gif
+// The loop is tools/gif.mjs, from the frames capture.mjs wrote.
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';

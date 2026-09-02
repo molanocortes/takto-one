@@ -16,7 +16,7 @@
 //   NODE_PATH=/tmp/cap/node_modules node tools/capture.mjs http://localhost:8099 tools/out all [chromium-path]
 //
 // Then `node tools/compose.mjs tools/out` writes docs/media/app-screens.png,
-// and ffmpeg turns tools/out/frames into app-live.gif (see compose.mjs).
+// and `node tools/gif.mjs tools/out/frames` turns the frames into app-live.gif.
 import { mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 
