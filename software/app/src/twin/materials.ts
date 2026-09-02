@@ -58,8 +58,8 @@ export function makeMaterials() {
  * glowing blue from within, as on the hero still.
  */
 export const STUDIO_DARK = {
-  shell: '#CFCFCF',
-  link: '#B8B8BA',
+  shell: '#D4D4D4',
+  link: '#BDBDBF',
   pin: '#4A4B50',
   bank: '#0A0A0A',
   board: '#232326',
@@ -75,16 +75,16 @@ const phys = (color: string, roughness: number, metalness = 0, clearcoat = 0, cl
 
 export function makeGraphiteMaterials(): Materials {
   return {
-    shell: phys(STUDIO_DARK.shell, 0.42, 0.0, 0.9, 0.18),
-    link: phys(STUDIO_DARK.link, 0.5, 0.0, 0.5, 0.3),
+    shell: phys(STUDIO_DARK.shell, 0.62, 0.0, 0.18, 0.5),
+    link: phys(STUDIO_DARK.link, 0.62, 0.0, 0.12, 0.5),
     pin: phys(STUDIO_DARK.pin, 0.3, 0.8, 0.0),
-    bank: phys(STUDIO_DARK.bank, 0.38, 0.05, 0.6, 0.25),
+    bank: phys(STUDIO_DARK.bank, 0.5, 0.05, 0.25, 0.4),
     board: phys(STUDIO_DARK.board, 0.5, 0.1),
     glass: Object.assign(phys(STUDIO_DARK.glass, 0.08, 0.2, 1.0, 0.03), {
       emissive: new THREE.Color('#1E66E0'),
       emissiveIntensity: 0.75,
     }),
-    spool: phys(STUDIO_DARK.spool, 0.55, 0.0, 0.3, 0.4),
+    spool: phys(STUDIO_DARK.spool, 0.65, 0.0, 0.1, 0.5),
   } as Materials;
 }
 

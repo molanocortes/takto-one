@@ -19,19 +19,19 @@ export function Welcome({ onStart, onConnect }: { onStart: () => void; onConnect
         style={st.bottom} pointerEvents="none" />
 
       <View style={[st.header, { paddingTop: inset.top + S.s3 }]} pointerEvents="none">
-        <Mark size={48} />
+        <Mark size={40} />
         <GlassChip icon="cpu" label="Research prototype" />
       </View>
 
       <View style={[st.foot, { paddingBottom: inset.bottom + S.s6 }]}>
         <Label color={C.t2}>Welcome to</Label>
-        <T size={48} weight="500" style={{ marginTop: 6 }}>TAKTO ONE</T>
-        <T size={16} color={C.t2} lineHeight={24} style={{ marginTop: S.s3, maxWidth: 300 }}>
+        <T size={34} weight="500" style={{ marginTop: 4 }}>TAKTO ONE</T>
+        <T size={14} color={C.t2} lineHeight={21} style={{ marginTop: S.s2, maxWidth: 280 }}>
           Every joint of the hand, live from the device or from a recorded take.
         </T>
-        <PillButton label="Start session" onPress={onStart} style={{ marginTop: S.s7 }} />
+        <PillButton label="Start session" onPress={onStart} style={{ marginTop: S.s6 }} />
         <Pressable onPress={onConnect} style={{ alignSelf: 'center', marginTop: S.s5, padding: S.s2 }}>
-          <T size={14} weight="500" color={C.t2}>Connect a device</T>
+          <T size={13} weight="500" color={C.t2}>Connect a device</T>
         </Pressable>
       </View>
     </View>

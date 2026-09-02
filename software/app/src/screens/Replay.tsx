@@ -54,7 +54,7 @@ function Library() {
         <View style={{ flexDirection: 'row', gap: S.s2 }}>
           <GlassChip icon="list" label="All takes" onPress={() => setSheet(true)} />
           <Pressable onPress={() => session.setTake(featured)} style={st.playDisc}>
-            <Feather name="play" size={18} color={C.ink} style={{ marginLeft: 2 }} />
+            <Feather name="play" size={15} color={C.ink} style={{ marginLeft: 2 }} />
           </Pressable>
         </View>
       </View>
@@ -108,7 +108,7 @@ function Transport() {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Backdrop lift={0.04} scale={0.92} />
       <Header title={play.take.title}
-        left={<IconButton icon="arrow-left" size={48} onPress={() => session.setTake(null)} />}
+        left={<IconButton icon="arrow-left" size={40} onPress={() => session.setTake(null)} />}
         right={<BadgeButton icon={play.playing ? 'pause' : 'play'} onPress={() => session.togglePlay()} />}
         chips={<>
           <GlassChip icon="clock" label={`${play.take.durationS.toFixed(0)} s`} />
@@ -152,7 +152,7 @@ function Transport() {
 
 const st = StyleSheet.create({
   foot: { position: 'absolute', left: S.s5, right: S.s5, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
-  playDisc: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center' },
+  playDisc: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center' },
   scrub: { marginTop: S.s2, height: 64 },
   played: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: 'rgba(255,91,46,0.18)', borderRadius: 4 },
   head: { position: 'absolute', top: -4, bottom: -4, width: 2, backgroundColor: C.accent, marginLeft: -1 },

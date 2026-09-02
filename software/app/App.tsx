@@ -91,7 +91,7 @@ function Nav({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
             return (
               <Pressable key={t.key} onPress={() => onChange(t.key)} hitSlop={6}
                 style={({ pressed }) => [st.navItem, on && st.navOn, { opacity: pressed ? 0.8 : 1 }]}>
-                <Feather name={t.icon} size={20} color={on ? C.ink : C.t2} />
+                <Feather name={t.icon} size={17} color={on ? C.ink : C.t2} />
               </Pressable>
             );
           })}
@@ -104,7 +104,7 @@ function Nav({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
 const st = StyleSheet.create({
   navWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   nav: { height: NAV_H },
-  navRow: { flexDirection: 'row', alignItems: 'center', height: NAV_H, paddingHorizontal: 8, gap: 6 },
-  navItem: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
+  navRow: { flexDirection: 'row', alignItems: 'center', height: NAV_H, paddingHorizontal: 6, gap: 4 },
+  navItem: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   navOn: { backgroundColor: C.white },
 });

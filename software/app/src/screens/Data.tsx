@@ -50,23 +50,23 @@ export function Data() {
         </>} />
 
       <Glass intensity={70} strong style={[st.float, { bottom: NAV_H + NAV_GAP * 2 + inset.bottom + S.s2 }]}>
-        <View style={{ padding: S.s5 }}>
-          <T size={17} weight="500">Bridge address</T>
-          <T size={13} color={C.t2} style={{ marginTop: 3 }}>{session.link.detail}</T>
+        <View style={{ padding: S.s4 }}>
+          <T size={15} weight="500">Bridge address</T>
+          <T size={12} color={C.t2} style={{ marginTop: 2 }}>{session.link.detail}</T>
           <View style={st.inputRow}>
             <Feather name="link" size={15} color={C.t3} />
             <TextInput value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false}
               style={st.input} placeholderTextColor={C.t3} placeholder="ws://host:8765/ws" />
           </View>
           <View style={{ flexDirection: 'row', gap: S.s2, marginTop: S.s3 }}>
-            <PillButton label="Connect" onPress={() => session.connect(url)} style={{ flex: 1, height: 50 }} />
+            <PillButton label="Connect" onPress={() => session.connect(url)} style={{ flex: 1, height: 44 }} />
             <Pressable onPress={() => session.useSimulator()} style={({ pressed }) => [st.ghost, { opacity: pressed ? 0.7 : 1 }]}>
-              <T size={14} weight="500">Simulator</T>
+              <T size={13} weight="500">Simulator</T>
             </Pressable>
           </View>
           <Pressable onPress={() => setSheet(true)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: S.s4 }}>
-            <T size={14} weight="500" color={C.t2}>{live} of 12 channels</T>
-            <Feather name="chevron-up" size={18} color={C.t2} />
+            <T size={13} weight="500" color={C.t2}>{live} of 12 channels</T>
+            <Feather name="chevron-up" size={16} color={C.t2} />
           </Pressable>
         </View>
       </Glass>
@@ -104,12 +104,12 @@ const st = StyleSheet.create({
   float: { position: 'absolute', left: S.s5, right: S.s5 },
   inputRow: {
     flexDirection: 'row', alignItems: 'center', gap: S.s2, marginTop: S.s4,
-    backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: R.r2, paddingHorizontal: S.s4, height: 48,
+    backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: R.r2, paddingHorizontal: S.s3, height: 42,
     borderWidth: 1, borderColor: C.glassLine,
   },
-  input: { flex: 1, fontFamily: 'Inter_500Medium', fontSize: 14, color: C.t1 },
+  input: { flex: 1, fontFamily: 'Inter_500Medium', fontSize: 13, color: C.t1 },
   ghost: {
-    paddingHorizontal: S.s5, height: 50, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: S.s4, height: 44, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: C.glassLineStrong, backgroundColor: C.glass,
   },
 });

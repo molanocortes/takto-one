@@ -107,7 +107,7 @@ export function Chip({ icon, children, tone = 'glass', style }: {
 }
 
 /** Round icon button, glass or inverted. */
-export function IconButton({ icon, onPress, size = 44, tone = 'glass', style, iconSize }: {
+export function IconButton({ icon, onPress, size = 38, tone = 'glass', style, iconSize }: {
   icon: keyof typeof Feather.glyphMap; onPress?: () => void; size?: number;
   tone?: 'glass' | 'white' | 'accent' | 'ghost'; style?: StyleProp<ViewStyle>; iconSize?: number;
 }) {
@@ -143,9 +143,9 @@ export function PillButton({ label, onPress, icon = 'arrow-right', tone = 'white
     <Pressable onPress={onPress} style={({ pressed }) => [
       st.pill, { backgroundColor: bg, opacity: pressed ? 0.85 : 1 }, tone === 'glass' && st.iconBtnLine, style,
     ]}>
-      <T size={16} weight="600" color={fg} tracking={-0.2} style={{ marginLeft: S.s2 }}>{label}</T>
+      <T size={14.5} weight="600" color={fg} tracking={-0.2} style={{ marginLeft: S.s2 }}>{label}</T>
       <View style={[st.pillDisc, { backgroundColor: discBg }]}>
-        <Feather name={icon} size={17} color={discFg} />
+        <Feather name={icon} size={15} color={discFg} />
       </View>
     </Pressable>
   );
@@ -180,7 +180,7 @@ export function Segmented<K extends string>({ options, value, onChange, style }:
         const on = o.key === value;
         return (
           <Pressable key={o.key} onPress={() => onChange(o.key)} style={[st.segItem, on && st.segOn]}>
-            <T size={12.5} weight="600" color={on ? C.ink : C.t2}>{o.label}</T>
+            <T size={12} weight="600" color={on ? C.ink : C.t2}>{o.label}</T>
           </Pressable>
         );
       })}
@@ -209,10 +209,10 @@ const st = StyleSheet.create({
   iconBtnLine: { borderWidth: 1, borderColor: C.glassLineStrong },
   pill: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    height: 60, borderRadius: R.pill, paddingLeft: S.s5, paddingRight: 6, ...(SHADOW as object),
+    height: 50, borderRadius: R.pill, paddingLeft: S.s4, paddingRight: 5, ...(SHADOW as object),
   },
-  pillDisc: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  pillDisc: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   seg: { flexDirection: 'row', padding: 3, gap: 2 },
-  segItem: { flex: 1, height: 32, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center' },
+  segItem: { flex: 1, height: 28, borderRadius: R.pill, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: C.white },
 });

@@ -88,7 +88,7 @@ function Lights({ shadow, dark }: { shadow: boolean; dark: boolean }) {
           shadow-bias={-0.0008} shadow-normalBias={0.02} shadow-camera-near={0.5} shadow-camera-far={14}
           shadow-camera-left={-1.05} shadow-camera-right={1.05}
           shadow-camera-top={1.05} shadow-camera-bottom={-1.05} />
-        <directionalLight position={[-4, 2.5, -5]} intensity={2.2} color="#CFE0FF" />
+        <directionalLight position={[-4, 2.5, -5]} intensity={1.5} color="#CFE0FF" />
         <directionalLight position={[4, 1, -3]} intensity={1.2} color="#E8EEFF" />
         <directionalLight position={[2, -3, 3]} intensity={0.35} color="#FFD9C4" />
         <hemisphereLight args={['#6C6F76', '#050506', 0.6]} />
@@ -165,10 +165,10 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1 }: {
             // A filmic transform and a neutral room environment: the graphite
             // shell needs something to reflect, or it reads as flat plastic.
             gl.toneMapping = THREE.ACESFilmicToneMapping;
-            gl.toneMappingExposure = 0.88;
+            gl.toneMappingExposure = 0.92;
             const pmrem = new THREE.PMREMGenerator(gl);
             scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-            scene.environmentIntensity = 0.7;
+            scene.environmentIntensity = 0.45;
             pmrem.dispose();
           } else {
             gl.toneMapping = THREE.NoToneMapping;

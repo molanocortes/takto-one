@@ -11,7 +11,7 @@ import { Twin } from '../twin/Twin';
 import { T, Num, IconButton, Glass } from './primitives';
 import { C, S, R } from './tokens';
 
-export const NAV_H = 64;
+export const NAV_H = 54;
 export const NAV_GAP = 14;
 
 /** The app mark: a white disc with the letter. */
@@ -19,7 +19,7 @@ export function Mark({ size = 44 }: { size?: number }) {
   return (
     <Glass radius={size / 2} style={{ width: size, height: size }}>
       <View style={[st.mark, { width: size, height: size }]}>
-        <T size={Math.round(size * 0.4)} weight="600" color={C.t1} tracking={-1}>T</T>
+        <T size={Math.round(size * 0.38)} weight="600" color={C.t1} tracking={-0.5}>T</T>
       </View>
     </Glass>
   );
@@ -29,7 +29,7 @@ export function Mark({ size = 44 }: { size?: number }) {
 export function BadgeButton({ icon, count, onPress }: { icon: any; count?: number; onPress?: () => void }) {
   return (
     <View>
-      <IconButton icon={icon} size={48} onPress={onPress} />
+      <IconButton icon={icon} size={40} onPress={onPress} />
       {!!count && (
         <View style={st.badge}><T size={10} weight="700" color={C.white}>{count}</T></View>
       )}
@@ -49,9 +49,9 @@ export function Header({ title, left, right, chips }: {
   return (
     <View style={[st.header, { paddingTop: inset.top + S.s3 }]} pointerEvents="box-none">
       <View style={st.headerRow} pointerEvents="box-none">
-        <View style={{ width: 48 }}>{left ?? <Mark size={48} />}</View>
-        <T size={17} weight="400" style={{ flex: 1, textAlign: 'center' }}>{title}</T>
-        <View style={{ width: 48, alignItems: 'flex-end' }}>{right}</View>
+        <View style={{ width: 40 }}>{left ?? <Mark size={40} />}</View>
+        <T size={15} weight="500" style={{ flex: 1, textAlign: 'center' }}>{title}</T>
+        <View style={{ width: 40, alignItems: 'flex-end' }}>{right}</View>
       </View>
       {chips && <View style={st.chips} pointerEvents="box-none">{chips}</View>}
     </View>
@@ -67,9 +67,9 @@ export function GlassChip({ icon, label, onPress, chevron, tone = 'glass' }: {
     <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}>
       <Glass radius={R.pill}>
         <View style={st.chip}>
-          {icon && <Feather name={icon} size={15} color={fg} />}
-          <T size={13.5} weight="500" color={fg}>{label}</T>
-          {chevron && <Feather name="chevron-down" size={15} color={C.t2} style={{ marginLeft: 2 }} />}
+          {icon && <Feather name={icon} size={13} color={fg} />}
+          <T size={12.5} weight="500" color={fg}>{label}</T>
+          {chevron && <Feather name="chevron-down" size={13} color={C.t2} style={{ marginLeft: 2 }} />}
         </View>
       </Glass>
     </Pressable>
@@ -118,8 +118,8 @@ export function Sheet({ children, open, onClose, share = 0.78, title, subtitle }
       </Pressable>
       {title && (
         <View style={st.sheetHead}>
-          <T size={22} weight="300">{title}</T>
-          {subtitle && <T size={13} color={C.t3} style={{ marginTop: 2 }}>{subtitle}</T>}
+          <T size={18} weight="400">{title}</T>
+          {subtitle && <T size={12} color={C.t3} style={{ marginTop: 2 }}>{subtitle}</T>}
         </View>
       )}
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}
@@ -139,10 +139,10 @@ export function Row({ icon, label, note, value, badge, tone, onPress, last }: {
   return (
     <Pressable onPress={onPress} disabled={!onPress}
       style={({ pressed }) => [st.row, !last && st.rowLine, { opacity: pressed ? 0.7 : 1 }]}>
-      {icon && <View style={st.rowIcon}><Feather name={icon} size={16} color={C.t2} /></View>}
+      {icon && <View style={st.rowIcon}><Feather name={icon} size={14} color={C.t2} /></View>}
       <View style={{ flex: 1 }}>
-        <T size={15.5} weight="400" color={fg}>{label}</T>
-        {note && <T size={12.5} color={C.t3} style={{ marginTop: 2 }}>{note}</T>}
+        <T size={14} weight="400" color={fg}>{label}</T>
+        {note && <T size={11.5} color={C.t3} style={{ marginTop: 1 }}>{note}</T>}
       </View>
       {!!badge && <View style={[st.badge, { position: 'relative', top: 0, right: 0 }]}><T size={10} weight="700" color={C.white}>{badge}</T></View>}
       {value}
@@ -155,12 +155,12 @@ export function Row({ icon, label, note, value, badge, tone, onPress, last }: {
 export function StageNumber({ label, value, unit, note }: { label: string; value: string; unit?: string; note?: string }) {
   return (
     <View>
-      <T size={13} weight="500" color={C.t2}>{label}</T>
+      <T size={12} weight="500" color={C.t2}>{label}</T>
       <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-        <Num size={64} weight="300" tracking={-2.5}>{value}</Num>
-        {unit && <T size={22} weight="300" color={C.t2} style={{ marginLeft: 4 }}>{unit}</T>}
+        <Num size={46} weight="300" tracking={-1.8}>{value}</Num>
+        {unit && <T size={17} weight="300" color={C.t2} style={{ marginLeft: 3 }}>{unit}</T>}
       </View>
-      {note && <T size={13} color={C.t3} style={{ marginTop: -4 }}>{note}</T>}
+      {note && <T size={12} color={C.t3} style={{ marginTop: -2 }}>{note}</T>}
     </View>
   );
 }
@@ -179,8 +179,8 @@ const st = StyleSheet.create({
   },
   header: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, paddingHorizontal: S.s5 },
   headerRow: { flexDirection: 'row', alignItems: 'center' },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: S.s2, marginTop: S.s4 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingHorizontal: 16 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: S.s3 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 12 },
   fadeTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 200 },
   fadeBot: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 260 },
   sheet: {
@@ -190,7 +190,7 @@ const st = StyleSheet.create({
   sheetLine: { position: 'absolute', top: 0, left: 0, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.28)' },
   handle: { alignItems: 'center', paddingTop: 10, paddingBottom: 2 },
   sheetHead: { paddingHorizontal: S.s5, paddingTop: S.s2, paddingBottom: S.s3 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: S.s3, paddingVertical: 15 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: S.s3, paddingVertical: 12 },
   rowLine: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.glassLine },
-  rowIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: C.glassStrong, alignItems: 'center', justifyContent: 'center' },
+  rowIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.glassStrong, alignItems: 'center', justifyContent: 'center' },
 });
