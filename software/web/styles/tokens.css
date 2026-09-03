@@ -1,0 +1,93 @@
+/* tokens.css - the design system's data of record. */
+/* Palette: sapphire studio.  The warm paper ground keeps the engineering
+   surfaces legible, while one restrained blue system carries active state. */
+
+:root {
+  color-scheme: light;
+  /* palette */
+  --bg:        #FFFFFF;   /* white page */
+  --bg-rgb:    255, 255, 255;   /* the bg as components, for scrims */
+  --panel:     #F2F3F5;   /* recessed well, neutral */
+  --card:      #FFFFFF;   /* raised: white, lifted by shadow not tint */
+  --card-hi:   #FFFFFF;   /* lifted / hover */
+  --line:      rgba(22, 24, 28, 0.14);
+  --line-soft: rgba(22, 24, 28, 0.08);
+  --text-0:    #16181C;   /* neutral ink */
+  --text-1:    #4C5158;
+  --text-2:    #808790;
+  --accent:      #2F76BF; /* TAKTO sapphire */
+  --accent-deep: #173E73;
+  --amber:     #3F78B7;   /* secondary sapphire */
+  --ok:        #4E7D57;   /* sage */
+  --warn:      #356CA7;
+  --stop:      #B02E20;
+  /* display-type gradient ends (hero title, big numerals) */
+  --title-a:   #16181C;
+  --title-b:   #474C54;
+
+  --accent-glow-25: rgba(47, 118, 191, 0.20);
+  --accent-glow-12: rgba(47, 118, 191, 0.10);
+  --accent-glow-06: rgba(47, 118, 191, 0.05);
+  --amber-glow-20: rgba(63, 120, 183, 0.16);
+
+  /* space scale 4 / 8 / 12 / 16 / 24 / 40 / 64 / 96 */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 40px; --s7: 64px; --s8: 96px;
+
+  /* radii */
+  --r1: 10px; --r2: 14px; --r3: 20px;
+
+  /* type */
+  --font-ui: "Inter Tight", "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "SFMono-Regular", Menlo, monospace;
+  --font-serif: "New York", ui-serif, Georgia, "Times New Roman", serif;
+
+  /* motion */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.34, 1.45, 0.5, 1);
+  --t-fast: 180ms;
+  --t-med: 420ms;
+  --t-slow: 900ms;
+
+  /* elevation: paper casts shadow, it does not glow */
+  --shadow-1: 0 1px 2px rgba(35, 30, 22, 0.05), 0 8px 24px rgba(35, 30, 22, 0.08);
+  --shadow-2: 0 2px 6px rgba(35, 30, 22, 0.07), 0 24px 64px rgba(35, 30, 22, 0.13);
+
+  /* glass */
+  --glass: rgba(250, 248, 242, 0.82);
+}
+
+/* NIGHT STUDIO — true neutral ink, layered like the enclosure itself.  Blue
+   is reserved for focus and live state; surfaces stay quiet so the machine
+   and data remain the visual subject. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:        #080C12;
+  --bg-rgb:    8, 12, 18;
+  --panel:     #0D1420;
+  --card:      #121C2A;
+  --card-hi:   #182638;
+  --line:      rgba(204, 220, 240, 0.16);
+  --line-soft: rgba(204, 220, 240, 0.085);
+  --text-0:    #F1F6FC;
+  --text-1:    #BAC7D6;
+  --text-2:    #77879A;
+  --accent:      #5BA8F5;
+  --accent-deep: #2876C7;
+  --amber:     #77B8F2;
+  --ok:        #6FC696;
+  --warn:      #73B7F4;
+  --stop:      #EF6B62;
+  --title-a:   #F6F9FD;
+  --title-b:   #AFC8E3;
+
+  --accent-glow-25: rgba(91, 168, 245, 0.22);
+  --accent-glow-12: rgba(91, 168, 245, 0.12);
+  --accent-glow-06: rgba(91, 168, 245, 0.06);
+  --amber-glow-20: rgba(119, 184, 242, 0.15);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.34), 0 10px 28px rgba(0, 0, 0, 0.34);
+  --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.42), 0 28px 72px rgba(0, 0, 0, 0.56);
+
+  --glass: rgba(13, 20, 32, 0.84);
+}

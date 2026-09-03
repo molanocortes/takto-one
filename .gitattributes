@@ -1,0 +1,7 @@
+*.glb binary
+*.png binary
+*.step binary
+*.stl binary
+*.zip binary
+* text=auto
+*.mp4 binary

@@ -1,0 +1,64 @@
+# Publishes the public front end (software/web) to GitHub Pages.
+#
+# Why Actions and not the simple "deploy from a branch" setting: branch deploys
+# can only serve the repository root or /docs, and the front end lives in
+# software/web. Uploading an artifact is the only way to serve a subdirectory
+# without duplicating the site into /docs and keeping the two in sync by hand.
+#
+# No .nojekyll is needed here. Jekyll only runs on branch-based deploys;
+# actions/upload-pages-artifact ships the directory verbatim.
+#
+# The site is fully static and needs no backend: src/telemetry.js falls back to
+# MockSource when no ?ws= is given, so the twin animates on synthetic joints for
+# every visitor. Every path in software/web is relative, so the site works
+# unchanged under the project subpath (molanocortes.github.io/takto-one/) and
+# would also work at a domain root if a CNAME is added later.
+#
+# Requires: Settings -> Pages -> Source set to "GitHub Actions", and a public
+# repository (Pages on private repos needs a paid plan).
+#
+# MANUAL ONLY, AND DELIBERATELY SO. This does not run on push. Serving the site
+# publicly makes the operator a Diensteanbieter under Sec. 5 DDG and a controller
+# under Art. 4(7) GDPR, which requires a real postal address in
+# software/web/legal.html -- that page ships as a template on purpose, because
+# the project publishes the front end as source and hosts no copy of it. Running
+# this workflow is therefore a decision with legal consequences, not a side
+# effect of merging a branch. Fill in the Impressum first, then dispatch it.
+
+name: Deploy front end to Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a deploy that is already publishing: a half-finished Pages
+# deployment is worse than a queued one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload software/web as the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: software/web
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

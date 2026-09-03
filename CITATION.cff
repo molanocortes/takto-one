@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+title: "TAKTO ONE: a sensor-integrated, tendon-driven hand exoskeleton"
+message: "If you use this project, please cite it as below."
+type: software
+authors:
+  - given-names: "Juan Sebastian"
+    family-names: "Molano Cortes"
+    affiliation: "Hochschule Anhalt"
+repository-code: "https://github.com/molanocortes/takto-one"
+abstract: >-
+  TAKTO ONE is an open hardware and software platform for a tendon-driven wearable
+  hand exoskeleton. It integrates twelve AS5600 magnetic joint encoders, two BNO085
+  IMUs, a Teensy 4.1 controller that owns a Dynamixel motor bus through a 74HC241
+  half-duplex interface, two custom PCBs, and browser-based operator and public
+  consoles with a live 3D digital twin. The control law runs on the device itself,
+  and motion capture is written to the controller's own SD card.
+keywords:
+  - robotics
+  - exoskeleton
+  - wearable robotics
+  - hand rehabilitation
+  - tendon-driven
+  - open hardware
+  - embedded systems
+license:
+  - Apache-2.0
+  - CERN-OHL-S-2.0
+  - CC-BY-4.0
