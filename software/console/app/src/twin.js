@@ -22,7 +22,7 @@ const FINGERS = ["index", "middle", "ring", "pinky"];
 const D2R = Math.PI / 180;
 const MODEL_SCALE = 0.013;          // mm -> scene units (device ~4.4 units long)
 
-const HAND_ASSET_VERSION = 19;   // bump when zero_hand.glb is rebuilt (busts HTTP
+const HAND_ASSET_VERSION = 20;   // bump when zero_hand.glb is rebuilt (busts HTTP
                                  // cache) - AND update the <link rel="preload">
                                  // in index.html, which carries the same ?v=
 
@@ -300,7 +300,7 @@ export class Twin {
       let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
       o.geometry = toCreasedNormals(g, CREASE);
       if (o.name.startsWith("spool_")) o.material = this._matSpool;
-      else if (o.name === "screen") o.material = this._matScreen;
+      else if (o.name === "screen") { o.material = this._matScreen; this._screenMesh = o; }
       else if (o.name === "forearm_cover") o.material = this._matCover;
       else if (o.name === "motors") o.material = this._matMotors;
       else if (o.name === "internals") o.material = this._matInternals;
@@ -452,6 +452,45 @@ export class Twin {
       this._thumbPod = pod;
     }
 
+    // The round display read as a dark hole: near-black glass, no texture. It now
+    // carries the device's real UI, drawn by device_screen.js. The GLB disc ships
+    // without UVs, so planar ones are generated from local x/z (it lies in XZ; Y is
+    // its 0.8 mm thickness).
+    if (this._screenMesh) {
+      try {
+        const g = this._screenMesh.geometry;
+        if (!g.attributes.uv) {
+          g.computeBoundingBox();
+          const bb = g.boundingBox, pos = g.attributes.position;
+          const sx = (bb.max.x - bb.min.x) || 1, sz = (bb.max.z - bb.min.z) || 1;
+          const uv = new Float32Array(pos.count * 2);
+          for (let i = 0; i < pos.count; i++) {
+            uv[i * 2] = (pos.getX(i) - bb.min.x) / sx;
+            uv[i * 2 + 1] = 1 - (pos.getZ(i) - bb.min.z) / sz;
+          }
+          g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+        }
+        const { DeviceScreen } = await import("./device_screen.js");
+        const cv = document.createElement("canvas");
+        cv.width = cv.height = 512;
+        const ds = new DeviceScreen(cv);
+        ds.render({ face: "home", mode: "home", live: true }, 0);
+        const tex = new THREE.CanvasTexture(cv);
+        if (THREE.SRGBColorSpace && "colorSpace" in tex) tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+        this._screenTex = tex;
+        this._screenDraw = (st, t) => { ds.render(st, t); tex.needsUpdate = true; };
+        this._matScreen.map = tex;
+        this._matScreen.emissiveMap = tex;
+        this._matScreen.color.setHex(0x0B0E14);
+        // lit from the first frame, not only while the focus cue runs
+        this._matScreen.emissive.setHex(0xffffff);
+        this._matScreen.emissiveIntensity = 1.05;
+        this._matScreen.roughness = 0.16;
+        this._matScreen.needsUpdate = true;
+      } catch (e) { /* no face: the plain glass material still renders */ }
+    }
+
     this._qf = new THREE.Quaternion();
     this._qh = new THREE.Quaternion();
     this._q = new THREE.Quaternion();
@@ -586,8 +625,15 @@ export class Twin {
           m.emissiveIntensity = 0.25 * F;
         }
         const screenFocus = this._theme === "dark" ? this._cFocusDark : this._cBone;
-        this._matScreen.emissive.setHex(0x0a1420).lerp(screenFocus, F);
-        this._matScreen.emissiveIntensity = 0.55 + F * 0.7;
+        if (this._matScreen.emissiveMap) {
+          // a lit screen: emissive stays WHITE so the mapped UI shows its own
+          // colours; the focus cue rides intensity, not hue
+          this._matScreen.emissive.setHex(0xffffff);
+          this._matScreen.emissiveIntensity = 1.05 + F * 0.55;
+        } else {
+          this._matScreen.emissive.setHex(0x0a1420).lerp(screenFocus, F);
+          this._matScreen.emissiveIntensity = 0.55 + F * 0.7;
+        }
       }
       const em = this._emph || { pins: 1, jewel: 1, spools: 1 };
       const setJoint = (j, axis, deg, glow01) => {
