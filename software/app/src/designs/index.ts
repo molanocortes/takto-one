@@ -29,6 +29,7 @@ import { design as d31 } from './31-rams';
 import { design as d32 } from './32-editorial';
 import { design as d33 } from './33-blueprint';
 import { design as d34 } from './34-hud';
+import { design as d35 } from './35-atelier';
 
 export const DESIGNS: Record<string, Design> = {
   [d30.id]: d30,
@@ -36,6 +37,7 @@ export const DESIGNS: Record<string, Design> = {
   [d32.id]: d32,
   [d33.id]: d33,
   [d34.id]: d34,
+  [d35.id]: d35,
 };
 
 export const DEFAULT_DESIGN = '31';
