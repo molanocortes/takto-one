@@ -31,6 +31,7 @@ import { design as d33 } from './33-blueprint';
 import { design as d34 } from './34-hud';
 import { design as d35 } from './35-atelier';
 import { design as d36 } from './36-clinic';
+import { design as d37 } from './37-watch';
 
 export const DESIGNS: Record<string, Design> = {
   [d30.id]: d30,
@@ -40,6 +41,7 @@ export const DESIGNS: Record<string, Design> = {
   [d34.id]: d34,
   [d35.id]: d35,
   [d36.id]: d36,
+  [d37.id]: d37,
 };
 
 export const DEFAULT_DESIGN = '31';
