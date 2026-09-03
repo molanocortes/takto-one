@@ -36,6 +36,7 @@ import { design as d38 } from './38-brutal';
 import { design as d39 } from './39-atlas';
 import { design as d40 } from './40-monoline';
 import { design as d41 } from './41-analog';
+import { design as d42 } from './42-field';
 
 export const DESIGNS: Record<string, Design> = {
   [d30.id]: d30,
@@ -50,6 +51,7 @@ export const DESIGNS: Record<string, Design> = {
   [d39.id]: d39,
   [d40.id]: d40,
   [d41.id]: d41,
+  [d42.id]: d42,
 };
 
 export const DEFAULT_DESIGN = '31';
