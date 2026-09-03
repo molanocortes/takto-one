@@ -353,7 +353,7 @@ function Shell({ initialScreen, detail }: DesignProps) {
 const st = StyleSheet.create({
   plate: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 8 },
   window: { marginHorizontal: 12, borderRadius: 14, overflow: 'hidden', borderWidth: 3, borderColor: C.bake3, backgroundColor: '#120E0B' },
-  windowGlass: { ...StyleSheet.absoluteFillObject, borderRadius: 11, borderWidth: 1, borderColor: 'rgba(232,220,192,0.10)' },
+  windowGlass: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, borderRadius: 11, borderWidth: 1, borderColor: 'rgba(232,220,192,0.10)' },
   toggles: { flexDirection: 'row', justifyContent: 'space-evenly', paddingTop: 10, borderTopWidth: 1, borderColor: C.bake2 },
   togglePlate: { width: 44, height: 56, borderRadius: 6, backgroundColor: C.bake2, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.bake3 },
   toggleWell: { position: 'absolute', width: 14, height: 30, borderRadius: 7, backgroundColor: C.bake3 },
