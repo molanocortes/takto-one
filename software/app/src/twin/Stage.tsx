@@ -69,6 +69,8 @@ export type TwinSpec = {
   pitchBand?: [number, number];
   /** the material set is shared, so a design that animates materials per frame does it here */
   onFrame?: (mats: Materials, dt: number, orbit: Orbit) => void;
+  /** enable material clipping planes (a cutaway) */
+  clipping?: boolean;
 };
 
 const TONE: Record<NonNullable<TwinSpec['toneMapping']>, THREE.ToneMapping> = {
@@ -175,6 +177,7 @@ export function Stage({ spec, style, orbitRef }: {
         onCreated={({ gl, scene }: any) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.shadowMap.type = THREE.PCFSoftShadowMap;
+          gl.localClippingEnabled = !!spec.clipping;
           gl.toneMapping = TONE[spec.toneMapping ?? 'neutral'];
           gl.toneMappingExposure = spec.exposure ?? 1;
           scene.background = transparent ? null : new THREE.Color(spec.background as string);
