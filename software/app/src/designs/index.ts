@@ -27,11 +27,13 @@ export type Design = {
 import { design as d30 } from './30-baseline';
 import { design as d31 } from './31-rams';
 import { design as d32 } from './32-editorial';
+import { design as d33 } from './33-blueprint';
 
 export const DESIGNS: Record<string, Design> = {
   [d30.id]: d30,
   [d31.id]: d31,
   [d32.id]: d32,
+  [d33.id]: d33,
 };
 
 export const DEFAULT_DESIGN = '31';
