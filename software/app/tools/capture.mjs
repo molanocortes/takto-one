@@ -13,7 +13,13 @@
 //   npm --prefix /tmp/cap install playwright-core
 //   npx expo export --platform web --output-dir /tmp/webdist
 //   python3 -m http.server 8099 --directory /tmp/webdist
-//   NODE_PATH=/tmp/cap/node_modules node tools/capture.mjs http://localhost:8099 tools/out all [chromium-path]
+//   NODE_PATH=/tmp/cap/node_modules node tools/capture.mjs http://localhost:8099 tools/out all [chromium-path] [design] [scale]
+//
+// The sixth argument picks a design from src/designs (?design=NN); the
+// seventh is the device scale factor (3 by default, 2 for the exploration
+// gallery). The live-fingers still opens the design's detail state with
+// ?detail=1 rather than scrolling, since every design keeps its detail
+// somewhere different.
 //
 // Then `node tools/compose.mjs tools/out` writes docs/media/app-screens.png,
 // and `node tools/gif.mjs tools/out/frames` turns the frames into app-live.gif.
@@ -27,13 +33,16 @@ const BASE = process.argv[2] ?? 'http://localhost:8099';
 const OUT = process.argv[3] ?? 'tools/out';
 const MODE = process.argv[4] ?? 'all';        // all | stills | gif
 const EXE = process.argv[5];                  // optional Chromium executable
+const DESIGN = process.argv[6];               // optional design id, ?design=NN
+const SCALE = Number(process.argv[7] ?? 3);   // device scale factor of the stills
+const withDesign = (q) => (DESIGN ? `${q}&design=${DESIGN}` : q);
 const W = 390, H = 844;                      // iPhone 14 points
 
 /** stills: every surface, each at a moment worth looking at */
 const STILLS = [
   { name: 'welcome', q: 'screen=welcome&t=2.0' },
   { name: 'live', q: 'screen=live&t=2.0' },
-  { name: 'live-fingers', q: 'screen=live&t=21.4', scroll: 640 },
+  { name: 'live-fingers', q: 'screen=live&t=21.4&detail=1' },
   { name: 'replay-library', q: 'screen=replay&t=6.2', noTwin: true },
   { name: 'replay', q: 'screen=replay&take=take_demo_signature&t=6.2' },
   { name: 'data', q: 'screen=data&t=2.0', noTwin: true },
@@ -70,10 +79,10 @@ await mkdir(OUT, { recursive: true });
 await mkdir(`${OUT}/frames`, { recursive: true });
 
 if (MODE !== 'gif') {
-  const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 3 });
+  const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: SCALE });
   for (const s of STILLS) {
     const p = `${OUT}/screen-${s.name}.png`;
-    const page = await open(ctx, `${BASE}/?${s.q}`, !s.noTwin, s.scroll);
+    const page = await open(ctx, `${BASE}/?${withDesign(s.q)}`, !s.noTwin, s.scroll);
     await page.screenshot({ path: p, timeout: 180000 });
     await page.close();
     console.log('still', p);
@@ -85,7 +94,7 @@ if (MODE !== 'gif') {
 // uploads once and every frame is the same scene at a different time.
 if (MODE !== 'stills') {
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: GIF.scale });
-  const page = await open(ctx, `${BASE}/?screen=${GIF.screen}&t=${GIF.from}`);
+  const page = await open(ctx, `${BASE}/?${withDesign(`screen=${GIF.screen}&t=${GIF.from}`)}`);
   for (let i = 0; i < GIF.frames; i++) {
     const t = GIF.from + (GIF.to - GIF.from) * (i / GIF.frames);
     await page.evaluate((tt) => window.__taktoSession.pin(tt), t);

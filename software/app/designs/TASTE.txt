@@ -1,0 +1,75 @@
+TAKTO ONE companion app: UI design exploration, designs 31 to 50
+================================================================
+
+This file is append-only. Once a design is committed its entry is frozen.
+Mistakes are corrected in the next design, never covered up in a previous one.
+
+LESSONS FROM 1-30
+-----------------
+What worked. One stage, one subject: the hand alone, nothing drawn on top of
+it, and the detail hidden until asked for. The honest feed badge on every
+screen. Light tabular numerals for the summary. The decision that the accent
+is spent on state, not on decoration. The capture harness: a pinned clock and
+a URL that pins the screen, so every still is reproducible.
+
+What did not. The twin was flat: roughness 0.92, no clearcoat, no specular,
+no contact shadow, and the ACES transform on top of a matte tone turned every
+colour into the same dusty toy plastic. Thirty looks were thirty colour swaps
+of that one recipe, and none of them changed the light, the lens or the
+stage. The hand was also framed too small and too high, floating in a black
+field with nothing to relate to. The chrome was weak: glass at 7 percent
+white over black is a grey smudge, the round icon buttons could be from any
+app, the picker chips were generic Feather icons in pills, the nav a three
+icon capsule. Nothing said TAKTO. Nothing asked to be touched.
+
+What the twin needs to read as a precise instrument on a phone. A lens, not
+a game camera: 24 to 32 degrees, close, the hand filling at least half the
+short axis. Real specular behaviour: a clearcoat or a metal, a roughness in
+the 0.3 to 0.55 band, an environment to reflect, and a rim light separating
+the silhouette from the stage. Material contrast INSIDE the object: the
+finger members in one material, the encoder boards and pins in a second, the
+palm block in a third, so the mechanism reads as assembled parts rather than
+as a single cast blob. A ground relationship: a contact shadow, a reflection,
+a grid, a horizon, or a paper edge, so the hand has somewhere to be. Motion
+that means something: the twin moves because the joints moved.
+
+What I will do differently. Every design starts from the twin: material,
+light, camera and stage are decided and looked at before any chrome is
+drawn. Every design changes stage, type, colour, layout AND navigation, not
+one of them. Controls are drawn as objects a hand recognises (a key, a
+dial, a toggle, a rail, a tab of paper, a bezel) with real contrast and a
+real pressed state, never a translucent pill with an icon in it. Fonts are
+chosen per design and Inter is not used again. Every still is read at full
+size before it is committed.
+
+PLANNED DIRECTIONS
+------------------
+31 Rams panel: warm grey enamel instrument panel, satin white hand under hard studio light, physical keys and a rotary.
+32 Editorial: paper white page, black ink hand with a drawn outline, serif display type, a vertical timeline as navigation.
+33 Blueprint: cyanotype drafting sheet, the hand as white line work, title block, drafting mono type.
+34 HUD: green-black cockpit glass, holographic fresnel hand, corner brackets, a radial dial as navigation.
+35 Atelier: champagne on dark walnut, polished gold-titanium hand mirroring a studio, garamond, gesture-only one screen.
+36 Clinic: clinical white and pale blue, glazed ceramic hand, big sober tabs, gauges for every joint.
+37 Watch: black OLED, complication rings, brushed steel hand, a rotating bezel as navigation.
+38 Brutal: raw concrete, huge grotesk, hard black rules, x-ray white hand, no rounded corner anywhere.
+39 Atlas: cream map paper with contours, olive matte hand, compass rose navigation, cartographic labels.
+40 Monoline: pure white, the hand as thin dark line work only, single-weight line UI.
+41 Analog: bakelite and amber phosphor, VU needles, bronze hand, toggle switches and a tape transport.
+42 Field: International Klein Blue field edge to edge, matte white hand, Swiss text tabs at the top.
+43 Daylight: sky-lit chrome hand under a soft gradient environment, white translucent sheets, airy type.
+44 Cutaway: navy stage, frosted sectioned hand with bright pins, engineering callouts with leader lines.
+45 Terminal: black, green phosphor mono grid, wireframe hand, every control is text.
+46 Glass: liquid glass done properly, milky and thick with real depth, anodised aluminium hand on charcoal.
+47 Washi: warm off-white paper, vermilion seal accent, unglazed porcelain hand, vertical labels.
+48 Chiaroscuro: pitch black, oiled bronze hand under one hard spot, huge thin didone numerals.
+49 Console: mid grey dashboard, the twin small, a dense wall of live plots for all twelve joints.
+50 Iridescent: pearl gradient stage, thin-film holographic hand, soft blur UI, a display grotesk.
+
+---- DESIGN 31: Rams panel ----
+Thesis: A machine hand is an instrument, so show it the way Braun showed a radio: in a window cut into warm grey enamel, with keys you could find with your eyes closed.
+Twin: Satin white members (roughness 0.34-0.40, clearcoat 0.5) with dark steel pins and graphite encoder boards, so the mechanism reads as assembled parts. A softbox environment high left, one hard warm key with a 2048 shadow map, a cool strip rim behind right, a floor bounce. The hand stands on a shadow-catching ground in a recessed window the colour of the panel, one step darker, with an inset shade along its top edge. A 27 degree lens at 1.9 units, elevation 30, and the new fitAspect rule so a short window moves the camera in rather than losing the hand. It reads as an instrument because it is photographed like a product: one key, one rim, one shadow, and its own contrasting parts.
+UI: A panel below the window. A status strip with an amber LED and the words SYNTHETIC FEED on every screen. Keys with a face, a 2px side and a soft fall, that push down when pressed; the power key is charcoal with a green LED; three wide keys at the foot are the navigation. Mean flexion is a red needle on a printed scale beside a 34pt number; the four fingers and effort are segmented level meters with a red band at the top; the JOINTS key flips the panel into a 4x3 matrix of arc dials with needles that have mass (spring). Replay is a tape transport: a printed effort trace with a red playhead you drag, PAUSE as the dark key, EJECT, a ridged rotary with three detents for speed. Data prints the wire names on value tiles and the four rates as a table. Archivo throughout, small, tracked, upper case for silkscreen, tabular numerals.
+Different from every previous design because: closest to the baseline in subject only. The stage is a light enamel panel, not black; nothing is translucent; the controls are physical keys, meters, needles and a rotary rather than glass pills; navigation is a key row; the type is Archivo not Inter; the twin is a white product shot with a real shadow, not a matte tone floating on black.
+Why this is the best possible UI: every reading is an instrument you already know how to read (scale, meter, dial, tape), every control is a thing you already know how to press, and the hand is shown as what it is: a white precision product on a table. It ages well; nothing here depends on a trend.
+What I would do better next time: The welcome leaves a band of empty panel under the keys. The dials could carry printed limits at the red band. Skip glyph keys need drawn triangles, not text characters.
+

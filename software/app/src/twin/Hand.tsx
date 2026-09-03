@@ -120,11 +120,15 @@ function buildRig(scene: THREE.Object3D, mats: Materials, part: 'device' | 'hand
   return { root, size, fingers, spools, screen: mats.glass };
 }
 
-export function Hand({ onReady, colourway = 'white', look = 'studio', part = 'device' }: {
+export function Hand({ onReady, colourway = 'white', look = 'studio', part = 'device', materials, decorate }: {
   onReady?: (size: number) => void; colourway?: 'white' | 'graphite'; look?: Look; part?: 'device' | 'hand';
+  /** a complete material set from a design, overriding the look */
+  materials?: Materials;
+  /** runs once over the rigged model: outlines, hulls, extra meshes */
+  decorate?: (root: THREE.Group, model: THREE.Object3D) => void;
 }) {
   const [rig, setRig] = useState<Rig | null>(null);
-  const mats = useMemo(() => colourway === 'graphite' ? makeLookMaterials(look) : makeMaterials(), [colourway, look]);
+  const mats = useMemo(() => materials ?? (colourway === 'graphite' ? makeLookMaterials(look) : makeMaterials()), [colourway, look, materials]);
   const q = useRef(new THREE.Quaternion()).current;
 
   useEffect(() => {
@@ -133,6 +137,7 @@ export function Hand({ onReady, colourway = 'white', look = 'studio', part = 'de
       .then((gltf) => {
         if (!live) return;
         const built = buildRig(gltf.scene, mats, part);
+        decorate?.(built.root, built.root.children[0]);
         setRig(built);
         onReady?.(built.size);
         // a flag the capture tool waits on, so a frame is never shot before
