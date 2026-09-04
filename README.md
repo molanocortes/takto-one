@@ -21,26 +21,22 @@ every file needed to build one.
 
 ---
 
-<!-- The film. A poster image linking to the in-repo .mp4, which opens GitHub's own
-     video player on the blob page. This form cannot break: the link is repo-relative, so
-     it survives forks and needs nothing minted.
-
-     History, so nobody re-breaks it. There are two ways to show a film here and they do
-     NOT combine. A bare user-attachments URL alone on its own line becomes an inline
-     autoplaying-on-click player, but only that URL form works and only a browser drag can
-     mint one (no API, gh included). Wrapping that URL in a <video> tag defeats it: GitHub's
-     sanitiser strips <video>, leaving only the <a><img> fallback inside. That is exactly
-     what happened here, and when both attachment URLs later went dead the surviving posters
-     became clickable 404s on a public repository.
-
-     To restore the inline player: encode a sub-10MB copy of docs/media/TAKTO-ONE.mp4, drag
-     it into any issue comment to mint a URL, and put that URL alone on its own line,
-     OUTSIDE any raw HTML block, with no <video> tag and no markdown brackets. Verify it
-     unauthenticated before relying on it. Until then the poster below is the safe form. -->
+<!-- The film: a poster image linking to a GitHub attachment URL. This is the ONE form that
+     works on desktop web AND in the GitHub mobile app, verified 2026-09-04. How the others fail:
+       - a <video> tag is stripped by GitHub's sanitiser everywhere; only what is inside survives
+       - a bare user-attachments URL on its own line becomes an inline player on desktop web only;
+         the mobile app renders it as a plain link
+       - a relative link to the in-repo .mp4 opens the blob player on desktop, dead tap in the app
+     The attachment is served as video/mp4 with no download disposition, so tapping plays natively.
+     docs/media/TAKTO-ONE.mp4 is the durable in-repo copy (v057). The URL below was minted by
+     dragging that file into a comment on PR #1 and POSTING the comment: attachments dragged in but
+     never posted are garbage-collected, which is how the two previous URLs died. To update the film:
+     replace the in-repo file, drag the new one (under 10 MB) into a comment on PR #1, post it,
+     verify the URL logged out, then swap it here. -->
 
 
 <div align="center">
-  <a href="docs/media/TAKTO-ONE.mp4"><img src="docs/media/film-poster.jpg" alt="Watch the film: TAKTO ONE turning in the white studio" width="100%"></a>
+  <a href="https://github.com/user-attachments/assets/3c247700-2d8c-4fc3-9e42-16625cd077bb"><img src="docs/media/film-poster.jpg" alt="Watch the film: TAKTO ONE turning in the white studio" width="100%"></a>
 </div>
 
 ---
@@ -98,13 +94,12 @@ browser is 60 Hz, which is a display rate and says nothing about how fast the de
 runs (see [On rates](#a-note-on-rates)). Every twin renders the same articulated geometry
 that ships in [`cad/`](cad/).
 
-<!-- Poster linking to the in-repo .mp4, for the reasons given at the film above. The
-     <video>-tag approach that used to be here was stripped by GitHub's sanitiser and its
-     attachment URL went dead, leaving a poster that clicked through to a 404. This form
-     renders the same on desktop and in the mobile app. -->
+<!-- Poster linking to a posted GitHub attachment, for the reasons given at the film above.
+     docs/media/TAKTO-SURFACES.mp4 is the durable in-repo copy; the URL was minted from the same
+     PR #1 comment. Renders the same on desktop and in the mobile app. -->
 
 <div align="center">
-  <a href="docs/media/TAKTO-SURFACES.mp4"><img src="docs/media/surfaces-poster.jpg" alt="Watch the browser surfaces: front end, console, AR layer and phone companion" width="100%"></a>
+  <a href="https://github.com/user-attachments/assets/ecce7c24-ec8f-4421-8bff-ab142f2db214"><img src="docs/media/surfaces-poster.jpg" alt="Watch the browser surfaces: front end, console, AR layer and phone companion" width="100%"></a>
 </div>
 
 <div align="center">
