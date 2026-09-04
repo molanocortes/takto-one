@@ -21,20 +21,27 @@ every file needed to build one.
 
 ---
 
-<!-- The film. This bare URL is what GitHub turns into a video player, so it must stay
-     alone on its own line and OUTSIDE any raw HTML block: the conversion does not fire
-     inside a <div>. Do not wrap it in a <video> tag or in markdown link brackets, and do
-     not swap it for a repo-relative path - GitHub's sanitiser strips <video> outright, and
-     raw.githubusercontent serves .mp4 as application/octet-stream, so neither will play.
-     docs/media/TAKTO-ONE.mp4 is the durable in-repo copy, currently the v057 master.
-     When the film changes: replace that file, encode a sub-10MB copy (GitHub's inline
-     limit), drag it into any issue comment to mint a fresh user-attachments URL, and
-     swap the URL below. -->
+<!-- The film. A poster image linking to the in-repo .mp4, which opens GitHub's own
+     video player on the blob page. This form cannot break: the link is repo-relative, so
+     it survives forks and needs nothing minted.
+
+     History, so nobody re-breaks it. There are two ways to show a film here and they do
+     NOT combine. A bare user-attachments URL alone on its own line becomes an inline
+     autoplaying-on-click player, but only that URL form works and only a browser drag can
+     mint one (no API, gh included). Wrapping that URL in a <video> tag defeats it: GitHub's
+     sanitiser strips <video>, leaving only the <a><img> fallback inside. That is exactly
+     what happened here, and when both attachment URLs later went dead the surviving posters
+     became clickable 404s on a public repository.
+
+     To restore the inline player: encode a sub-10MB copy of docs/media/TAKTO-ONE.mp4, drag
+     it into any issue comment to mint a URL, and put that URL alone on its own line,
+     OUTSIDE any raw HTML block, with no <video> tag and no markdown brackets. Verify it
+     unauthenticated before relying on it. Until then the poster below is the safe form. -->
 
 
-<video src="https://github.com/user-attachments/assets/af1f9a80-83b8-444a-9da4-e5361053a62c" controls muted>
-  <a href="https://github.com/user-attachments/assets/af1f9a80-83b8-444a-9da4-e5361053a62c"><img src="https://raw.githubusercontent.com/molanocortes/takto-one/main/docs/media/film-poster.jpg" alt="Watch the film"></a>
-</video>
+<div align="center">
+  <a href="docs/media/TAKTO-ONE.mp4"><img src="docs/media/film-poster.jpg" alt="Watch the film: TAKTO ONE turning in the white studio" width="100%"></a>
+</div>
 
 ---
 
@@ -91,14 +98,14 @@ browser is 60 Hz, which is a display rate and says nothing about how fast the de
 runs (see [On rates](#a-note-on-rates)). Every twin renders the same articulated geometry
 that ships in [`cad/`](cad/).
 
-<!-- An explicit <video> tag, not a bare URL: the bare form only becomes a player
-     on desktop web, while the GitHub mobile app shows it as a link. The <img> inside
-     the tag is HTML's own fallback and is what mobile renders instead.
-     docs/media/TAKTO-SURFACES.mp4 is the durable in-repo copy. -->
+<!-- Poster linking to the in-repo .mp4, for the reasons given at the film above. The
+     <video>-tag approach that used to be here was stripped by GitHub's sanitiser and its
+     attachment URL went dead, leaving a poster that clicked through to a 404. This form
+     renders the same on desktop and in the mobile app. -->
 
-<video src="https://github.com/user-attachments/assets/f9f9ca99-e775-4e9b-ac04-f434c7f7841c" controls muted>
-  <a href="https://github.com/user-attachments/assets/f9f9ca99-e775-4e9b-ac04-f434c7f7841c"><img src="https://raw.githubusercontent.com/molanocortes/takto-one/main/docs/media/surfaces-poster.jpg" alt="Watch the browser surfaces"></a>
-</video>
+<div align="center">
+  <a href="docs/media/TAKTO-SURFACES.mp4"><img src="docs/media/surfaces-poster.jpg" alt="Watch the browser surfaces: front end, console, AR layer and phone companion" width="100%"></a>
+</div>
 
 <div align="center">
 
