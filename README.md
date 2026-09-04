@@ -32,7 +32,9 @@ every file needed to build one.
      swap the URL below. -->
 
 
-https://github.com/user-attachments/assets/af1f9a80-83b8-444a-9da4-e5361053a62c
+<video src="https://github.com/user-attachments/assets/af1f9a80-83b8-444a-9da4-e5361053a62c" controls muted>
+  <a href="https://github.com/user-attachments/assets/af1f9a80-83b8-444a-9da4-e5361053a62c"><img src="https://raw.githubusercontent.com/molanocortes/takto-one/main/docs/media/film-poster.jpg" alt="Watch the film"></a>
+</video>
 
 ---
 
@@ -89,10 +91,14 @@ browser is 60 Hz, which is a display rate and says nothing about how fast the de
 runs (see [On rates](#a-note-on-rates)). Every twin renders the same articulated geometry
 that ships in [`cad/`](cad/).
 
-<!-- This bare URL is intentional: GitHub turns it into an inline video player.
+<!-- An explicit <video> tag, not a bare URL: the bare form only becomes a player
+     on desktop web, while the GitHub mobile app shows it as a link. The <img> inside
+     the tag is HTML's own fallback and is what mobile renders instead.
      docs/media/TAKTO-SURFACES.mp4 is the durable in-repo copy. -->
 
-https://github.com/user-attachments/assets/f9f9ca99-e775-4e9b-ac04-f434c7f7841c
+<video src="https://github.com/user-attachments/assets/f9f9ca99-e775-4e9b-ac04-f434c7f7841c" controls muted>
+  <a href="https://github.com/user-attachments/assets/f9f9ca99-e775-4e9b-ac04-f434c7f7841c"><img src="https://raw.githubusercontent.com/molanocortes/takto-one/main/docs/media/surfaces-poster.jpg" alt="Watch the browser surfaces"></a>
+</video>
 
 <div align="center">
 
