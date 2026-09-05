@@ -107,6 +107,10 @@ rather than committed, so cloning this repository stays cheap:
 | `TAKTO-ONE_Finger_Index.f3d` / `.step` | A complete finger: both MCP halves and centre, knuckle base and plate, PIP link and centre, three encoder boards, two bearings |
 | `TAKTO-ONE_Finger_Middle` / `_Ring` / `_Little` | The same sequence at each finger's link lengths |
 | `TAKTO-ONE_Palm_Stack.f3d` / `.step` | Palm, carrier board, spacers, palm IMU, cap |
+| `TAKTO-ONE_Part_Sources_f3d.zip` | **Every part above as a Fusion native**, 29 files, named to match `stl/` and `step/` here. This is the source in the preferred form for modification: open one, change a dimension, re-export your own STL |
+
+The individual part sources are the ones to take if you intend to change something: STEP and STL
+are dead geometry, while each `.f3d` carries its own sketches, parameters and feature history.
 
 **Open the `.f3d` in Fusion if you can.** It carries the real component names from the manifest
 above, the parametric history and the joints, and it is the source in the preferred form for
