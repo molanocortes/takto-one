@@ -96,24 +96,31 @@ per MCP), 2 x 5 x 2.5 mm bearings (two per PIP), 4 x 2 mm **diametrically** magn
 (three per finger, orientation matters), 2 mm guide rods (13.2 mm at the MCP, 16 mm at the
 PIP), and the M2, M2.5 and M3 screws listed with counts on page 24.
 
-### The full assembly and the Fusion sources
+### The assembly files
 
-They are not here yet, and the reason is worth stating rather than hiding. The Fusion assembly
-the release was exported from also contains a personal 3D scan of the author's arm, used as a
-fitting reference, and third-party reference models of purchased parts whose redistribution
-terms are not the author's to grant. The one complete export that exists was made for the
-thesis examiners, not for publication: it carries both of those, still shows the superseded
-U2D2 architecture, and its components lost their names on export, so a reader opening it sees
-a hundred bodies named by timestamp. Publishing that would be worse than publishing nothing.
+The parts above are isolated. **How they sit relative to each other is a separate download,
+attached to the [v1.0.0 release](https://github.com/molanocortes/takto-one/releases/tag/v1.0.0)**
+rather than committed, so cloning this repository stays cheap:
 
-What is being prepared instead, from the current assembly: a full-assembly STEP with every
-component named as in the manifest above and the scan removed; a hand subassembly and a single
-finger subassembly as separate STEP files, since the finger is the unit to understand first;
-and the Fusion native `.f3d` files with parametric history, which are the preferred form for
-modification under CERN-OHL-S-2.0 and the reason the STEP files alone were never the whole
-answer. Purchased parts will appear as simple envelopes so the assembly opens complete without
-redistributing anyone else's models. These will be attached to the `v1.0.0` release rather than
-committed, to keep the repository clone small.
+| File | Contents |
+| --- | --- |
+| `TAKTO-ONE_Finger_Index.f3d` / `.step` | A complete finger: both MCP halves and centre, knuckle base and plate, PIP link and centre, three encoder boards, two bearings |
+| `TAKTO-ONE_Finger_Middle` / `_Ring` / `_Little` | The same sequence at each finger's link lengths |
+| `TAKTO-ONE_Palm_Stack.f3d` / `.step` | Palm, carrier board, spacers, palm IMU, cap |
+
+**Open the `.f3d` in Fusion if you can.** It carries the real component names from the manifest
+above, the parametric history and the joints, and it is the source in the preferred form for
+modification that CERN-OHL-S-2.0 asks for. The `.step` files open anywhere and their geometry and
+positions are exact, but because these parts are external references in Fusion, STEP export names
+its products after internal reference IDs rather than component names: expect entries like
+`2026-05-22-23-42-25-476` in the tree. Right geometry, unhelpful labels.
+
+**The forearm assembly is not included.** Its Fusion assembly contains manufacturer and community
+CAD of purchased parts (servos, Teensy, display, U2D2, MyoWare, JST connectors) that are not this
+project's to redistribute. Every TAKTO-authored forearm part is already above as an individual
+file, and the build guide covers the forearm on pages 9 to 14 and a spool bay on page 15. A
+personal arm scan used as a fitting reference is likewise excluded, and verified absent from every
+published file.
 
 ### Purchased parts, and where their CAD comes from
 
