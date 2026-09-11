@@ -1,5 +1,5 @@
 // Analytics.tsx - the twelve joints and the activation channel, as traces.
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, ScrollView, StyleSheet } from 'react-native';
 import { TopRow, Title, SectionHead } from '../ui/Chrome';
 import { M, T, Num, Hairline, Trace } from '../ui/primitives';
@@ -14,11 +14,12 @@ const JOINTS = [
 ];
 const HIST = 48;
 
-export function Analytics() {
+export function Analytics({ onMenu }: { onMenu?: () => void }) {
   const session = useSession();
   const frame = session.frame;
   const hist = useRef<Record<string, number[]>>({}).current;
   const lastT = useRef(NaN);
+  const [chan, setChan] = useState<'emg' | 'assist'>('emg');
   const push = (k: string, v: number) => { const a = (hist[k] ??= []); a.push(v); if (a.length > HIST) a.shift(); };
   // the very first frame is the empty one before the feed delivers; skip it
   if (frame.t !== lastT.current && (frame.telemetry || session.link.kind !== 'sim')) {
@@ -29,10 +30,12 @@ export function Analytics() {
         const past = simFrame(frame.t - i * 0.25);
         for (const f of FINGERS) for (const j of JOINTS) push(`${f}.${j.key}`, past.joints[f][j.key]);
         push('emg', Math.max(0, past.emg));
+        push('assist', past.blend);
       }
     }
     for (const f of FINGERS) for (const j of JOINTS) push(`${f}.${j.key}`, frame.joints[f][j.key]);
     push('emg', Math.max(0, frame.emg));
+    push('assist', frame.blend);
   }
 
   let sum = 0, n = 0;
@@ -42,7 +45,7 @@ export function Analytics() {
   return (
     <View style={{ flex: 1, backgroundColor: C.page }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: S.gutter }} showsVerticalScrollIndicator={false}>
-        <TopRow live={session.link.live || session.link.kind === 'sim'} label="Live" />
+        <TopRow live={session.link.live || session.link.kind !== 'bridge'} label={session.link.live ? 'Live' : session.link.kind === 'sim' ? 'Live' : session.link.kind === 'take' ? 'Replay' : 'Idle'} onMenu={onMenu} />
         <Title status={session.link.live ? 'Connected' : session.link.kind === 'take' ? 'Replay' : 'Synthetic feed'} spinning={!session.link.live}>Analytics</Title>
 
         <View style={{ marginTop: 34 }}>
@@ -53,9 +56,9 @@ export function Analytics() {
           </View>
         </View>
 
-        <SectionHead label="Activation" right="EMG" style={{ marginTop: 30 }} />
+        <SectionHead label="Activation" right={chan === 'emg' ? 'EMG' : 'Assist'} onRight={() => setChan(chan === 'emg' ? 'assist' : 'emg')} style={{ marginTop: 30 }} />
         <View style={{ marginTop: 10 }}>
-          <Trace values={hist.emg ?? []} width={341} height={44} color={C.green} stroke={1.2} />
+          <Trace values={hist[chan] ?? []} width={341} height={44} color={chan === 'emg' ? C.green : C.blue} stroke={1.2} />
         </View>
 
         {FINGERS.map((f) => (

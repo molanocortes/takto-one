@@ -15,6 +15,14 @@ Three surfaces on one data path:
 | **Analytics** | The twelve joints and the activation channel as traces, finger by finger. |
 | **Logs** | The source and its address, the bundled sessions to replay, and the four rates that are easy to confuse. |
 
+Every control on the page does something: the menu jumps between the Overview
+and the Logs; the picker beside *Telemetry* freezes the read-outs (Paused) and
+resumes them; the picker beside *Activation* swaps the EMG trace for the assist
+blend; on Logs, the picker beside *Source* toggles bridge and simulator, and the
+one beside *Sessions* steps through the bundled takes. Choosing the simulator or
+connecting a bridge stops a running replay. A recorded take carries no
+housekeeping, so during replay the Overview shows dashes there by design.
+
 Everything runs with **no hardware attached**. The app opens on a synthetic
 feed; point it at a bridge from the Logs tab when you have a device.
 

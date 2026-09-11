@@ -44,6 +44,16 @@ class Session {
    * or the render stops being a pure function of t and a loop cannot close.
    */
   get pinned() { return this.pinnedT !== null; }
+  isPaused() { return this.pinnedT !== null; }
+  /** Freeze the read-outs at the current instant; resume continues from it. */
+  pause() { this.pinnedT = this.play ? this.play.t : (Date.now() - this.started) / 1000; this.bump(); }
+  resume() {
+    if (this.pinnedT === null) return;
+    if (this.play) this.play.t = this.pinnedT; else this.started = Date.now() - this.pinnedT * 1000;
+    this.lastTick = Date.now();
+    this.pinnedT = null;
+    this.bump();
+  }
 
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -108,6 +118,7 @@ class Session {
   /** Attach to a real teensy_bridge.py. Falls back to the simulator on loss. */
   connect(url: string) {
     this.disconnect?.();
+    this.play = null;
     this.link = { kind: 'bridge', live: false, label: 'CONNECTING', detail: url };
     this.bump();
     this.disconnect = connectBridge(url, {
@@ -125,6 +136,7 @@ class Session {
   useSimulator() {
     this.disconnect?.();
     this.disconnect = null;
+    this.play = null;
     this.started = Date.now();
     this.setKind('sim');
     this.bump();

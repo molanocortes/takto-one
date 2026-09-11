@@ -28,7 +28,7 @@ const ROWS: Row[] = [
 
 const HIST = 40;
 
-export function Overview() {
+export function Overview({ onMenu }: { onMenu?: () => void }) {
   const session = useSession();
   const frame = session.frame;
   const tel = frame.telemetry;
@@ -68,14 +68,14 @@ export function Overview() {
   return (
     <View style={{ flex: 1, backgroundColor: C.page }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: S.gutter }} showsVerticalScrollIndicator={false}>
-        <TopRow live={session.link.live || session.link.kind === 'sim'} label={session.link.live ? 'Live' : session.link.kind === 'sim' ? 'Live' : 'Idle'} />
+        <TopRow live={session.link.live || session.link.kind !== 'bridge'} label={session.link.live ? 'Live' : session.link.kind === 'sim' ? 'Live' : session.link.kind === 'take' ? 'Replay' : 'Idle'} onMenu={onMenu} />
 
         {/* the hero: words on the left, the machine on the right */}
         <View style={{ height: 292 }}>
           <View style={[StyleSheet.absoluteFill, { left: 118, top: 78 }]} pointerEvents="box-none">
             <Twin style={{ width: twinW - 92, height: 220 }} stage="light" part="device" />
           </View>
-          <Title status={session.link.live ? 'Connected' : 'Syncing'} spinning={!session.link.live}>Digital twin</Title>
+          <Title status={session.link.live ? 'Connected' : session.link.kind === 'take' ? 'Replay' : 'Syncing'} spinning={!session.link.live && session.link.kind !== 'take'}>Digital twin</Title>
           <View style={{ marginTop: 40 }} pointerEvents="none">
             <M size={9.5} color={C.ink2}>System status</M>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 6 }}>
@@ -92,7 +92,7 @@ export function Overview() {
           <Tiles items={SIDES} value={side} onChange={setSide} />
         </View>
 
-        <SectionHead label="Telemetry" right="Real-time" style={{ marginTop: 22 }} />
+        <SectionHead label="Telemetry" right={session.isPaused() ? 'Paused' : 'Real-time'} onRight={() => (session.isPaused() ? session.resume() : session.pause())} style={{ marginTop: 22 }} />
         <View style={{ marginTop: 8 }}>
           {ROWS.map((r, i) => {
             const v = tel ? (tel[r.key] as number) : null;
