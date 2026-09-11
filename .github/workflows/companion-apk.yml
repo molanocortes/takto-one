@@ -1,0 +1,52 @@
+# Builds the TAKTO companion app as an installable Android APK on GitHub's
+# runners (Android SDK preinstalled) and publishes it as a release asset, so
+# nobody needs Android Studio or an Expo account to put it on a phone.
+name: companion-apk
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/ios-android-app-dev-aojs9m, main]
+    paths: ['software/app/**', '.github/workflows/companion-apk.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: software/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: software/app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install
+        run: npm ci
+      - name: Generate the Android project
+        run: npx expo prebuild --platform android --no-install
+      - name: Build the APK
+        working-directory: software/app/android
+        run: ./gradlew assembleRelease --no-daemon
+      - name: Name the file
+        run: cp android/app/build/outputs/apk/release/app-release.apk "TAKTO-Companion-${GITHUB_SHA::7}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TAKTO-Companion-apk
+          path: software/app/TAKTO-Companion-*.apk
+      - name: Publish as a release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: companion-apk
+          name: TAKTO Companion (Android APK)
+          body: Latest build of the companion app. Download the .apk on an Android phone and open it to install.
+          prerelease: true
+          files: software/app/TAKTO-Companion-*.apk
