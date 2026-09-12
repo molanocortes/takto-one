@@ -1,0 +1,5 @@
+.venv/
+takes/
+__pycache__/
+*.pyc
+.rehearsal.mp4

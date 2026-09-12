@@ -10,6 +10,7 @@ stack can be explored before a single part is printed.
 | [`ar/`](ar/) | The WebXR layer: the worn hand twin plus the touch, rhythm and capture modules. A working prototype, not a polished product, and the app only — its capture and asset tooling is not included. |
 | [`app/`](app/) | The phone companion: the twin, session replay and the channel read-outs. One Expo codebase for iOS, Android and the browser, on the same synthetic feed or a real bridge. |
 | [`bridge/`](bridge/) | The Python serial-to-WebSocket bridge that connects a real Teensy to any of the above, with a `--sim` mode that feeds synthetic joints. |
+| [`lab/`](lab/) | The bench camera experiment station: a fixed camera and the device on one clock, four scripted protocols (bare finger, finger in TAKTO, robot follows, assisted targets), finger tracking, the analysis that yields the comparison numbers, and the two-panel portrait video composer. Runs a full rehearsal with no camera and no hardware. |
 | [`watch/`](watch/) | The device screen's face assets. The face engine itself is firmware, in [`../firmware/takto_one/watch/`](../firmware/takto_one/watch/). |
 
 The phone companion is in [`app/`](app/); it supersedes an earlier Android-only build, whose

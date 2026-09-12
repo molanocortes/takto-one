@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TAKTO Lab · twin</title>
+<style>
+  @font-face { font-family: "JBM"; src: url(/assets/fonts/JetBrainsMono_500Medium.ttf); }
+  html, body { margin: 0; background: #F3F2EF; overflow: hidden; font-family: JBM, monospace; }
+  #c { display: block; }
+  #hud { position: fixed; left: 14px; top: 12px; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: #6F6F76; }
+  #hud b { color: #17171A; font-weight: 500; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<script type="importmap">{ "imports": { "three": "/console/vendor/three.module.js" } }</script>
+<script type="module" src="/static/twin.js"></script>
+</body>
+</html>

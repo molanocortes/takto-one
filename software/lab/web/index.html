@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TAKTO Lab</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot" id="liveDot"></span><span class="mono">TAKTO LAB</span></div>
+  <nav class="tabs">
+    <button class="tab on" data-view="live">Live</button>
+    <button class="tab" data-view="takes">Takes</button>
+    <button class="tab" data-view="compose">Compose</button>
+  </nav>
+  <div class="chips">
+    <span class="chip" id="chipCam">CAMERA —</span>
+    <span class="chip" id="chipTrk">TRACKER —</span>
+    <span class="chip" id="chipDev">DEVICE —</span>
+    <span class="chip" id="chipFollow">FOLLOW —</span>
+  </div>
+</header>
+
+<main id="view-live" class="view on">
+  <section class="stage">
+    <div class="viewport" id="viewport">
+      <img id="cam" src="/video.mjpg" alt="camera">
+      <canvas id="overlay"></canvas>
+      <div class="guides"><div class="gl"></div><div class="gl"></div></div>
+      <div class="count" id="count"></div>
+      <div class="banner" id="banner"></div>
+      <div class="calib" id="calibHint"></div>
+    </div>
+    <div class="readouts">
+      <div class="ro"><span class="lab">Camera · MCP</span><span class="num" id="camMcp">–</span><span class="unit">°</span></div>
+      <div class="ro"><span class="lab">Camera · PIP</span><span class="num" id="camPip">–</span><span class="unit">°</span></div>
+      <div class="ro"><span class="lab">Camera · DIP</span><span class="num" id="camDip">–</span><span class="unit">°</span></div>
+      <div class="ro sep"></div>
+      <div class="ro"><span class="lab">Device · MCP</span><span class="num" id="devMcp">–</span><span class="unit">°</span></div>
+      <div class="ro"><span class="lab">Device · PIP</span><span class="num" id="devPip">–</span><span class="unit">°</span></div>
+      <div class="ro sep"></div>
+      <div class="ro"><span class="lab">Follow · lag</span><span class="num" id="lag">–</span><span class="unit">s</span></div>
+      <div class="ro"><span class="lab">Follow · queue</span><span class="num" id="queue">–</span><span class="unit"></span></div>
+    </div>
+    <div class="twinrow">
+      <div class="twinbox"><iframe id="twinLive" src="/twin?live=1&w=520&h=300" title="live twin"></iframe>
+        <div class="twincap mono">DIGITAL TWIN · LIVE FROM THE DEVICE ENCODERS, OR THE CAMERA WHEN NO DEVICE IS LINKED</div></div>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div class="block">
+      <div class="head mono">Protocol</div>
+      <div class="cards" id="protoCards"></div>
+      <ul class="setup" id="setupList"></ul>
+    </div>
+    <div class="block run" id="runBlock">
+      <div class="head mono">Run</div>
+      <div class="phase" id="phaseTitle">Idle</div>
+      <div class="instr" id="phaseInstr">Choose a protocol, check the setup, press Start. The page counts down; GO is one timestamp on the same clock as the camera and the device.</div>
+      <div class="bar"><div class="fill" id="runFill"></div></div>
+      <div class="row">
+        <button class="btn primary" id="btnStart">Start</button>
+        <button class="btn" id="btnAbort">Abort</button>
+        <span class="msg mono" id="runMsg"></span>
+      </div>
+    </div>
+    <div class="block">
+      <div class="head mono">Tracker</div>
+      <div class="row seg" id="trkMode">
+        <button class="segb on" data-mode="hand">Hand model</button>
+        <button class="segb" data-mode="markers">Colour markers</button>
+      </div>
+      <div class="hint">Hand model for the bare finger. Markers for the finger in TAKTO and for the device on the table: put a small coloured dot on the wrist line, the MCP, the PIP and the DIP, seen from the side, then click each below and click the dot in the picture.</div>
+      <div class="row" id="markerBtns">
+        <button class="btn sm" data-m="wrist">Wrist</button>
+        <button class="btn sm" data-m="mcp">MCP</button>
+        <button class="btn sm" data-m="pip">PIP</button>
+        <button class="btn sm" data-m="dip">DIP</button>
+        <button class="btn sm ghost" id="markerClear">Clear</button>
+      </div>
+      <div class="swatches" id="swatches"></div>
+    </div>
+    <div class="block">
+      <div class="head mono">Camera follow <span class="state" id="followState"></span></div>
+      <div class="hint">The bridge's own gateway: capture the relaxed neutral, confirm the measured motor directions, arm. Every rule stays in the bridge and the firmware.</div>
+      <div class="row">
+        <button class="btn sm" data-f="neutral">Neutral</button>
+        <button class="btn sm" data-f="directions">Directions +1 / +1</button>
+        <button class="btn sm" data-f="arm">Arm</button>
+        <button class="btn sm ghost" data-f="stop">Stop</button>
+      </div>
+      <div class="row seg" id="followMode">
+        <button class="segb on" data-fm="queue">Every pose, in order</button>
+        <button class="segb" data-fm="latest">Newest pose only</button>
+      </div>
+      <div class="hint mono" id="followInfo"></div>
+    </div>
+  </aside>
+</main>
+
+<main id="view-takes" class="view">
+  <section class="takes">
+    <div class="head mono">Takes <button class="btn sm ghost" id="takesRefresh">Refresh</button></div>
+    <div id="takeList" class="takelist"></div>
+  </section>
+  <aside class="panel wide">
+    <div class="head mono" id="takeTitle">Select a take</div>
+    <canvas id="chart" width="900" height="360"></canvas>
+    <div class="legend mono"><span class="k blue">CAMERA MCP</span><span class="k green">CAMERA PIP</span><span class="k ink">DEVICE MCP</span><span class="k grey">DEVICE PIP</span><span class="k orange">FOLLOW TARGET</span></div>
+    <pre id="takeMeta" class="meta"></pre>
+    <div class="row">
+      <button class="btn sm" id="btnAnalyze">Analyze again</button>
+      <button class="btn sm" id="btnTwin">Render twin frames</button>
+      <span class="msg mono" id="takeMsg"></span>
+    </div>
+  </aside>
+</main>
+
+<main id="view-compose" class="view">
+  <section class="compose">
+    <div class="head mono">Compose · 1080 × 1920, top and bottom</div>
+    <div class="two">
+      <div class="cpanel">
+        <div class="lab mono">TOP · the camera's truth</div>
+        <select id="topTake"></select>
+        <select id="topSrc"><option value="video">video</option><option value="twin">twin frames</option></select>
+        <input id="topLabel" placeholder="label, e.g. Bare finger">
+        <div class="cropbox"><video id="topVid" muted playsinline></video><canvas id="topCrop"></canvas></div>
+        <div class="hint">Drag on the picture to crop. Empty = whole frame.</div>
+      </div>
+      <div class="cpanel">
+        <div class="lab mono">BOTTOM · what is compared with it</div>
+        <select id="botTake"></select>
+        <select id="botSrc"><option value="video">video</option><option value="twin">twin frames</option></select>
+        <input id="botLabel" placeholder="label, e.g. In TAKTO">
+        <div class="cropbox"><video id="botVid" muted playsinline></video><canvas id="botCrop"></canvas></div>
+        <div class="hint">Both panels start at their own motion onset, so the movements begin together.</div>
+      </div>
+    </div>
+    <div class="row wrap">
+      <input id="headline" placeholder="headline, e.g. 12 % slower" class="big">
+      <input id="sub" placeholder="what the number is, e.g. peak angular speed, fast block">
+      <input id="footer" placeholder="footer, e.g. TAKTO ONE · lab bench · n = 1">
+      <label class="mono">SLOW <input id="slow" type="number" min="1" max="8" step="0.5" value="1"></label>
+      <label class="mono">SECONDS <input id="dur" type="number" min="1" max="120" step="1" placeholder="all"></label>
+      <button class="btn primary" id="btnRender">Render</button>
+      <span class="msg mono" id="composeMsg"></span>
+    </div>
+    <div class="suggest mono" id="suggest"></div>
+    <div class="result" id="result"></div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
