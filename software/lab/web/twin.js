@@ -131,7 +131,9 @@ new GLTFLoader().load('/console/assets/zero_hand.glb', (gltf) => {
   // aim the camera at the subject finger: the midpoint of its MCP hinge and
   // its tip at the open pose, so the finger is the centre of the figure
   pose({});
-  { const r = rig.fingers[SUBJECT]; if (r && r.mcpFlex && r.dipSlide) { const a = r.mcpFlex.node.getWorldPosition(new THREE.Vector3()), b = r.dipSlide.node.getWorldPosition(new THREE.Vector3()); VIEW.target = a.add(b).multiplyScalar(0.5).add(new THREE.Vector3(0, -0.07, 0)); aim(); } }
+  // aim the camera at the subject finger: the centre of its bounding box at
+  // the open pose, a little below so a flexed finger stays in frame
+  if (subjRoot) { const bb = new THREE.Box3().setFromObject(subjRoot); if (!bb.isEmpty()) { VIEW.target = bb.getCenter(new THREE.Vector3()).add(new THREE.Vector3(0, -0.06, 0)); aim(); } }
   window.__labTwinReady = true;
   if (TAKE) renderTake(); else if (LIVE) live(); else { pose({ index_mcp: 0, index_pip: 25, index_dip: 35 }); draw(); }
 });
