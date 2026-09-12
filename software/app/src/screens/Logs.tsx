@@ -1,7 +1,7 @@
 // Logs.tsx - the source, the bundled sessions, and the rates: everything a
 // person needs to know where the numbers come from.
-import React, { useMemo, useState } from 'react';
-import { View, ScrollView, TextInput, Pressable, StyleSheet } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, ScrollView, TextInput, Pressable, StyleSheet, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { TopRow, Title, SectionHead } from '../ui/Chrome';
 import { M, T, Num, Hairline } from '../ui/primitives';
@@ -19,7 +19,10 @@ const RATES = [
 export function Logs({ onMenu }: { onMenu?: () => void }) {
   const session = useSession();
   const takes = useMemo(bundledTakes, []);
-  const [url, setUrl] = useState('ws://localhost:8765/ws');
+  // the field opens with the last address that was tried; on a phone the
+  // Mac's LAN address is what is needed, and localhost would be the phone
+  const [url, setUrl] = useState(session.savedUrl || (Platform.OS === 'web' ? 'ws://localhost:8765/ws' : ''));
+  useEffect(() => { if (session.savedUrl && !url) setUrl(session.savedUrl); }, [session.savedUrl]);
   const play = session.play;
   // the picker on the right of Sessions steps through the bundled takes and back to none
   const nextTake = () => {
@@ -35,7 +38,8 @@ export function Logs({ onMenu }: { onMenu?: () => void }) {
         <SectionHead label="Source" right={session.link.label} onRight={() => (session.link.kind === 'bridge' ? session.useSimulator() : session.connect(url))} style={{ marginTop: 34 }} />
         <View style={st.inputRow}>
           <Feather name="link" size={14} color={C.ink3} />
-          <TextInput value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} style={st.input} placeholderTextColor={C.ink3} />
+          <TextInput value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" returnKeyType="go"
+            onSubmitEditing={() => session.connect(url)} placeholder="192.168.1.20  (the Mac running the bridge)" style={st.input} placeholderTextColor={C.ink3} />
         </View>
         <View style={{ flexDirection: 'row', gap: 3, marginTop: 8 }}>
           <Pressable onPress={() => session.connect(url)} style={[st.btn, st.btnOn]}><M size={10.5} color={C.white}>Connect</M></Pressable>

@@ -1,9 +1,10 @@
 // Overview.tsx - the device at a glance: the twin, the health number, the
 // four housekeeping channels, the battery and the mode.
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useSyncExternalStore } from 'react';
 import { View, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Twin } from '../twin/Twin';
+import { twinStatus } from '../twin/loadHand';
 import { TopRow, Title, SectionHead, Tiles, type TileIcon } from '../ui/Chrome';
 import { M, T, Num, Hairline, Trace, Ring } from '../ui/primitives';
 import { C, S, R } from '../ui/tokens';
@@ -34,6 +35,7 @@ export function Overview({ onMenu }: { onMenu?: () => void }) {
   const tel = frame.telemetry;
   const [side, setSide] = useState<Side>('active');
   const { width } = useWindowDimensions();
+  const twin = useSyncExternalStore(twinStatus.subscribe, twinStatus.get, twinStatus.get);
   const hist = useRef<Record<string, number[]>>({}).current;
   const lastT = useRef(NaN);
 
@@ -74,6 +76,15 @@ export function Overview({ onMenu }: { onMenu?: () => void }) {
         <View style={{ height: 292 }}>
           <View style={[StyleSheet.absoluteFill, { left: 118, top: 78 }]} pointerEvents="box-none">
             <Twin style={{ width: twinW - 92, height: 220 }} stage="light" part="device" />
+            {twin.state !== 'ready' && (
+              // the twin is never silently absent: while it loads, or if it
+              // cannot, the page says so in the twin's own place
+              <View style={{ position: 'absolute', left: 0, right: 0, top: 96, alignItems: 'center' }} pointerEvents="none">
+                <M size={8.5} color={twin.state === 'error' ? C.orange : C.ink3}>
+                  {twin.state === 'error' ? `Twin failed: ${twin.detail}` : twin.state === 'idle' ? '' : `Twin ${twin.detail}…`}
+                </M>
+              </View>
+            )}
           </View>
           <Title status={session.link.live ? 'Connected' : session.link.kind === 'take' ? 'Replay' : 'Syncing'} spinning={!session.link.live && session.link.kind !== 'take'}>Digital twin</Title>
           <View style={{ marginTop: 40 }} pointerEvents="none">

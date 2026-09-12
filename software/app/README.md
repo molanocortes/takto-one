@@ -45,18 +45,32 @@ SENSORYHAND_STATE_DIR=.takto-state python3 ../bridge/teensy_bridge.py --sim
 ```
 
 `--sim` feeds synthetic joints; swap it for `--port /dev/cu.usbmodemXXXX` with
-a Teensy attached. The default address is `ws://localhost:8765/ws`; from a
-phone, use the machine's LAN address instead of localhost.
+a Teensy attached. Type the machine's LAN address on the Logs screen, for
+example `192.168.1.20`: the scheme, the port (8765) and the path (`/ws`) are
+filled in, and the address is remembered for the next launch. From a phone,
+localhost would be the phone itself. The link retries on its own with a short
+backoff, notices a socket that is open but silent for three seconds and
+reconnects, drops cleanly when the app goes to the background and comes back
+on wake, and reports its rate next to LINKED so a connection always comes
+with a number. The Android build allows plain `ws://` on the LAN (release
+builds block it by default; `expo-build-properties` in `app.json` opens it).
 
 ## What it is built on
 
 - **The real CAD, at full resolution.** `assets/model/zero_hand_full.glb` is the
   repository's own export of the V7 assembly, 607k triangles, names and
-  transforms untouched. It ships without normals, so the loader welds its
-  vertices and computes smooth ones; `zero_hand.glb` (143k, web-decimated)
-  stays beside it for low-memory devices, switched by one constant in
-  `src/twin/loadHand.ts`. The rig binds to the GLB's own node names, because
-  those names are the mechanism.
+  transforms untouched, with smooth normals baked in once by
+  `tools/prep_model.mjs` so no device computes them at startup. The browser
+  loads it; a phone loads `zero_hand.glb` (143k, web-decimated), which at the
+  size the twin is drawn looks the same and costs a quarter of the GPU time.
+  One constant in `src/twin/loadHand.ts` switches either. The rig binds to
+  the GLB's own node names, because those names are the mechanism.
+- **A phone's JavaScript engine is not a browser.** Hermes has no
+  `TextDecoder`, which three.js's GLB parser needs before it reads a byte;
+  `src/polyfills.ts` supplies it and is imported first. Without it the twin
+  loads on the desktop and silently never appears on the phone. The Overview
+  now says what the twin is doing while it is not there yet, and why, if it
+  cannot be.
 - **The shared mechanical model.** `src/data/kinematics.js` is carried
   byte-for-byte from `software/console`. Joint angles, the telescopic slides
   they demand, and the spool rotations that produce them all come from there.

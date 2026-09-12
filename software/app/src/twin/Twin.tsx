@@ -217,7 +217,9 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
           // Standard view transform, no look. A filmic transform flattens a
           // white page to grey, which is the one thing this stage cannot do.
           gl.outputColorSpace = THREE.SRGBColorSpace;
-          gl.shadowMap.type = THREE.PCFSoftShadowMap;
+          // soft shadows are a 3x3 tap per pixel; a phone gets the plain
+          // filtered map, which at this size looks the same and costs a third
+          gl.shadowMap.type = Platform.OS === 'web' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
           scene.background = null;
           if (!dark) {
             // a soft neutral room, so the satin clearcoat has something to
@@ -228,17 +230,30 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
             scene.environmentIntensity = 0.3;
             pmrem.dispose();
           }
+          // transparent over the page; if a GL surface cannot be transparent
+          // it shows the page colour rather than black
+          gl.setClearColor(new THREE.Color(C.page), 0);
           if (dark) {
             // A filmic transform and a neutral room environment: the graphite
             // shell needs something to reflect, or it reads as flat plastic.
             gl.toneMapping = THREE.ACESFilmicToneMapping;
             gl.toneMappingExposure = exposure;
-            const pmrem = new THREE.PMREMGenerator(gl);
-            scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-            scene.environmentIntensity = 0.45;
-            pmrem.dispose();
           } else {
+            // Standard view transform, no look. A filmic transform flattens a
+            // white page to grey, which is the one thing this stage cannot do.
             gl.toneMapping = THREE.NoToneMapping;
+          }
+          // a soft neutral room, so the satin clearcoat has something to
+          // catch: the highlight along the ridge in the product stills. It
+          // is rendered through float targets a GL surface may lack, so it is
+          // allowed to fail: lit without a room beats not drawn at all.
+          try {
+            const pmrem = new THREE.PMREMGenerator(gl);
+            scene.environment = pmrem.fromScene(new RoomEnvironment(), dark ? 0.04 : 0.06).texture;
+            scene.environmentIntensity = dark ? 0.45 : 0.5;
+            pmrem.dispose();
+          } catch (e) {
+            console.warn('[twin] no room environment on this GL surface:', e);
           }
         }}
       >
