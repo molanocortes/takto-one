@@ -42,6 +42,7 @@ class CameraStats:
     dropped_reads: int = 0
     opened: bool = False
     error: str = ""
+    note: str = ""
     period_ms_p50: float = 0.0
     period_ms_p95: float = 0.0
     _periods: list = field(default_factory=list)
@@ -65,25 +66,124 @@ class Camera:
         self._thread: threading.Thread | None = None
 
     def open(self) -> bool:
+        """Open the source and prove it delivers frames. A camera that macOS
+        has not authorised for this process opens and then never delivers a
+        frame; OpenCV only says so on stderr, so stderr is captured around the
+        attempt and the reason is written where the page can show it."""
+        self.stats.error = ""
         if self.source:
             cap = cv2.VideoCapture(self.source)
-        else:
+            ok, img = cap.read()
+            if not ok or img is None:
+                cap.release()
+                self.stats.opened = False
+                self.stats.error = f"cannot read {self.source}"
+                return False
+            self._adopt(cap, img)
+            return True
+        attempts = [("requested", True), ("driver defaults", False)]
+        last_err = ""
+        for label, with_props in attempts:
+            cap, img, err = self._try_open(with_props)
+            if cap is not None:
+                self._adopt(cap, img)
+                if not with_props:
+                    self.stats.note = "camera refused the requested mode; running at the driver's defaults"
+                return True
+            last_err = err
+        self.stats.opened = False
+        self.stats.error = last_err or "no frame from the camera"
+        return False
+
+    def _try_open(self, with_props: bool):
+        import io, os, sys, tempfile
+        # capture OpenCV's stderr for the duration of the attempt
+        fd = sys.stderr.fileno()
+        saved = os.dup(fd)
+        tmp = tempfile.TemporaryFile(mode="w+b")
+        os.dup2(tmp.fileno(), fd)
+        try:
             cap = cv2.VideoCapture(self.index, cv2.CAP_AVFOUNDATION)
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-            cap.set(cv2.CAP_PROP_FPS, self.fps)
-        ok, img = cap.read()
-        if not ok or img is None:
-            self.stats.opened = False
-            self.stats.error = "no frame from the camera (is camera access allowed for this terminal?)"
-            cap.release()
-            return False
+            if with_props:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                if self.fps:
+                    cap.set(cv2.CAP_PROP_FPS, self.fps)
+            img = None
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 3.0:       # warm-up: the first frames may take a moment
+                ok, img = cap.read()
+                if ok and img is not None:
+                    break
+                time.sleep(0.05)
+        finally:
+            os.dup2(saved, fd)
+            os.close(saved)
+        tmp.seek(0)
+        log = tmp.read().decode(errors="ignore")
+        tmp.close()
+        if img is not None:
+            return cap, img, ""
+        cap.release()
+        if "not authorized" in log:
+            return None, None, ("macOS has not allowed this process to use the camera. Run the lab from Terminal.app "
+                                "(it asks once), or allow the camera for the app that launched it in System Settings "
+                                "> Privacy & Security > Camera.")
+        if "can't be used to capture by index" in log or "failed to properly initialize" in log:
+            return None, None, f"no camera at index {self.index} (or access denied); pick another camera below"
+        return None, None, "no frame from the camera"
+
+    def _adopt(self, cap, img):
         self._cap = cap
         self.stats.opened = True
-        self.stats.error = ""
         self.stats.width, self.stats.height = int(img.shape[1]), int(img.shape[0])
         self.stats.fps_reported = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
-        return True
+
+    def reopen(self, index: int | None = None, width: int | None = None, height: int | None = None, fps: float | None = None) -> bool:
+        """switch camera or mode at runtime; the reader thread keeps running"""
+        if index is not None:
+            self.index = index
+        if width:
+            self.width = width
+        if height:
+            self.height = height
+        if fps is not None:
+            self.fps = fps
+        old = self._cap
+        self._cap = None
+        if old is not None:
+            try:
+                old.release()
+            except Exception:
+                pass
+        ok = self.open()
+        if ok and not self._run:
+            self.start()
+        return ok
+
+    @staticmethod
+    def list_cameras(max_index: int = 4) -> list:
+        """which indices deliver a frame right now, with their default size;
+        names come from the system, which lists them in the same order as
+        AVFoundation enumerates them"""
+        import subprocess, json
+        names = []
+        try:
+            out = subprocess.run(["system_profiler", "SPCameraDataType", "-json"], capture_output=True, text=True, timeout=8).stdout
+            names = [c.get("_name", "") for c in json.loads(out).get("SPCameraDataType", [])]
+        except Exception:
+            pass
+        found = []
+        for i in range(max_index + 1):
+            cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
+            ok, img = cap.read()
+            if ok and img is not None:
+                found.append({"index": i, "name": names[i] if i < len(names) else f"camera {i}", "width": int(img.shape[1]), "height": int(img.shape[0]),
+                              "fps": float(cap.get(cv2.CAP_PROP_FPS) or 0)})
+            cap.release()
+            if not ok and i >= len(names) and i > 0:
+                break
+        return found
 
     def start(self):
         if self._run:
@@ -120,9 +220,12 @@ class Camera:
         last_ns = 0
         ema = 0.0
         periods: list[float] = []
-        cap = self._cap
-        file_fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0) if self.source else 0.0
-        while self._run and cap is not None:
+        file_fps = float(self._cap.get(cv2.CAP_PROP_FPS) or 30.0) if (self.source and self._cap is not None) else 0.0
+        while self._run:
+            cap = self._cap
+            if cap is None:
+                time.sleep(0.05)
+                continue
             ok, img = cap.read()
             t_ns = time.monotonic_ns()
             if not ok or img is None:

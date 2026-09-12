@@ -21,7 +21,8 @@ def main():
     ap.add_argument("--camera", type=int, default=0)
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
-    ap.add_argument("--fps", type=float, default=60.0, help="requested; the page shows what the camera really delivers")
+    ap.add_argument("--fps", type=float, default=None, help="request a frame rate; default: the camera's own. The page shows what it really delivers")
+    ap.add_argument("--check", action="store_true", help="probe the cameras, print what delivers frames, and exit")
     ap.add_argument("--source", default=None, help="a video file instead of the camera")
     ap.add_argument("--bridge", default="ws://localhost:8765/ws", help="teensy_bridge.py address, '' for none")
     ap.add_argument("--tracker", default="hand", choices=["hand", "markers"])
@@ -31,6 +32,12 @@ def main():
 
     import uvicorn
     from lab.camera import Camera
+    if a.check:
+        for c in Camera.list_cameras():
+            print(f"[lab] camera {c['index']}: {c['name']} {c['width']}x{c['height']} reports {c['fps']:.0f} fps")
+        cam = Camera(a.camera, a.width, a.height, a.fps)
+        print("[lab] open:", "ok" if cam.open() else cam.stats.error)
+        return
     from lab.device import DeviceLink
     from lab.server import Lab, build_app
 
@@ -38,6 +45,7 @@ def main():
     cam.start()
     if not cam.stats.opened:
         print("[lab] camera:", cam.stats.error)
+        print("[lab] the page stays usable; pick a camera or re-open it from the Acquisition table")
     else:
         print(f"[lab] camera {cam.stats.width}x{cam.stats.height}, reports {cam.stats.fps_reported:.0f} fps")
     dev = DeviceLink(a.bridge or None)

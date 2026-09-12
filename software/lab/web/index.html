@@ -3,154 +3,212 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TAKTO Lab</title>
+<title>TAKTO ONE · bench camera experiment</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand"><span class="dot" id="liveDot"></span><span class="mono">TAKTO LAB</span></div>
-  <nav class="tabs">
-    <button class="tab on" data-view="live">Live</button>
-    <button class="tab" data-view="takes">Takes</button>
-    <button class="tab" data-view="compose">Compose</button>
-  </nav>
-  <div class="chips">
-    <span class="chip" id="chipCam">CAMERA —</span>
-    <span class="chip" id="chipTrk">TRACKER —</span>
-    <span class="chip" id="chipDev">DEVICE —</span>
-    <span class="chip" id="chipFollow">FOLLOW —</span>
+<header class="titleblock">
+  <div class="title">
+    <h1>TAKTO ONE &middot; Bench camera experiment</h1>
+    <div class="byline">Acquisition console &middot; session clock <span class="mono" id="clock">t = 0.000 s</span> (monotonic) &middot; <span id="date"></span></div>
   </div>
+  <nav class="sections">
+    <a href="#" class="sec on" data-view="live">1&ensp;Acquisition</a>
+    <a href="#" class="sec" data-view="takes">2&ensp;Takes and results</a>
+    <a href="#" class="sec" data-view="compose">3&ensp;Video composition</a>
+  </nav>
 </header>
 
 <main id="view-live" class="view on">
-  <section class="stage">
-    <div class="viewport" id="viewport">
-      <img id="cam" src="/video.mjpg" alt="camera">
-      <canvas id="overlay"></canvas>
-      <div class="guides"><div class="gl"></div><div class="gl"></div></div>
-      <div class="count" id="count"></div>
-      <div class="banner" id="banner"></div>
-      <div class="calib" id="calibHint"></div>
-    </div>
-    <div class="readouts">
-      <div class="ro"><span class="lab">Camera · MCP</span><span class="num" id="camMcp">–</span><span class="unit">°</span></div>
-      <div class="ro"><span class="lab">Camera · PIP</span><span class="num" id="camPip">–</span><span class="unit">°</span></div>
-      <div class="ro"><span class="lab">Camera · DIP</span><span class="num" id="camDip">–</span><span class="unit">°</span></div>
-      <div class="ro sep"></div>
-      <div class="ro"><span class="lab">Device · MCP</span><span class="num" id="devMcp">–</span><span class="unit">°</span></div>
-      <div class="ro"><span class="lab">Device · PIP</span><span class="num" id="devPip">–</span><span class="unit">°</span></div>
-      <div class="ro sep"></div>
-      <div class="ro"><span class="lab">Follow · lag</span><span class="num" id="lag">–</span><span class="unit">s</span></div>
-      <div class="ro"><span class="lab">Follow · queue</span><span class="num" id="queue">–</span><span class="unit"></span></div>
-    </div>
-    <div class="twinrow">
-      <div class="twinbox"><iframe id="twinLive" src="/twin?live=1&w=520&h=300" title="live twin"></iframe>
-        <div class="twincap mono">DIGITAL TWIN · LIVE FROM THE DEVICE ENCODERS, OR THE CAMERA WHEN NO DEVICE IS LINKED</div></div>
-    </div>
-  </section>
+  <div class="col left">
+    <figure class="fig">
+      <div class="axes cam" id="viewport">
+        <img id="cam" src="/video.mjpg" alt="">
+        <canvas id="overlay"></canvas>
+        <div class="annot big" id="count"></div>
+        <div class="annot corner" id="banner"></div>
+        <div class="annot corner right" id="calibHint"></div>
+        <div class="nocam" id="nocam"></div>
+      </div>
+      <figcaption><b>Figure 1.</b> <span id="cap1">Live camera frame.</span> Index finger: wrist&ndash;MCP&ndash;PIP&ndash;DIP chain in blue, joint flexion &theta; = 180&deg; &minus; interior angle, 0&deg; = straight. Axes in image pixels.</figcaption>
+    </figure>
+    <figure class="fig">
+      <canvas id="strip" width="1100" height="320"></canvas>
+      <figcaption><b>Figure 2.</b> Joint flexion &theta;(t), last 12 s. Camera: MCP (&#9644; blue), PIP (&#9644; orange). Device encoders: MCP (&#9644; yellow), PIP (&#9644; purple). Follow target MCP dashed. Values as received, unfiltered, 20 samples/s of the state.</figcaption>
+    </figure>
+    <figure class="fig">
+      <div class="twinbox"><iframe id="twinLive" src="/twin?live=1&w=560&h=300" title="live twin"></iframe></div>
+      <figcaption><b>Figure 3.</b> Digital twin from the same CAD and the same kinematic model as every other TAKTO surface, driven by the device encoders when a bridge is linked, else by the camera angles.</figcaption>
+    </figure>
+  </div>
 
-  <aside class="panel">
-    <div class="block">
-      <div class="head mono">Protocol</div>
-      <div class="cards" id="protoCards"></div>
-      <ul class="setup" id="setupList"></ul>
-    </div>
-    <div class="block run" id="runBlock">
-      <div class="head mono">Run</div>
-      <div class="phase" id="phaseTitle">Idle</div>
-      <div class="instr" id="phaseInstr">Choose a protocol, check the setup, press Start. The page counts down; GO is one timestamp on the same clock as the camera and the device.</div>
+  <div class="col right">
+    <section>
+      <h2>1.1&ensp;Acquisition state</h2>
+      <table class="tab" id="tabAcq">
+        <thead><tr><th>Quantity</th><th class="num">Value</th><th>Unit / note</th></tr></thead>
+        <tbody>
+          <tr><td>Camera</td><td class="num" id="aCam">&ndash;</td><td id="aCamNote"></td></tr>
+          <tr><td>Resolution</td><td class="num" id="aRes">&ndash;</td><td>px</td></tr>
+          <tr><td>Frame rate, measured</td><td class="num" id="aFps">&ndash;</td><td>fps (driver reports <span id="aFpsRep">&ndash;</span>)</td></tr>
+          <tr><td>Frame period p50 / p95</td><td class="num" id="aPer">&ndash;</td><td>ms</td></tr>
+          <tr><td>Tracker</td><td class="num" id="aTrk">&ndash;</td><td id="aTrkNote"></td></tr>
+          <tr><td>Device link</td><td class="num" id="aDev">&ndash;</td><td id="aDevNote"></td></tr>
+          <tr><td>Follow gateway</td><td class="num" id="aFollow">&ndash;</td><td id="aFollowNote"></td></tr>
+          <tr><td>Recording</td><td class="num" id="aRec">&ndash;</td><td id="aRecNote"></td></tr>
+        </tbody>
+      </table>
+      <div class="row">
+        <label>Camera <select id="camSel"><option value="">current</option></select></label>
+        <button class="btn" id="camProbe">Probe cameras</button>
+        <button class="btn" id="camReopen">Re-open</button>
+        <span class="note" id="camMsg"></span>
+      </div>
+      <div class="warn" id="camWarn"></div>
+    </section>
+
+    <section>
+      <h2>1.2&ensp;Protocol</h2>
+      <table class="tab" id="tabProto">
+        <thead><tr><th></th><th>Protocol</th><th class="num">Phases</th><th class="num">Duration</th><th>Device</th></tr></thead>
+        <tbody id="protoRows"></tbody>
+      </table>
+      <div class="timeline" id="timeline"></div>
+      <ol class="setup" id="setupList"></ol>
+    </section>
+
+    <section>
+      <h2>1.3&ensp;Run</h2>
+      <table class="tab">
+        <tbody>
+          <tr><td>Phase</td><td class="num" id="phaseTitle">idle</td><td id="phaseLeft"></td></tr>
+          <tr><td>Instruction</td><td colspan="2" class="instr" id="phaseInstr">Select a protocol, verify the setup list, start. The page counts down; GO is one timestamp on the clock shared by the camera and the device.</td></tr>
+        </tbody>
+      </table>
       <div class="bar"><div class="fill" id="runFill"></div></div>
       <div class="row">
-        <button class="btn primary" id="btnStart">Start</button>
+        <button class="btn primary" id="btnStart">Start acquisition</button>
         <button class="btn" id="btnAbort">Abort</button>
-        <span class="msg mono" id="runMsg"></span>
+        <span class="note mono" id="runMsg"></span>
       </div>
-    </div>
-    <div class="block">
-      <div class="head mono">Tracker</div>
-      <div class="row seg" id="trkMode">
-        <button class="segb on" data-mode="hand">Hand model</button>
-        <button class="segb" data-mode="markers">Colour markers</button>
-      </div>
-      <div class="hint">Hand model for the bare finger. Markers for the finger in TAKTO and for the device on the table: put a small coloured dot on the wrist line, the MCP, the PIP and the DIP, seen from the side, then click each below and click the dot in the picture.</div>
-      <div class="row" id="markerBtns">
-        <button class="btn sm" data-m="wrist">Wrist</button>
-        <button class="btn sm" data-m="mcp">MCP</button>
-        <button class="btn sm" data-m="pip">PIP</button>
-        <button class="btn sm" data-m="dip">DIP</button>
-        <button class="btn sm ghost" id="markerClear">Clear</button>
-      </div>
-      <div class="swatches" id="swatches"></div>
-    </div>
-    <div class="block">
-      <div class="head mono">Camera follow <span class="state" id="followState"></span></div>
-      <div class="hint">The bridge's own gateway: capture the relaxed neutral, confirm the measured motor directions, arm. Every rule stays in the bridge and the firmware.</div>
+    </section>
+
+    <section>
+      <h2>1.4&ensp;Tracker</h2>
       <div class="row">
-        <button class="btn sm" data-f="neutral">Neutral</button>
-        <button class="btn sm" data-f="directions">Directions +1 / +1</button>
-        <button class="btn sm" data-f="arm">Arm</button>
-        <button class="btn sm ghost" data-f="stop">Stop</button>
+        <label><input type="radio" name="trk" value="hand" id="trkHand"> hand model (MediaPipe, 21 landmarks)</label>
+        <label><input type="radio" name="trk" value="markers" id="trkMarkers"> colour markers (4 dots, HSV segmentation)</label>
       </div>
-      <div class="row seg" id="followMode">
-        <button class="segb on" data-fm="queue">Every pose, in order</button>
-        <button class="segb" data-fm="latest">Newest pose only</button>
+      <p class="note">Hand model for the bare finger. Markers for the finger in TAKTO and for the device on the table: a small coloured dot at the wrist line, the MCP, the PIP and the DIP, seen from the side. Press <i>sample</i>, then click the dot in Figure 1.</p>
+      <table class="tab" id="tabMarkers">
+        <thead><tr><th>Marker</th><th class="num">H</th><th class="num">S</th><th class="num">V</th><th class="num">&plusmn;H</th><th></th></tr></thead>
+        <tbody id="markerRows"></tbody>
+      </table>
+      <div class="row"><button class="btn" id="markerClear">Clear markers</button></div>
+    </section>
+
+    <section>
+      <h2>1.5&ensp;Camera follow (bridge gateway)</h2>
+      <table class="tab">
+        <tbody>
+          <tr><td>Neutral captured</td><td class="num" id="fZero">&ndash;</td><td>relaxed pose, torque off</td></tr>
+          <tr><td>Directions confirmed</td><td class="num" id="fDir">&ndash;</td><td>measured motor signs</td></tr>
+          <tr><td>Armed</td><td class="num" id="fArm">&ndash;</td><td id="fReason"></td></tr>
+          <tr><td>Target / actual</td><td class="num" id="fTA">&ndash;</td><td>MCP / PIP, deg</td></tr>
+          <tr><td>Queue</td><td class="num" id="fQ">&ndash;</td><td id="fQNote">poses waiting &middot; sent &middot; reached &middot; timed out</td></tr>
+          <tr><td>Lag, current / max</td><td class="num" id="fLag">&ndash;</td><td>s, age of the pose being executed</td></tr>
+        </tbody>
+      </table>
+      <div class="row">
+        <button class="btn" data-f="neutral">Neutral</button>
+        <button class="btn" data-f="directions">Directions +1/+1</button>
+        <button class="btn" data-f="arm">Arm</button>
+        <button class="btn" data-f="stop">Stop</button>
       </div>
-      <div class="hint mono" id="followInfo"></div>
-    </div>
-  </aside>
+      <div class="row">
+        <label><input type="radio" name="fm" value="queue" id="fmQueue"> every pose, in order (lag accumulates, nothing skipped)</label>
+        <label><input type="radio" name="fm" value="latest" id="fmLatest"> newest pose only</label>
+      </div>
+    </section>
+
+    <section>
+      <h2>1.6&ensp;Console</h2>
+      <pre class="console" id="console"></pre>
+    </section>
+  </div>
 </main>
 
 <main id="view-takes" class="view">
-  <section class="takes">
-    <div class="head mono">Takes <button class="btn sm ghost" id="takesRefresh">Refresh</button></div>
-    <div id="takeList" class="takelist"></div>
-  </section>
-  <aside class="panel wide">
-    <div class="head mono" id="takeTitle">Select a take</div>
-    <canvas id="chart" width="900" height="360"></canvas>
-    <div class="legend mono"><span class="k blue">CAMERA MCP</span><span class="k green">CAMERA PIP</span><span class="k ink">DEVICE MCP</span><span class="k grey">DEVICE PIP</span><span class="k orange">FOLLOW TARGET</span></div>
-    <pre id="takeMeta" class="meta"></pre>
-    <div class="row">
-      <button class="btn sm" id="btnAnalyze">Analyze again</button>
-      <button class="btn sm" id="btnTwin">Render twin frames</button>
-      <span class="msg mono" id="takeMsg"></span>
-    </div>
-  </aside>
+  <div class="col left">
+    <section>
+      <h2>2.1&ensp;Takes</h2>
+      <table class="tab" id="tabTakes">
+        <thead><tr><th>Take</th><th>Protocol</th><th class="num">Frames</th><th class="num">fps</th><th class="num">Device rows</th><th class="num">Found</th><th>Status</th><th class="num">Headline</th></tr></thead>
+        <tbody id="takeRows"></tbody>
+      </table>
+      <div class="row"><button class="btn" id="takesRefresh">Refresh</button><button class="btn" id="btnAnalyze">Analyze again</button><button class="btn" id="btnTwin">Render twin frames</button><span class="note mono" id="takeMsg"></span></div>
+    </section>
+    <figure class="fig">
+      <canvas id="chart" width="1100" height="380"></canvas>
+      <figcaption><b>Figure 4.</b> <span id="cap4">Select a take.</span> Camera &theta;<sub>MCP</sub> blue, &theta;<sub>PIP</sub> orange; device &theta;<sub>MCP</sub> yellow, &theta;<sub>PIP</sub> purple; follow target dashed. Zeroed on the rest phase. Shaded: the analysed blocks. t = 0 at GO.</figcaption>
+    </figure>
+    <section>
+      <h2>2.2&ensp;Results</h2>
+      <table class="tab" id="tabResults">
+        <thead><tr><th>Block</th><th>Source</th><th class="num">ROM</th><th class="num">&omega;<sub>peak</sub></th><th class="num">Cycles</th><th class="num">f</th><th class="num">RMSE vs cam</th><th class="num">Lag</th><th class="num">Accuracy</th></tr></thead>
+        <tbody id="resultRows"><tr><td colspan="9" class="note">no take selected</td></tr></tbody>
+      </table>
+      <p class="note" id="comparison"></p>
+    </section>
+    <section class="methods">
+      <h2>2.3&ensp;Methods</h2>
+      <p>Angles: &theta; = 180&deg; &minus; &ang;(proximal, distal) at each joint, from the world landmarks (hand model) or the marker centroids (side view). Zeroing: &theta; &larr; &theta; &minus; median(&theta;) over the last second of the rest phase, provided P90 &minus; P10 &le; 5&deg; there; otherwise P2 of the take. Filtering: Savitzky&ndash;Golay, window 11, order 3 (zero phase). ROM = P95(&theta;) &minus; P5(&theta;). &omega;<sub>peak</sub> = P95|d&theta;/dt|. Cycles: peaks of prominence &ge; 0.35&middot;ROM. Onset: first t with |&omega;| &gt; 30&deg;/s for 3 consecutive samples. Lag = arg max<sub>&tau;</sub> R<sub>xy</sub>(&tau;), |&tau;| &le; 1 s (5 s for the follower). Accuracy = 1 &minus; RMSE/ROM. Slower = 1 &minus; &omega;<sub>peak,worn</sub>/&omega;<sub>peak,bare</sub>. Settle: first t after GO with |&theta; &minus; target| &le; 4&deg; held 0.3 s.</p>
+    </section>
+  </div>
+  <div class="col right">
+    <section>
+      <h2>2.4&ensp;Take record</h2>
+      <pre class="meta" id="takeMeta">select a take</pre>
+    </section>
+  </div>
 </main>
 
 <main id="view-compose" class="view">
-  <section class="compose">
-    <div class="head mono">Compose · 1080 × 1920, top and bottom</div>
-    <div class="two">
-      <div class="cpanel">
-        <div class="lab mono">TOP · the camera's truth</div>
-        <select id="topTake"></select>
-        <select id="topSrc"><option value="video">video</option><option value="twin">twin frames</option></select>
-        <input id="topLabel" placeholder="label, e.g. Bare finger">
-        <div class="cropbox"><video id="topVid" muted playsinline></video><canvas id="topCrop"></canvas></div>
-        <div class="hint">Drag on the picture to crop. Empty = whole frame.</div>
+  <div class="col left">
+    <section>
+      <h2>3.1&ensp;Panels</h2>
+      <div class="two">
+        <figure class="fig">
+          <div class="axes crop"><video id="topVid" muted playsinline></video><canvas id="topCrop"></canvas></div>
+          <figcaption><b>Top.</b> The camera's truth. <select id="topTake"></select> <select id="topSrc"><option value="video">video</option><option value="twin">twin frames</option></select> <input id="topLabel" placeholder="label"> Drag to crop.</figcaption>
+        </figure>
+        <figure class="fig">
+          <div class="axes crop"><video id="botVid" muted playsinline></video><canvas id="botCrop"></canvas></div>
+          <figcaption><b>Bottom.</b> What is compared with it. <select id="botTake"></select> <select id="botSrc"><option value="video">video</option><option value="twin">twin frames</option></select> <input id="botLabel" placeholder="label"> Both panels start at their own motion onset.</figcaption>
+        </figure>
       </div>
-      <div class="cpanel">
-        <div class="lab mono">BOTTOM · what is compared with it</div>
-        <select id="botTake"></select>
-        <select id="botSrc"><option value="video">video</option><option value="twin">twin frames</option></select>
-        <input id="botLabel" placeholder="label, e.g. In TAKTO">
-        <div class="cropbox"><video id="botVid" muted playsinline></video><canvas id="botCrop"></canvas></div>
-        <div class="hint">Both panels start at their own motion onset, so the movements begin together.</div>
-      </div>
-    </div>
-    <div class="row wrap">
-      <input id="headline" placeholder="headline, e.g. 12 % slower" class="big">
-      <input id="sub" placeholder="what the number is, e.g. peak angular speed, fast block">
-      <input id="footer" placeholder="footer, e.g. TAKTO ONE · lab bench · n = 1">
-      <label class="mono">SLOW <input id="slow" type="number" min="1" max="8" step="0.5" value="1"></label>
-      <label class="mono">SECONDS <input id="dur" type="number" min="1" max="120" step="1" placeholder="all"></label>
-      <button class="btn primary" id="btnRender">Render</button>
-      <span class="msg mono" id="composeMsg"></span>
-    </div>
-    <div class="suggest mono" id="suggest"></div>
-    <div class="result" id="result"></div>
-  </section>
+    </section>
+    <section>
+      <h2>3.2&ensp;Overlay and export</h2>
+      <table class="tab">
+        <tbody>
+          <tr><td>Headline</td><td colspan="2"><input id="headline" class="wide" placeholder="e.g. 12 % slower"></td></tr>
+          <tr><td>Method line</td><td colspan="2"><input id="sub" class="wide" placeholder="e.g. peak angular speed, fast block"></td></tr>
+          <tr><td>Footer</td><td colspan="2"><input id="footer" class="wide" placeholder="e.g. TAKTO ONE · bench · n = 1"></td></tr>
+          <tr><td>Slow-motion factor</td><td class="num"><input id="slow" type="number" min="1" max="8" step="0.5" value="1"></td><td>nearest frame, no interpolation</td></tr>
+          <tr><td>Length</td><td class="num"><input id="dur" type="number" min="1" max="120" step="1" placeholder="all"></td><td>s</td></tr>
+        </tbody>
+      </table>
+      <div class="row"><button class="btn primary" id="btnRender">Render 1080 &times; 1920</button><span class="note mono" id="composeMsg"></span></div>
+      <pre class="meta" id="suggest">suggestions from the analysis appear here</pre>
+    </section>
+  </div>
+  <div class="col right">
+    <figure class="fig">
+      <div class="result" id="result"><div class="note">no export yet</div></div>
+      <figcaption><b>Figure 5.</b> Export preview.</figcaption>
+    </figure>
+  </div>
 </main>
 <script src="/static/app.js"></script>
 </body>

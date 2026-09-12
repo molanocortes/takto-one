@@ -28,11 +28,39 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/python lab.py                       # camera 0, bridge on localhost
 ```
 
-Open http://localhost:8790. macOS asks once for camera access for the
-terminal that runs it. Options: `--camera 1`, `--fps 60`, `--bridge
-ws://192.168.1.20:8765/ws`, `--tracker markers`, `--source take.mp4` (a video
-file stands in for the camera; the take is looped). The bridge is
-`../bridge/teensy_bridge.py`; with `--sim` it feeds synthetic joints.
+Open http://localhost:8790. Run it from **Terminal.app**: macOS asks that
+terminal once for camera access. A terminal embedded in another app (an
+editor, an assistant) inherits that app's permission, and if the app has
+none the camera opens and never delivers a frame. The page then says so in
+the acquisition table, with the fix (System Settings > Privacy & Security >
+Camera), and *Probe cameras* / *Re-open* recover without a restart.
+`./.venv/bin/python lab.py --check` prints the same diagnosis in the terminal.
+Options: `--camera 1`, `--fps 60` (a request; the page shows what arrives),
+`--bridge ws://192.168.1.20:8765/ws`, `--tracker markers`, `--source
+take.mp4` (a video file stands in for the camera; the take is looped). The
+bridge is `../bridge/teensy_bridge.py`; with `--sim` it feeds synthetic
+joints.
+
+## The page
+
+Set like a paper and laid out like an instrument: Latin Modern for the text,
+Latin Modern Mono for the numbers, black rules on white, MATLAB's line
+colours in every figure. Three numbered sections:
+
+1. **Acquisition.** Figure 1 is the live frame in pixel axes with the
+   wrist-MCP-PIP-DIP chain and the joint angles annotated at the joints;
+   Figure 2 a 12 s strip chart of camera and encoder angles; Figure 3 the
+   digital twin. Beside them, Table 1 (acquisition state: resolution,
+   measured frame rate and period percentiles, tracker rate, device rate,
+   follow gateway, recording), the protocol table with its phase timeline
+   and setup list, the run controls, the tracker and marker table, the
+   camera-follow state, and a console.
+2. **Takes and results.** The take table, Figure 4 (the take's traces,
+   zeroed, with the analysed blocks shaded and t = 0 at GO), the results
+   table per block and source with units, and the methods paragraph with
+   every definition the numbers rest on.
+3. **Video composition.** The two panels with drag-to-crop, the overlay
+   fields, and the export preview.
 
 ## The four protocols
 

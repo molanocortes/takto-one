@@ -84,6 +84,16 @@ class Lab:
         self._run_thread: threading.Thread | None = None
         self._last_follow_push_ns = 0
         self._last_target_send_ns = 0
+        self.console: list = []              # (t_wall, text), the page's console
+        self.log("lab started")
+        cs = camera.stats
+        self.log(f"camera {cs.width}x{cs.height}, reports {cs.fps_reported:.0f} fps" if cs.opened else f"camera: {cs.error}")
+        self.log(f"device: {device.url or 'none'}")
+
+    def log(self, text: str):
+        self.console.append((time.time(), text))
+        del self.console[:-200]
+        print("[lab]", text)
 
     # ---- markers -----------------------------------------------------------
     def _markers_path(self):
@@ -197,6 +207,7 @@ class Lab:
         self.device.start_recording()
         st.recording = True
         self._event("take_start", take_id)
+        self.log(f"take {take_id}: recording {proto.name}")
         if proto.follow:
             self.device.follow.clear()
             self.device.follow_enabled = True
@@ -209,6 +220,7 @@ class Lab:
                 st.phase_idx, st.phase_key, st.title, st.instruction = i, ph.key, ph.title, ph.instruction
                 st.block, st.target = ph.block, ph.target
                 self._event("phase", json.dumps({"key": ph.key, "block": ph.block, "neutral": ph.neutral, "target": ph.target}))
+                self.log(f"phase {ph.key} ({ph.seconds:.0f} s): {ph.title}")
                 if ph.neutral and self.hand is not None:
                     self.hand.reset_smoothing()
                 ph_start = time.monotonic_ns()
@@ -229,6 +241,7 @@ class Lab:
                 if ph.countdown and st.running:
                     st.t_go_ns = time.monotonic_ns()
                     self._event("go", ph.key)
+                    self.log(f"GO at t = {st.t_go_ns} ns (monotonic)")
         finally:
             st.recording = False
             st.running = False
@@ -245,6 +258,7 @@ class Lab:
             store.update_meta(take_id, status="recorded", video=info, device_rows=len(rows), t_go_ns=st.t_go_ns,
                               live_found_pct=(100.0 * sum(r[2] for r in self._live_rows) / len(self._live_rows)) if self._live_rows else 0.0)
             st.message = f"take {take_id} saved ({info['frames']} frames)"
+            self.log(f"take {take_id}: saved {info['frames']} frames at {info['fps_effective']:.1f} fps, {len(rows)} device rows, {info['dropped']} dropped; analysing")
             self._rec = None
             threading.Thread(target=self.analyze, args=(take_id,), daemon=True).start()
 
@@ -278,6 +292,7 @@ class Lab:
             store.write_csv(take_id, "track.csv", TRACK_COLS, rows)
             result = _clean(self._metrics(take_id, meta, rows))
             store.update_meta(take_id, status="analyzed", analysis=result)
+            self.log(f"take {take_id}: analysed, finger found in {result.get('found_pct', 0):.0f} % of frames")
             job["done"] = True
             job["progress"] = 1.0
             return result
@@ -399,7 +414,9 @@ class Lab:
         return {
             "camera": {"opened": cs.opened, "width": cs.width, "height": cs.height, "fps": round(cs.fps_measured, 1),
                        "fps_reported": cs.fps_reported, "frames": cs.frames, "period_p50_ms": round(cs.period_ms_p50, 2),
-                       "period_p95_ms": round(cs.period_ms_p95, 2), "error": cs.error, "source": self.camera.source or f"camera {self.camera.index}"},
+                       "period_p95_ms": round(cs.period_ms_p95, 2), "error": cs.error, "note": cs.note, "index": self.camera.index,
+                       "source": self.camera.source or f"camera {self.camera.index}", "dropped_reads": cs.dropped_reads},
+            "console": [[round(t, 3), x] for t, x in self.console[-14:]],
             "tracker": {"mode": self.tracker_mode, "found": bool(self.live["found"]), "hz": round(self.live["hz"], 1),
                         "infer_ms": round(self.live.get("infer_ms", 0.0), 1),
                         "mcp": _r(a.mcp), "pip": _r(a.pip), "dip": _r(a.dip), "ab": _r(a.ab),
@@ -490,24 +507,37 @@ def build_app(lab: Lab) -> FastAPI:
             pass
 
     @app.get("/video.mjpg")
-    def mjpeg():
-        def gen():
+    async def mjpeg(request: Request):
+        async def gen():
             last = -1
-            while True:
+            while not await request.is_disconnected():
                 fr = lab.camera.latest()
                 if fr is None or fr.idx == last:
-                    time.sleep(0.005)
+                    await asyncio.sleep(0.005)
                     continue
                 last = fr.idx
                 img = fr.image
                 if img.shape[1] > 960:
                     img = cv2.resize(img, (960, int(img.shape[0] * 960 / img.shape[1])), interpolation=cv2.INTER_AREA)
-                ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 78])
+                ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if not ok:
                     continue
                 yield b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(jpg)).encode() + b"\r\n\r\n" + jpg.tobytes() + b"\r\n"
-                time.sleep(1 / LIVE_HZ)
+                await asyncio.sleep(1 / LIVE_HZ)
         return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+    @app.get("/api/cameras")
+    def cameras():
+        return {"current": lab.camera.index, "cameras": Camera.list_cameras()}
+
+    @app.post("/api/camera")
+    async def camera_select(req: Request):
+        body = await req.json()
+        idx = body.get("index")
+        ok = lab.camera.reopen(index=int(idx) if idx is not None else None, width=body.get("width"), height=body.get("height"), fps=body.get("fps"))
+        cs = lab.camera.stats
+        lab.log(f"camera {lab.camera.index}: {'opened ' + str(cs.width) + 'x' + str(cs.height) if ok else cs.error}")
+        return {"ok": ok, "error": cs.error, "note": cs.note, "width": cs.width, "height": cs.height}
 
     @app.get("/frame.jpg")
     def frame_jpg():

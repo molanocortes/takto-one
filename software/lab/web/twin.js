@@ -30,7 +30,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.setClearColor(0xF3F2EF, TAKE ? 1 : 0);
+renderer.setClearColor(0xFFFFFF, TAKE ? 1 : 0);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(26, W / H, 0.1, 60);
 // side elevation, the way the bench camera sees the finger: from the thumb
