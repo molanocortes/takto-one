@@ -1,6 +1,8 @@
 <div align="center">
 
-<img src="docs/media/hero.png" alt="TAKTO ONE" width="100%">
+<!-- Progressive JPEG keeps the first image light and lets it paint during download.
+     Keep the lossless PNG as the click-through original. -->
+<a href="docs/media/hero.png"><img src="docs/media/hero.jpg" alt="TAKTO ONE hand exoskeleton in white and graphite, designed and built by Sebastian Molano" width="100%"></a>
 
 # TAKTO ONE
 
