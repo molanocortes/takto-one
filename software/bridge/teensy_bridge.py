@@ -2,33 +2,45 @@
 """
 teensy_bridge.py - the TAKTO ONE ecosystem host bridge.
 
-Connects the TAKTO operator console to the Teensy over
+Connects every surface (web console, AR, phone app) to the Teensy over
 ws://<host>:8765/ws. Shared state, calibration and recorded sessions are owned
-by this process and broadcast to connected consoles at 60 Hz.
+by this process; one snapshot is broadcast to all clients at 60 Hz (--hz).
 
 Data sources (pick one):
-  --port /dev/cu.usbmodemXXX   live Teensy (bringup_12ch stream, 'j' = ON):
-      S,<t_ms>,<enc00..enc13>,<h_qw..h_qz>,<f_qw..f_qz>,<imu0live>,<imu1live>[,emg]
-      Encoders/IMUs the firmware reports absent are sent ok:false (honest);
-      motors stay host-owned and un-bridged on real hardware (never faked).
-  --sim   no hardware at all: a 50 Hz synthetic full-system scene (12 joints,
-      2 IMUs, EMG through the real activation filter, N simulated motors) runs
-      through the same calibration and snapshot pipeline.
+  --port /dev/cu.usbmodemXXX   the live device (firmware 'j' = stream ON). It
+      prints one `S,` line per frame - 100 Hz on firmware v16, 50 Hz before -
+      with 14 encoders, three BNO085s (game rotation vector, gyro, linear
+      acceleration, ...), EMG, crown, the motor block (bridged read-only since
+      v6), and on v16 the SD/boot/dv/stability tail (software/MOTION_PIPELINE.md
+      section 5 is the contract). Sensors the firmware reports absent are sent
+      ok:false (honest).
+  --sim   no hardware: sim_device.SimDevice, a LINE-LEVEL v16 device (raw game
+      quaternions with a random per-boot heading, mounting rotations, gyro, dv,
+      stability, E-events, an in-memory SD card) whose text goes through the
+      same parser and pipeline as the hardware. Motors stay simulated (SimMotors).
+
+Per device frame (serial/sim thread): parse -> encoders -> legacy IMU display
+-> motion.BodyModel (the contract's `body` block) -> one recorded take row.
+The broadcast loop only packages the latest derived state.
 
 Run:
     python teensy_bridge.py --port /dev/cu.usbmodemXXXX
     python teensy_bridge.py --sim
-Then open the console URL documented in software/README.md.
+    (add --ws-host 0.0.0.0 to serve the phone / headset on the LAN)
+See software/bridge/README.md.
 """
 import argparse, asyncio, copy, glob, json, math, os, re, threading, time, sys
 from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tendon
+import motion
+import sdcard
 
-# Snapshot broadcast rate. 60 Hz outruns the device's 50 Hz sampling, so a
-# fresh sample never waits more than one 16.7 ms tick to ship (at 30 Hz the
-# mean queueing delay alone was ~17 ms). Overridable: --hz / bench_replay.
+# Snapshot broadcast rate. Firmware v16 samples at 100 Hz; the snapshot carries
+# the latest frame at 60 Hz (a fresh sample waits at most one 16.7 ms tick).
+# Recording does NOT ride on this tick: take rows are written once per DEVICE
+# frame in the serial thread. Overridable: --hz / bench_replay.
 # Latency notes: asyncio TCP transports have TCP_NODELAY on by default
 # (CPython) and the hub serializes each snapshot ONCE for all clients.
 HZ = 60
@@ -165,7 +177,25 @@ ENC_CLOSED = {}  # channel -> raw at contracted reference
 _enc_cont = {}       # ch -> {"cont": unwrapped deg, "last": last raw deg}
 _cont_open = {}      # ch -> position of ENC_OPEN[ch] in the CURRENT continuous frame
 
+# The encoder state above (and the seed/sweep state below) is advanced by the
+# serial thread for every frame AND read by the event loop (camera-follow
+# neutral/probe, calibration commands). "Idempotent within a sample" only holds
+# when two callers cannot interleave the read-modify-write of `cont`, so every
+# function that touches it runs under this re-entrant lock.
+_enc_lock = threading.RLock()
 
+
+def _enc_locked(fn):
+    def wrapped(*a, **kw):
+        with _enc_lock:
+            return fn(*a, **kw)
+    wrapped.__name__ = fn.__name__
+    wrapped.__doc__ = fn.__doc__
+    return wrapped
+
+
+
+@_enc_locked
 def unwrapped_deg(ch, raw):
     """Raw 0..360 -> continuous degrees. Idempotent within a sample."""
     st = _enc_cont.get(ch)
@@ -177,6 +207,7 @@ def unwrapped_deg(ch, raw):
     return st["cont"]
 
 
+@_enc_locked
 def _open_in_cont_frame(ch, raw):
     """Where this channel's open mark sits in the continuous frame.
 
@@ -199,6 +230,7 @@ def _open_in_cont_frame(ch, raw):
     return a
 
 
+@_enc_locked
 def reset_enc_channel(ch):
     """Forget everything derived for a channel (it went absent, or was recalibrated)."""
     _enc_cont.pop(ch, None)
@@ -281,6 +313,7 @@ ENC_FILTER_BETA = 0.06        # speed coupling. Higher = snappier on fast flexio
 _enc_filters = {}
 
 
+@_enc_locked
 def filter_encoders(enc, t_ms):
     """Condition raw encoder degrees in place-ish; returns a new list.
 
@@ -305,6 +338,7 @@ def filter_encoders(enc, t_ms):
     return out
 
 
+@_enc_locked
 def capture_joint_ref(which, enc):
     """Snapshot current raw angles as the 'open' (extended) or 'closed' reference."""
     tgt = ENC_OPEN if which == "open" else ENC_CLOSED
@@ -318,6 +352,7 @@ def capture_joint_ref(which, enc):
         ENC_CLOSED.clear()            # a fresh open invalidates the old closed
 
 
+@_enc_locked
 def capture_joint_closed(ch, raw):
     """Capture one flexion endpoint without disturbing any other joint.
 
@@ -346,6 +381,7 @@ def capture_joint_closed(ch, raw):
 _jcal_checked = False
 
 
+@_enc_locked
 def validate_jcal_once(enc):
     """Throw away a persisted calibration that cannot describe the current build.
 
@@ -404,6 +440,7 @@ _SEED_FRAMES = 12
 _seed_buf = {}          # ch -> [raw, ...] until it has enough to commit
 
 
+@_enc_locked
 def _seed_open(ch, raw):
     """Provisional open mark: the mean of the first _SEED_FRAMES readings."""
     if ch in ENC_OPEN:
@@ -422,6 +459,7 @@ def _seed_open(ch, raw):
     return ENC_OPEN[ch]
 
 
+@_enc_locked
 def calibrated_joint(ch, raw):
     """raw AS5600 deg -> (joint_id, twin angle) for the mapped DOF."""
     dof, sign = ENC_DOF[ch]
@@ -433,20 +471,25 @@ def calibrated_joint(ch, raw):
     # it is a constant derived from two stationary marks, not a live signal.
     cont = unwrapped_deg(ch, raw)
     travel = cont - _open_in_cont_frame(ch, raw)
+    return WIRED_FINGER + "_" + seg, joint_value(dof, sign, travel, o, ENC_CLOSED.get(ch))
+
+
+def joint_value(dof, sign, travel, open_raw, closed_raw):
+    """Pure mapping of continuous travel from the open mark to a twin angle.
+    Shared by the live path (calibrated_joint) and the offline SD import, so an
+    imported take and a live one can never map the same encoder differently."""
     if dof == "abduct":                       # side-to-side: open = centre (0), signed
         d = sign * ABDUCT_SCALE * travel
-        return WIRED_FINGER + "_" + seg, max(-16.0, min(16.0, d))
+        return max(-16.0, min(16.0, d))
     # flexion: two-point map open -> FLEX_OPEN, closed -> FLEX_CLOSED
-    c = ENC_CLOSED.get(ch)
-    if c is None:
+    if closed_raw is None:
         val = FLEX_OPEN + max(0.0, sign * travel)              # provisional until closed captured
     else:
-        num = travel
-        den = _wrap180(c - o)
-        t = (num / den) if abs(den) > 1e-3 else 0.0
+        den = _wrap180(closed_raw - open_raw)
+        t = (travel / den) if abs(den) > 1e-3 else 0.0
         closed = DOF_CLOSED.get(dof, FLEX_CLOSED)
         val = FLEX_OPEN + max(0.0, min(1.2, t)) * (closed - FLEX_OPEN)
-    return WIRED_FINGER + "_" + seg, max(-10.0, min(DOF_CLOSED.get(dof, FLEX_CLOSED) + 10.0, val))
+    return max(-10.0, min(DOF_CLOSED.get(dof, FLEX_CLOSED) + 10.0, val))
 
 
 # ----- range-of-motion sweep: user opens/closes a few times, we learn each -----
@@ -461,6 +504,7 @@ _sweep_exc = {}      # ch -> signed max-|excursion| from open
 _sweep_cont_open = {}  # ch -> sweep-start position in the continuous frame
 
 
+@_enc_locked
 def start_joint_sweep(enc):
     """Begin a sweep: anchor 'open' at the current pose (hand should start OPEN)."""
     global _sweep_active
@@ -475,6 +519,7 @@ def start_joint_sweep(enc):
     _sweep_active = True
 
 
+@_enc_locked
 def update_joint_sweep(enc):
     """Per-sample: track each channel's farthest angular excursion from its open ref
     (sign-agnostic, wrap-safe), so the closed extreme is captured whichever way it turns."""
@@ -493,6 +538,7 @@ def update_joint_sweep(enc):
             _sweep_closed[ch] = d
 
 
+@_enc_locked
 def finish_joint_sweep():
     """End the sweep: commit open + (for flexion DOF with real travel) closed, and persist."""
     global _sweep_active
@@ -570,9 +616,25 @@ state = {
     "activation": {"present": False, "level": 0.0, "direction": 0, "fatigue": 0.0,
                    "onset": False, "quality": "none"},
     "last_rx": 0.0,            # wall time of last valid S line
+    "last_line": 0.0,          # wall time of ANY device line (S, E, F, #): link liveness
     "recording": False,
+    # Per-device-frame derived state (legacy IMU display quats, joints, body
+    # block, rel inputs), computed ONCE per frame in the serial/sim thread by
+    # ingest_frame() and only packaged by build_snapshot().
+    "derived": None,
 }
 state_lock = threading.Lock()
+
+# Device-side recording/power state (firmware v16 S-line tail + E-events).
+# Surfaces get it as the snapshot `device` block (MOTION_PIPELINE.md s.7).
+DEVICE = {
+    "fw": None, "boot_id": None, "flags": None,
+    "sd_present": None, "sd_recording": False, "sd_take": 0, "sd_rows": 0,
+    "standby": False, "auto_record": None, "neutral_running": False, "host_link": None,
+    "last_error": None,        # {"text", "t"}: SD failures and other device error lines
+    "messages": deque(maxlen=16),   # recent human-readable device lines (">>>", "#", ...)
+    "last_t_ms": None,         # device clock of the last frame (reboot detection pre-v16)
+}
 ser_write_lock = threading.Lock()
 _ser = {"port": None}
 # Firmware capability negotiation: bringup_12ch v2+ answers 'v' with a
@@ -1282,9 +1344,12 @@ TRACKERS = {k: InertialTracker(k) for k in IMU_KEYS}
 
 
 def trigger_imu_tare():
-    global _imu_tare_pending, _thumb_tare_pending
-    _imu_tare_pending = True
-    _thumb_tare_pending = True
+    """Re-home NOW (the imu_align 'home' step): an immediate capture from the
+    last 0.5 s of frames, seating the body neutral and the legacy display home
+    together. It used to only raise a flag that the next frame consumed in
+    whatever pose the arm happened to be in; a capture now refuses a moving
+    arm, and it is per device boot like every neutral."""
+    body_call(lambda bm: _neutral_result(bm.capture_neutral(window_s=0.5, kind="imu"), "imu"))
 
 
 # ============================================================================
@@ -1477,109 +1542,92 @@ def _cfg_signature():
 
 
 def _load_tare():
-    """Load the saved home, but ONLY the parts that are still meaningful.
+    """Read the saved home as a CANDIDATE; nothing is applied here.
 
     THE BUG THIS GUARDS (2026-08-06, cost weeks of a distorted twin): the tare
-    file recorded three quaternions and nothing else. A home captured on 2026-07-19
-    - before the forearm sensor was re-mounted, and while the firmware was looking
-    for it at the wrong address so it never reported at all - was reloaded on every
-    later start. Its forearm entry was a near-identity placeholder taken against a
-    sensor that was not streaming. Loading it also set _imu_tare_pending = False,
-    so the bridge never re-tared and the stale reference survived indefinitely.
-    The visible symptom was the digital twin: the mock feed (near-identity quats)
-    rendered the arm correctly, and the moment real IMUs were connected the
-    forearm group took a ~54 deg pitch and the hand a ~176 deg yaw, so the twin
-    looked, in the owner's words, distorted and dirty.
+    file recorded three quaternions and nothing else, and a stale home was
+    reloaded on every later start. Two records have travelled with the tare
+    since then (which sensors were live, the mounting config it was captured
+    under), and both are still checked.
 
-    Two records now travel with the tare and both are checked:
-      live     which sensors were actually streaming when it was captured. A home
-               for a sensor that was not live is not a measurement; it is dropped.
-      cfg_sig  the mounting configuration it was captured under. Any change to a
-               remap / offset / flip / gain / alignment invalidates it, because
-               the tare inverts a pose that pipeline produced.
-    Anything dropped leaves that sensor PENDING, so it re-tares on the first
-    frame where it is genuinely live instead of silently rendering wrong."""
-    global IMU_TARE_HAND, IMU_TARE_FOREARM, IMU_TARE_THUMB
-    global _imu_tare_pending, _thumb_tare_pending
+    THE SECOND BUG (2026-09, motion pipeline v16): even a valid-looking home is
+    meaningless after a power cycle. The game rotation vector re-chooses its
+    heading reference at every boot, so a tare captured in one boot and
+    reloaded in the next rotates the whole twin by an arbitrary heading. The
+    tare now carries the device `boot_id` and is adopted only when the device
+    reports the SAME boot (_tare_adopt_for_boot, called on the first frame that
+    carries a boot id). Firmware without a boot id (pre-v16) never gets a tare
+    from disk: it re-homes at the next neutral, which costs one held pose."""
+    global _TARE_CANDIDATE, _imu_tare_pending, _thumb_tare_pending
+    _imu_tare_pending = True
+    _thumb_tare_pending = True
+    _TARE_CANDIDATE = None
     try:
         with open(_TARE_FILE) as f:
             d = json.load(f)
     except FileNotFoundError:
-        _imu_tare_pending = True    # no saved home -> auto-tare on the first live frame
-        _thumb_tare_pending = True
         return
     except Exception as e:
-        _imu_tare_pending = True
-        _thumb_tare_pending = True
         _quarantine_corrupt(_TARE_FILE, e, "imu")
         return
-
     sig = d.get("cfg_sig")
     live = d.get("live") or {}
-    # A file written before this guard existed carries neither field. It cannot
-    # be shown to be valid, and this is exactly the file that caused the bug, so
-    # it is not trusted - re-taring costs one held pose, a wrong home costs days.
-    legacy = sig is None and not live
-    stale_cfg = (sig is not None and sig != _cfg_signature())
+    if sig is None and not live:
+        print("[imu] IGNORING the saved home: no provenance recorded (pre-2026-08-06 file)")
+        return
+    if sig is not None and sig != _cfg_signature():
+        print("[imu] IGNORING the saved home: the mounting config changed since it was captured")
+        return
+    if d.get("boot_id") is None:
+        print("[imu] IGNORING the saved home: it carries no device boot id, so it cannot be "
+              "shown to belong to this power-up of the device")
+        return
+    cand = {"boot_id": d.get("boot_id")}
+    for key in IMU_KEYS:
+        q = d.get(key)
+        if key in d and (not live or live.get(key, False)) and _valid_quat(q):
+            cand[key] = _norm_quat(q)
+    _TARE_CANDIDATE = cand
+    print("[imu] saved home found for device boot %s; it is used only if the device "
+          "still reports that boot" % cand["boot_id"])
 
-    def take(key, cur):
-        if key not in d:
-            return cur, True
-        if legacy:
-            return cur, True
-        if stale_cfg:
-            return cur, True
-        if live and not live.get(key, False):
-            return cur, True
-        # A tare is a quaternion inverse.  A zero/NaN/non-unit value is not a
-        # rotation and annihilates every valid live pose when multiplied below.
-        # One pre-fix bridge wrote [0,0,0,0] while the fixed-width firmware
-        # fields were empty; trusting that persisted file made both IMUs look
-        # live in health while the twin stayed perfectly static.  Treat invalid
-        # calibration as missing and capture a fresh home from the next live
-        # hand+forearm frame.
-        if not _valid_quat(d[key]):
-            print(f"[imu] IGNORING invalid saved {key} home (not a unit quaternion); "
-                  "re-taring from live data")
-            return cur, True
-        return _norm_quat(d[key]), False
 
-    IMU_TARE_HAND, pend_h = take("hand", IMU_TARE_HAND)
-    IMU_TARE_FOREARM, pend_f = take("forearm", IMU_TARE_FOREARM)
-    IMU_TARE_THUMB, _thumb_tare_pending = take("thumb", IMU_TARE_THUMB)
-    _imu_tare_pending = pend_h or pend_f
-
-    if legacy:
-        why = "no provenance recorded (pre-2026-08-06 file)"
-    elif stale_cfg:
-        why = "the mounting config changed since it was captured"
-    else:
-        why = None
-    if why:
-        print(f"[imu] IGNORING the saved home: {why}. "
-              f"Hold the device in its neutral pose - it will re-tare on the next live frame.")
-    elif _imu_tare_pending or _thumb_tare_pending:
-        dead = [k for k in IMU_KEYS if not live.get(k, False)]
-        print(f"[imu] loaded saved home from {_TARE_FILE}; re-taring {', '.join(dead)} "
-              f"(not live when the home was captured)")
-    else:
-        print("[imu] loaded saved home from", _TARE_FILE)
+def _tare_adopt_for_boot(boot_id):
+    """The device told us its boot id: adopt the saved home only if it is the
+    same boot. Returns True when adopted."""
+    global _TARE_CANDIDATE, IMU_TARE_HAND, IMU_TARE_FOREARM, IMU_TARE_THUMB
+    global _imu_tare_pending, _thumb_tare_pending, _tare_state
+    cand, _TARE_CANDIDATE = _TARE_CANDIDATE, None
+    if not cand or boot_id is None or cand.get("boot_id") != boot_id:
+        if cand:
+            print("[imu] saved home belongs to device boot %s, the device is on boot %s: "
+                  "discarded (new heading reference)" % (cand.get("boot_id"), boot_id))
+        return False
+    if "hand" in cand and "forearm" in cand:
+        IMU_TARE_HAND, IMU_TARE_FOREARM = cand["hand"], cand["forearm"]
+        _imu_tare_pending = False
+        _tare_state = "calibrated"
+    if "thumb" in cand:
+        IMU_TARE_THUMB = cand["thumb"]
+        _thumb_tare_pending = False
+    print("[imu] saved home adopted (same device boot %s)" % boot_id)
+    return True
 
 
 def _save_tare(live_map=None):
-    """Persist the home WITH its provenance. `live_map` says which sensors were
-    actually streaming at capture; without it we can only record the config."""
+    """Persist the home WITH its provenance: which sensors were live, the
+    mounting config, and the device boot it is valid for."""
     try:
         for key, q in (("hand", IMU_TARE_HAND), ("forearm", IMU_TARE_FOREARM),
                        ("thumb", IMU_TARE_THUMB)):
             # Refuse to persist a calibration that would destroy every pose on
-            # the next bridge start.  Non-live sensors keep their previous unit
-            # tare and are already marked false in the provenance map.
+            # the next bridge start.
             if not _valid_quat(q):
                 raise ValueError(f"{key} tare is not a unit quaternion")
         payload = {"hand": IMU_TARE_HAND, "forearm": IMU_TARE_FOREARM,
                    "thumb": IMU_TARE_THUMB,
                    "cfg_sig": _cfg_signature(),
+                   "boot_id": DEVICE.get("boot_id"),
                    "when": time.strftime("%Y-%m-%d %H:%M:%S")}
         if live_map is not None:
             payload["live"] = {k: bool(v) for k, v in live_map.items()}
@@ -1587,7 +1635,79 @@ def _save_tare(live_map=None):
     except Exception as e:
         print("[imu] could not save home:", e)
 
+
+_TARE_CANDIDATE = None
+_tare_state = "none"          # "none" | "provisional" | "calibrated" (this boot)
 _load_tare()
+
+
+# ============================================================================
+# THE BODY MODEL (software/MOTION_PIPELINE.md): motion.BodyModel turns the raw
+# game quaternions into segment orientations in the shared body frame, the
+# arm model into elbow/wrist/palm positions, and owns the per-boot neutral.
+#
+# Threading: the model is advanced ONLY by the thread that ingests device
+# frames (serial or sim). Commands from the event loop never touch it
+# directly: they queue a call in BODY_REQ, which the ingest thread runs before
+# the next frame, and results come back as broadcasts.
+#
+# Persistence (.takto_body.json): the wrist flexion axis (a physical property
+# of how the hand IMU sits, kept across power cycles) and the last REAL neutral
+# together with the device boot it belongs to (kept across bridge restarts,
+# discarded the moment the device reports another boot).
+# ============================================================================
+_BODY_FILE = os.path.join(STATE_DIR, ".takto_body.json")
+BODY_REQ = deque()                # callables run by the ingest thread (FIFO)
+BODY_PERSIST = {"wrist_axis": None, "neutral": None, "arm": {}}
+_BODY_NEUTRAL_CANDIDATE = None    # a persisted neutral waiting for the device's boot id
+
+
+def body_priors():
+    """Mounting priors M_s (S <- segment) from the live IMU_CFG (remap/align/offset)."""
+    return {k: motion.mounting_prior(IMU_CFG[k]) for k in IMU_KEYS}
+
+
+def _body_load():
+    global BODY_PERSIST, _BODY_NEUTRAL_CANDIDATE
+    try:
+        with open(_BODY_FILE) as f:
+            d = json.load(f)
+        if not isinstance(d, dict):
+            raise ValueError("not an object")
+        wa = d.get("wrist_axis")
+        if wa is not None and (not isinstance(wa, list) or len(wa) != 3 or motion.valid_vec(wa) is None):
+            raise ValueError("bad wrist_axis")
+        arm = d.get("arm") if isinstance(d.get("arm"), dict) else {}
+        BODY_PERSIST = {"wrist_axis": wa, "neutral": d.get("neutral"),
+                        "arm": {k: float(v) for k, v in arm.items() if k in ("L_ua", "L_fa")
+                                and isinstance(v, (int, float)) and 0.1 <= v <= 0.6}}
+        _BODY_NEUTRAL_CANDIDATE = d.get("neutral")
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        _quarantine_corrupt(_BODY_FILE, e, "body")
+
+
+def _body_save():
+    try:
+        _write_json_atomic(_BODY_FILE, BODY_PERSIST)
+    except Exception as e:
+        print("[body] could not save:", e)
+
+
+def _make_body():
+    bm = motion.BodyModel(body_priors(), cfg=dict(BODY_PERSIST.get("arm") or {}),
+                          wrist_axis=BODY_PERSIST.get("wrist_axis"))
+    return bm
+
+
+_body_load()
+BODY = _make_body()
+
+
+def body_call(fn):
+    """Queue fn(BODY) for the ingest thread (thread-safe; deque.append is atomic)."""
+    BODY_REQ.append(fn)
 
 
 # ============================================================================
@@ -1597,7 +1717,7 @@ _load_tare()
 # Android) must AGREE on. It is mutated only (a) under state_lock from the
 # data thread (sample counters) and (b) from the asyncio event-loop thread
 # (commands + the broadcast loop), and every mutation is visible to every
-# client on the next ~30 Hz snapshot. Acks answer the commanding client only.
+# client on the next 60 Hz snapshot. Acks answer the commanding client only.
 # ============================================================================
 # Channel-absence convention: the firmware streams raw AS5600 degrees (0..360,
 # never negative), so on the LIVE path "deg < 0" means the channel is absent.
@@ -1614,10 +1734,10 @@ AR_MODES = ("atelier", "capture", "rhythm", "touch")
 # an AR mode change nudges the shared device screen to the matching page
 _MODE_NUDGE = {"atelier": "home", "capture": "capture", "rhythm": "operator", "touch": "transparent"}
 
-REC_ROWS_CAP = 120_000          # replay row log ceiling (~33 min at 60 Hz): a
-                                # forgotten open-ended recording must not grow
-                                # in RAM without bound; the recording itself
-                                # keeps running past the cap, uncapped counters
+REC_ROWS_CAP = 720_000          # 2 h at 100 Hz. Rows are spooled to a file in
+                                # STATE_DIR as they arrive (constant RAM); the cap
+                                # only bounds the disk a forgotten recording can
+                                # take. The recording itself keeps running past it.
 
 ECO = {
     "mode": "atelier",          # AR experience mode (last writer wins)
@@ -1633,6 +1753,11 @@ ECO = {
     "rows_vision": 0,           # rows whose joints came from the Quest's hand tracking
     "rows_enc": 0,              # rows in which at least one live encoder contributed
     "contacts": [],             # hand-vs-room contact events of the active recording
+    # per-device-frame row spool (see record_start / _record_row)
+    "spool": None,              # open file handle of the running take's rows
+    "spool_path": None,
+    "rows_n": 0, "last_row_t": None, "any_traj": False, "any_inertial": False,
+    "sd_take": None,            # the device's SD take number recording alongside
 }
 
 # column layout of a replay row (kept in ONE place; the take_data payload
@@ -1655,7 +1780,13 @@ ROW_COLS = (["t_ms"] + ["%s_%s" % (f, s) for f in ("index", "middle", "ring", "p
                "tq_w", "tq_x", "tq_y", "tq_z", "blend", "act",
                "px", "py", "pz", "pq_w", "pq_x", "pq_y", "pq_z",
                "thumb_abd", "thumb_mcp", "thumb_ip",
-               "ihx", "ihy", "ihz", "ifx", "ify", "ifz", "i_conf"])
+               "ihx", "ihy", "ihz", "ifx", "ify", "ifz", "i_conf"]
+            # 2026-09 (motion pipeline, MOTION_PIPELINE.md s.7): +15 BODY columns
+            # appended at the END (44 -> 59): elbow + wrist positions (m, body
+            # frame), forearm + hand body quaternions, calibration state
+            # (0 none, 1 provisional, 2 calibrated). Rows are now written once per
+            # DEVICE frame, so t_ms never repeats.
+            + motion.B_COLS)
 # Resolved once, so nothing downstream indexes a replay row by a hand-counted
 # offset (see the traj flag at seal time for what that mistake cost).
 _COL_PX = ROW_COLS.index("px")
@@ -1712,6 +1843,9 @@ def _take_data_path(take_id):
     return os.path.join(STATE_DIR, ".sensoryhand_takedata_%s.json" % take_id)
 
 
+_RESERVED_IDS = set()          # take ids allocated to an SD import in progress
+
+
 def _next_state_id(kind):
     """Next take/env number = 1 + the highest number seen in the in-memory
     index AND in the data files on disk, so IDs never collide with (and
@@ -1719,8 +1853,9 @@ def _next_state_id(kind):
     items, pat = ((takes, ".sensoryhand_takedata_take_*.json") if kind == "take"
                   else (envs, ".sensoryhand_env_env_*.json"))
     n = 0
-    for it in items:
-        m = re.search(r"(\d+)$", str(it.get("id", "")))
+    live_ids = [{"id": ECO.get("rec_id")}] + [{"id": r} for r in _RESERVED_IDS] if kind == "take" else []
+    for it in list(items) + live_ids:
+        m = re.search(r"(\d+)$", str(it.get("id", "") or ""))
         if m:
             n = max(n, int(m.group(1)))
     for p in glob.glob(os.path.join(STATE_DIR, pat)):
@@ -2159,18 +2294,40 @@ def _joint_row_cols(joints, vj, sim_mode):
     return cols, used_vision
 
 
+def _spool_path(take_id):
+    return os.path.join(STATE_DIR, ".sensoryhand_takedata_%s.rows.partial" % take_id)
+
+
 def record_start(profile_name, task, notes):
     """Begin the one shared recording. Idempotent: a second start joins the
-    running take instead of restarting it. Returns (take_id, newly_started)."""
+    running take instead of restarting it. Returns (take_id, newly_started).
+
+    Rows are appended by the ingest thread once per DEVICE frame
+    (_record_row) into a spool file, so a long take costs no RAM and a 100 Hz
+    device is never sampled at the 60 Hz snapshot rate (which used to write
+    duplicated t_ms rows)."""
     with state_lock:
         if state["recording"]:
             return ECO["rec_id"], False
+        take_id = "take_%04d" % _next_state_id("take")
+        try:
+            spool = open(_spool_path(take_id), "w", buffering=1 << 16)
+        except OSError as e:
+            print("[takes] cannot open the row spool:", e)
+            spool = None
         state["recording"] = True
-        ECO["rec_id"] = "take_%04d" % _next_state_id("take")
+        ECO["rec_id"] = take_id
         ECO["rec_start"] = time.time()
         ECO["rec_samples"] = 0
         ECO["spark"] = []
         ECO["rows"] = []
+        ECO["spool"] = spool
+        ECO["spool_path"] = _spool_path(take_id)
+        ECO["rows_n"] = 0
+        ECO["last_row_t"] = None
+        ECO["any_traj"] = False
+        ECO["any_inertial"] = False
+        ECO["sd_take"] = None
         ECO["rec_env"] = None
         ECO["rows_vision"] = 0
         ECO["rows_enc"] = 0
@@ -2178,9 +2335,64 @@ def record_start(profile_name, task, notes):
         ECO["profile"] = profile_name or "Operator"
         ECO["task"] = task or "unlabelled"
         ECO["notes"] = notes or ""
-        take_id = ECO["rec_id"]
     send_teensy(b"b" if _fw["explicit_rec"] else b"r")   # idempotent start when the fw can
     return take_id, True
+
+
+def _record_row(row, used_vision, used_enc, fresh_env):
+    """Append one row of the running take (ingest thread, once per device
+    frame). A repeated device t_ms is dropped: rows are never duplicated."""
+    with state_lock:
+        if not state["recording"] or ECO["spool"] is None:
+            return
+        if ECO["last_row_t"] is not None and row[0] <= ECO["last_row_t"]:
+            return
+        if ECO["rows_n"] >= REC_ROWS_CAP:
+            if ECO["rows_n"] == REC_ROWS_CAP:
+                ECO["rows_n"] += 1
+                print(f"[takes] row log capped at {REC_ROWS_CAP} rows (2 h at 100 Hz); "
+                      "the recording continues, further rows are not logged")
+            return
+        try:
+            ECO["spool"].write(json.dumps(row, separators=(",", ":")) + "\n")
+        except Exception as e:
+            print("[takes] row spool write failed:", e)
+            return
+        ECO["last_row_t"] = row[0]
+        ECO["rows_n"] += 1
+        if row[_COL_PX] is not None:
+            ECO["any_traj"] = True
+        if row[_COL_IHX] is not None:
+            ECO["any_inertial"] = True
+        if used_vision:
+            ECO["rows_vision"] += 1
+        if used_enc:
+            ECO["rows_enc"] += 1
+        if fresh_env:
+            ECO["rec_env"] = fresh_env      # last fresh env wins (the room you ended in)
+
+
+def _write_take_data(take_id, spool_path, contacts):
+    """Seal a spooled take into the take-data JSON ({id, cols, rows[, contacts]}),
+    streaming line by line so a long take never has to fit in RAM twice."""
+    path = _take_data_path(take_id)
+    tmp = path + ".tmp"
+    n = 0
+    with open(tmp, "w") as out:
+        out.write('{"id":%s,"cols":%s,"rows":[' % (json.dumps(take_id), json.dumps(ROW_COLS)))
+        with open(spool_path) as src:
+            for line in src:
+                line = line.strip()
+                if not line:
+                    continue
+                out.write(("," if n else "") + line)
+                n += 1
+        out.write("]")
+        if contacts:
+            out.write(',"contacts":%s,"contact_cols":%s' % (json.dumps(contacts), json.dumps(CONTACT_COLS)))
+        out.write("}")
+    os.replace(tmp, path)
+    return n
 
 
 def record_stop():
@@ -2191,47 +2403,48 @@ def record_stop():
             return None
         state["recording"] = False
         dur = max(0.0, time.time() - ECO["rec_start"])
-        rows = ECO["rows"]; ECO["rows"] = []
+        spool, spool_path = ECO["spool"], ECO["spool_path"]
+        ECO["spool"] = None
+        ECO["spool_path"] = None
+        n_rows = min(ECO["rows_n"], REC_ROWS_CAP)
+        any_traj, any_inertial = ECO["any_traj"], ECO["any_inertial"]
         rec_env = ECO["rec_env"]; ECO["rec_env"] = None
         rows_vision = ECO["rows_vision"]; ECO["rows_vision"] = 0
         rows_enc = ECO["rows_enc"]; ECO["rows_enc"] = 0
         contacts = ECO["contacts"]; ECO["contacts"] = []
+        sd_take = ECO["sd_take"]
         take = {
             "id": ECO["rec_id"], "profile": ECO["profile"], "task": ECO["task"],
             "created_ms": int(state["t_ms"]), "duration_s": round(dur, 1),
             "samples": ECO["rec_samples"], "quality": "good",
             "spark": _downsample(ECO["spark"]),
+            "rate_hz": _fw.get("rate_hz") or (100 if (_fw.get("version") or 0) >= 16 else 50),
+            "source": "live",
         }
+        cal = (BODY_STATUS.get("status") if isinstance(BODY_STATUS, dict) else None)
+        if cal:
+            take["body_cal"] = cal
+        if sd_take:
+            take["sd_take"] = sd_take
         if ECO["notes"]:
             take["notes"] = ECO["notes"]
         ECO["rec_id"] = None
+    if spool is not None:
+        try:
+            spool.close()
+        except Exception:
+            pass
     # 4D replay: seal the host-side sample log next to the library. traj =
     # at least one row carried a fresh 6-DoF pose (AR wrist stream / sim).
-    if rows:
+    if n_rows and spool_path:
         take["has_data"] = True
-        # Indexed BY NAME. This used to be r[-7], a negative index that happened
-        # to land on pq_w back when the row ended with the thumb columns; the
-        # moment anything was appended it silently started reading a different
-        # field. ROW_COLS is the contract, so ask it.
-        take["traj"] = any(r[_COL_PX] is not None for r in rows)
+        take["traj"] = any_traj
         # a second, independent translation source (v7 inertial). Kept separate
         # from `traj` so the existing meaning of that flag - "the headset saw
         # this take" - does not quietly change under old clients.
-        take["traj_inertial"] = any(r[_COL_IHX] is not None for r in rows)
-        # HONESTY LABEL: where the finger-joint columns actually came from.
-        # encoders = the physical rig's AS5600s; quest-hand = the headset's
-        # hand-tracking (real vision, used when the rig is absent); sim = the
-        # synthetic device. Majority-of-rows decides; the count ships too.
-        if SIM_MODE and rows_vision <= len(rows) / 2:
-            take["joint_source"] = "sim"
-        elif rows_vision > len(rows) / 2 or (rows_vision > 0 and rows_enc == 0):
-            take["joint_source"] = "quest-hand"
-        elif rows_enc > 0:
-            take["joint_source"] = "encoders"
-        else:
-            # no sensor ever contributed a value: placeholders only. Never
-            # call that "encoders" (label addition; surfaces render the string)
-            take["joint_source"] = "none"
+        take["traj_inertial"] = any_inertial
+        take["body"] = True           # rows carry the b_* body columns
+        take["joint_source"] = _joint_source_label(n_rows, rows_vision, rows_enc)
         if rows_vision:
             take["vision_joint_rows"] = rows_vision
         if rec_env:
@@ -2245,22 +2458,39 @@ def record_stop():
             take["contact_labels"] = _contact_labels(contacts)
             take["contact_src"] = _contact_sources(contacts)
         try:
-            payload = {"id": take["id"], "cols": ROW_COLS, "rows": rows}
-            if contacts:
-                payload["contacts"] = contacts
-                payload["contact_cols"] = CONTACT_COLS
-            _write_json_atomic(_take_data_path(take["id"]), payload)
+            take["rows"] = _write_take_data(take["id"], spool_path, contacts)
         except Exception as e:
             print("[takes] could not save replay data:", e)
             take["has_data"] = False
+    if spool_path:
+        try:
+            os.remove(spool_path)
+        except OSError:
+            pass
     send_teensy(b"e" if _fw["explicit_rec"] else b"r")   # idempotent stop when the fw can
     takes.insert(0, take)
     _save_takes()
     return take
 
 
+def _joint_source_label(n_rows, rows_vision, rows_enc):
+    """HONESTY LABEL: where the finger-joint columns actually came from.
+    encoders = the physical rig's AS5600s; quest-hand = the headset's hand
+    tracking (real vision, used when the rig is absent); sim = the synthetic
+    device. Majority-of-rows decides; the count ships too."""
+    if SIM_MODE and rows_vision <= n_rows / 2:
+        return "sim"
+    if rows_vision > n_rows / 2 or (rows_vision > 0 and rows_enc == 0):
+        return "quest-hand"
+    if rows_enc > 0:
+        return "encoders"
+    # no sensor ever contributed a value: placeholders only. Never call that
+    # "encoders" (label addition; surfaces render the string)
+    return "none"
+
+
 def _note_sample_locked():
-    """Per real sensor sample (50 Hz), caller HOLDS state_lock: recording counters."""
+    """Per real device frame (100 Hz on v16), caller HOLDS state_lock: recording counters."""
     if state["recording"]:
         ECO["rec_samples"] += 1
 
@@ -2729,8 +2959,9 @@ def _update_blend(crown, now):
 # ============================================================================
 # SIMULATED MOTOR BANK (--sim / --sim-motors)
 #
-# On the real bench the motor bus is host-owned via U2D2 and NOT bridged here;
-# live snapshots keep motors:[] (honest). In sim, this bank gives the ecosystem
+# On the real bench the firmware owns the motor bus and streams its measured
+# motor block (v6+), which the snapshot reports read-only as spool_1/spool_2;
+# nothing here fakes a real motor. In sim, this bank gives the ecosystem
 # a full motor surface: it honors motor / walls / feedback / mirror commands
 # with the same safety posture as the real chain (150 mA hard ceiling, 80 mA
 # gentle wall ceiling), so the Control surfaces and TOUCH mode are exercisable
@@ -2873,108 +3104,820 @@ MOTORS = None                   # SimMotors in sim mode; None on the real bench 
 
 
 # ============================================================================
-# SIMULATED DEVICE (--sim): a 50 Hz full-system living scene written into the
-# SAME `state` the serial thread writes, so calibration, activation, snapshot
-# building, recording, and rep counting all run the production code path.
+# SIMULATED DEVICE (--sim): sim_device.SimDevice prints the same text a v16
+# Teensy prints; handle_line() below parses it exactly as it parses the serial
+# port, so the IMU pipeline, the body model, E-events, recording and the SD
+# library all run the production code. Only two sim-specific shims remain:
+# encoders arrive in joint space (+SIM_ENC_BIAS) and the zero-filled motor
+# block is ignored so the simulated motor bank (SimMotors) keeps its role.
 # ============================================================================
+SIM_DEVICE = None
+SIM_ENC_BIAS = 180.0
+_LOOP = None                      # the asyncio loop (set in main_async): threads broadcast through it
+
+
+def _emit(msg):
+    """Broadcast from a non-event-loop thread (serial / sim / worker)."""
+    loop = _LOOP
+    if loop is None:
+        return
+    try:
+        loop.call_soon_threadsafe(broadcast, msg)
+    except RuntimeError:
+        pass
+
+
+def _on_loop(fn, *a):
+    """Run fn(*a) on the event loop (mutations of the take library etc.)."""
+    loop = _LOOP
+    if loop is None:
+        fn(*a)
+        return
+    try:
+        loop.call_soon_threadsafe(fn, *a)
+    except RuntimeError:
+        pass
+
+
 def enable_sim_pipeline():
-    """Deterministic identity calibration for the synthetic scene (the sim
-    writes joint-space degrees directly, so the bench calibration must not
-    remap them). Mirrors bench_replay.py's proven setup."""
-    global _imu_tare_pending, _thumb_tare_pending, IMU_TARE_HAND, IMU_TARE_FOREARM, IMU_TARE_THUMB
-    global IMU_CFG, ENC_JOINT_SPACE_DIRECT
-    global _JCAL_FILE, _TARE_FILE, _IMU_CFG_FILE
-    # Sim persistence goes to .sim-suffixed files: a calibrate click during a
-    # --sim demo must never overwrite the REAL bench calibration in STATE_DIR
-    # (it used to wipe joint_calib to {} and tare over the bench IMU home).
+    """Sim persistence goes to .sim-suffixed files: a calibrate click during a
+    --sim demo must never overwrite the REAL bench calibration in STATE_DIR.
+    The simulated device streams joint-space finger angles, so the bench
+    encoder map is replaced by the direct joint map. IMUs are NOT special-cased
+    any more: the sim device emits raw sensor-frame data mounted like the bench
+    priors, and it goes through the real mounting / neutral / body pipeline."""
+    global ENC_JOINT_SPACE_DIRECT, _JCAL_FILE, _TARE_FILE, _IMU_CFG_FILE, _BODY_FILE, BODY
     if not _JCAL_FILE.endswith(".sim"):
         _JCAL_FILE += ".sim"
         _TARE_FILE += ".sim"
         _IMU_CFG_FILE += ".sim"
+        _BODY_FILE += ".sim"
     ENC_DOF.clear()
     ENC_JOINT_SPACE_DIRECT = True
     ENC_OPEN.clear(); ENC_CLOSED.clear(); _cont_open.clear()
     with state_lock:
         state["enc"] = [ENC_ABSENT_SIM] * N_CH   # sim absence sentinel from frame zero
-    _imu_tare_pending = False
-    _thumb_tare_pending = False
-    IMU_TARE_HAND = [1.0, 0.0, 0.0, 0.0]
-    IMU_TARE_FOREARM = [1.0, 0.0, 0.0, 0.0]
-    IMU_TARE_THUMB = [1.0, 0.0, 0.0, 0.0]
-    # The sim writes display-frame quaternions directly, so every mounting
-    # correction must be identity or the synthetic scene would be re-rotated.
-    IMU_CFG = copy.deepcopy(IMU_CFG_DEFAULT)
-    for k in IMU_KEYS:
-        IMU_CFG[k] = {"remap": [[1, "x"], [1, "y"], [1, "z"]],
-                      "offset": [1.0, 0.0, 0.0, 0.0], "flip": None, "gain": 1.0, "align": None}
+    imu_cfg_load()
+    _load_tare()
+    _body_load()
+    BODY = _make_body()
 
 
-def _quat_from_rpy_deg(roll, pitch, yaw):
-    r, p, y = math.radians(roll) * 0.5, math.radians(pitch) * 0.5, math.radians(yaw) * 0.5
-    cr, sr = math.cos(r), math.sin(r)
-    cp, sp = math.cos(p), math.sin(p)
-    cy, sy = math.cos(y), math.sin(y)
-    return [cr * cp * cy + sr * sp * sy, sr * cp * cy - cr * sp * sy,
-            cr * sp * cy + sr * cp * sy, cr * cp * sy - sr * sp * cy]
-
-
-def sim_thread(hz=50.0):
-    """Synthetic full-system scene: four fingers in slow, staggered open/close
-    cycles, two breathing IMUs, EMG effort through the real activation filter."""
-    t0 = time.time()
-    dt = 1.0 / hz
-    SPLAY = [9.0, 2.5, -4.0, -10.0]            # neutral abduction, index..pinky
+def sim_thread(hz=100.0):
+    """Run the line-level simulated device; its output goes through handle_line()."""
+    global SIM_DEVICE
+    import sim_device
     try:      # tests speed the scene up so rep/record cycles finish in seconds
         speed = max(0.1, min(20.0, float(os.environ.get("SENSORYHAND_SIM_SPEED", "1"))))
     except ValueError:
         speed = 1.0
-    print("[sim] synthetic device running (12 joints, 2 IMUs, EMG)")
-    while True:
-        t = (time.time() - t0) * speed
-        enc = [ENC_ABSENT_SIM] * N_CH           # ch12/13 spare, honestly absent
-        curls = []
-        for fi in range(4):
-            phase = t * 0.6 + fi * 0.4
-            curl = 0.5 - 0.5 * math.cos(phase)
-            curls.append(curl)
-            jig = math.sin(t * 2.0 + fi) * 0.4
-            b = fi * 3
-            enc[b + 0] = SPLAY[fi] * (1.0 - 0.75 * curl) + math.sin(t * 0.9 + fi * 1.7) * 1.2
-            enc[b + 1] = 90.0 * curl + jig                     # MCP flexion: full 0..90
-            enc[b + 2] = 110.0 * (0.8 * curl + 0.2 * curl * curl) + jig  # PIP: 0..110, trails the MCP
-        breathe = math.sin(t * 0.5)
-        hq = _quat_from_rpy_deg(3.0 + breathe * 2.0, -5.0 + math.sin(t * 0.33) * 1.5, 8.0 + breathe * 3.0)
-        fq = _quat_from_rpy_deg(1.0, 0.5 * math.sin(t * 0.2), 3.0)
-        # thumb tip: an opposition arc that follows the grasp (roll toward the
-        # fingers as the hand closes) plus a small independent wander
-        tq = _quat_from_rpy_deg(-30.0 + 25.0 * curls[0] + 4.0 * math.sin(t * 0.7),
-                                12.0 + 22.0 * curls[0],
-                                -18.0 + 6.0 * math.sin(t * 0.45))
-        # MyoWare-scale envelope in ADC counts (the activation filter's native
-        # units: rest floor ~90, strong contraction ~+420, small live jitter so
-        # the auto rest/MVC normalization locks on like it does on the bench)
-        emg_env = 90.0 + 420.0 * curls[0] + 6.0 * math.sin(t * 37.0)
-        act = run_activation(emg_env, True)
-        with state_lock:
-            state["t_ms"] = int(t * 1000)
-            state["enc"] = enc
+    dev = sim_device.SimDevice(body_priors(), speed=speed, emit=_sim_line)
+    SIM_DEVICE = dev
+    print("[sim] line-level v16 device running (100 Hz S-lines, boot_id %d, 3 IMUs, "
+          "12 joints, EMG, SD card)" % dev.boot_id)
+    dev.write(b"v\nj\n")                    # the same handshake the serial thread sends
+    dev.run()
+
+
+def _sim_line(line):
+    try:
+        handle_line(line)
+    except Exception as e:
+        print("[sim] line handling failed:", e)
+
+
+# ----------------------------------------------------------------------------
+# S-line parsing (pure: a list of fields -> a frame dict)
+# ----------------------------------------------------------------------------
+V16_BASE = SEA_STATE_IDX + 1          # 121: fw_flags (MOTION_PIPELINE.md s.5)
+
+
+def parse_s_line(line):
+    """Parse one `S,` line into a frame dict, or None if it is not a frame.
+    Every group is length-gated, so any firmware from v1 to v16 parses."""
+    p = line.split(",")
+    # 1 tag + 1 t + 14 enc + 8 quat + 2 live = 26
+    if len(p) < 26 or p[0] != "S":
+        return None
+    try:
+        fr = {"t": int(float(p[1]))}
+        fr["enc"] = [float(x) for x in p[2:2 + N_CH]]
+        fr["hq"] = [float(x) for x in p[2 + N_CH:2 + N_CH + 4]]
+        fr["fq"] = [float(x) for x in p[2 + N_CH + 4:2 + N_CH + 8]]
+        fr["il"] = [int(float(p[24])), int(float(p[25]))]
+        # EMG fields (env, rms, present); absent on old firmware -> not present
+        fr["emg_env"] = float(p[26]) if len(p) > 26 else 0.0
+        fr["emg_rms"] = float(p[27]) if len(p) > 27 else 0.0
+        fr["emg_present"] = len(p) > 28 and int(float(p[28])) == 1
+        # crown pot (v3): 0..1000 -> 0..1. v6+ says whether a crown is wired at
+        # all (crown_live, idx 42: 1 present, -1 none); an unwired crown streams
+        # 0, which must not claim crown authority over the blend.
+        crown = max(0.0, min(1.0, int(float(p[29])) / 1000.0)) if len(p) > 29 else None
+        fr["crown_live"] = None
+        if len(p) > CROWN_LIVE_IDX:
+            fr["crown_live"] = int(float(p[CROWN_LIVE_IDX])) == 1
+            if not fr["crown_live"]:
+                crown = None
+        fr["crown"] = crown
+        # thumb-tip IMU (v4): quat + live flag
+        if len(p) > 34:
+            fr["tq"] = [float(p[30]), float(p[31]), float(p[32]), float(p[33])]
+            fr["thumb_live"] = int(float(p[34])) == 1
+        else:
+            fr["tq"], fr["thumb_live"] = None, False
+        # ---- v6 firmware: the real motor block (pos/vel/current) ----
+        motors_fw = None
+        if len(p) > CROWN_LIVE_IDX:
+            mf = int(float(p[MOT_FLAGS_IDX]))
+            motors_fw = {"flags": mf, "taken": bool(mf & 1),
+                         "torque": bool(mf & 2), "mode": (mf >> 2) & 7,
+                         # v13 moves fault from bit 4 to bit 5 because bit 4
+                         # now represents mode 4 (the two-independent-DOF SEA loop).
+                         "fault": bool((mf & 32) or ((mf & 16) and ((mf >> 2) & 7) != 4)), "m": {}}
+            for _k in range(N_MOT_FW):
+                _b = MOT_BASE + 3 * _k
+                motors_fw["m"][_k + 1] = {"pos": float(p[_b]), "vel": float(p[_b + 1]),
+                                          "ma": float(p[_b + 2])}
+            if len(p) >= MOTOR_DIAG_BASE + 8:
+                _d = [int(float(x)) for x in p[MOTOR_DIAG_BASE:MOTOR_DIAG_BASE + 8]]
+                _names = {
+                    0: "none", 1: "configuration write", 2: "feedback seed",
+                    3: "torque acknowledgement", 4: "sustained bus miss",
+                    5: "servo hardware alarm", 6: "bus-watchdog rearm",
+                    7: "host silence while driving (camera follow)",
+                }
+                motors_fw["diagnostic"] = {
+                    "cause_code": _d[0], "cause": _names.get(_d[0], "unknown"),
+                    "consecutive_misses": _d[1], "hardware_error": _d[2:4],
+                    "total_misses": _d[4], "fast_fallbacks": _d[5],
+                    "direct_fallbacks": _d[6],
+                    "fast_read": bool(_d[7] & 1),
+                    "indirect_read": bool(_d[7] & 2),
+                }
+            if len(p) > SEA_STATE_IDX:
+                _s = int(float(p[SEA_STATE_IDX]))
+                motors_fw["sea"] = {"zeroed": bool(_s & 1), "armed": bool(_s & 2),
+                                    "directions": bool(_s & 4), "joint_fresh": bool(_s & 8)}
+        fr["motors_fw"] = motors_fw
+        # ---- v7 firmware: the FULL IMU set, 23 fields per sensor ----
+        imu_full = None
+        if len(p) >= V7_BASE + 3 * V7_STRIDE:
+            imu_full = {}
+            for si, sk in enumerate(IMU_KEYS):
+                b = V7_BASE + si * V7_STRIDE
+                f = [float(x) for x in p[b:b + V7_STRIDE]]
+                imu_full[sk] = {
+                    "lin": f[0:3], "acc": f[3:6], "gyr": f[6:9], "mag": f[9:12],
+                    "grv": f[12:15], "game": f[15:19],
+                    "accuracy": {"acc": int(f[19]), "gyr": int(f[20]), "mag": int(f[21])},
+                    "rot_accuracy_rad": f[22],
+                }
+        fr["imu_full"] = imu_full
+        # ---- v16: device state, boot id, preintegrated dv, stability ----
+        v16 = None
+        if len(p) >= V16_BASE + 4:
+            v16 = {"flags": int(float(p[V16_BASE])), "take": int(float(p[V16_BASE + 1])),
+                   "rows": int(float(p[V16_BASE + 2])), "boot_id": int(float(p[V16_BASE + 3])),
+                   "dv": None, "stab": None, "dv_n": None}
+            if len(p) >= V16_BASE + 13:
+                v16["dv"] = {k: [float(x) for x in p[V16_BASE + 4 + 3 * i:V16_BASE + 7 + 3 * i]]
+                             for i, k in enumerate(IMU_KEYS)}
+            if len(p) >= V16_BASE + 16:
+                v16["stab"] = {k: int(float(p[V16_BASE + 13 + i])) for i, k in enumerate(IMU_KEYS)}
+            if len(p) >= V16_BASE + 19:
+                v16["dv_n"] = {k: int(float(p[V16_BASE + 16 + i])) for i, k in enumerate(IMU_KEYS)}
+        fr["v16"] = v16
+    except (ValueError, IndexError):
+        return None
+    return fr
+
+
+# ----------------------------------------------------------------------------
+# per-frame ingest (serial / sim thread): everything derived from ONE device
+# frame is computed here, once, and the snapshot only packages it
+# ----------------------------------------------------------------------------
+BODY_STATUS = {"status": "none"}
+_last_raw = {"hand": None, "forearm": None, "thumb": None}
+_frame_rate = {"t_prev": None, "hz": None, "dt": None}
+NEUTRAL_UI = {"phase": None, "t0": None, "source": None, "want_enc_open": False,
+              "last_sent": None, "hold_t0": None, "result": None}
+# a firmware older than v16 has no N command: the bridge runs the countdown
+# itself and captures from its own frames (host timing, same pose rules)
+NEUTRAL_COUNTDOWN_S = 3.0
+NEUTRAL_HOLD_S = 2.0
+
+
+def _joints_from_enc(enc):
+    """Encoder degrees -> the joints[] and encoders[] lists (honest presence)."""
+    validate_jcal_once(enc)
+    joint_override, joint_calibrated = {}, {}
+    for ch in ENC_DOF:
+        d = enc[ch] if ch < len(enc) else -1.0
+        if d >= 0.0:
+            jid, val = calibrated_joint(ch, d)
+            joint_override[jid] = val
+            dof, _ = ENC_DOF[ch]
+            joint_calibrated[jid] = ch in ENC_OPEN and (dof == "abduct" or ch in ENC_CLOSED)
+    joints, n_live = [], 0
+    for f in FINGERS:
+        for seg in SEGMENTS:
+            jid = f + "_" + seg
+            if jid in joint_override:
+                d = joint_override[jid]; ok = True
+            elif SIM_MODE or ENC_JOINT_SPACE_DIRECT:
+                ch = JOINT2CH[jid]
+                if ch in ENC_DOF:
+                    d = -1.0; ok = False
+                else:
+                    d = enc[ch] if ch < len(enc) else -1000.0
+                    ok = _enc_ok(d)
+            else:
+                # Hardware channels without a measured channel/zero/direction/
+                # range remain visible in encoders[], but raw 0..360 magnet
+                # angles are not allowed to drive anatomical joint nodes.
+                d = -1.0; ok = False
+            if ok:
+                n_live += 1
+            joints.append({"id": jid, "deg": round(d, 2) if ok else 0.0, "ok": ok,
+                           "calibrated": bool(ok and (joint_calibrated.get(jid) or SIM_MODE or
+                                                       ENC_JOINT_SPACE_DIRECT))})
+    encoders, n_enc = [], 0
+    for ch in range(N_CH):
+        d = enc[ch] if ch < len(enc) else -1000.0
+        ok = _enc_ok(d)
+        if ok:
+            n_enc += 1
+        if ch in ENC_DOF:
+            joint_name = WIRED_FINGER + "_" + DOF_SEG[ENC_DOF[ch][0]]
+        elif SIM_MODE or ENC_JOINT_SPACE_DIRECT:
+            joint_name = CH2JOINT.get(ch)
+        else:
+            joint_name = None       # fitted sensor, mapping not measured yet
+        encoders.append({"ch": ch, "deg": round(d, 2) if ok else -1.0, "ok": ok, "joint": joint_name})
+    return joints, n_live, encoders, n_enc
+
+
+def _legacy_tare_from(q0, provisional):
+    """Seat the legacy display home (hand/forearm/thumb keys) on the SAME
+    averaged raw quaternions the body neutral used, so the two agree."""
+    global IMU_TARE_HAND, IMU_TARE_FOREARM, IMU_TARE_THUMB
+    global _imu_tare_pending, _thumb_tare_pending, _tare_state
+    qh, qf, qt = q0.get("hand"), q0.get("forearm"), q0.get("thumb")
+    if qh is None or qf is None:
+        return
+    th = imu_cfg_apply(qh, "hand")
+    tf = imu_cfg_apply(qf, "forearm")
+    if not (_valid_quat(th) and _valid_quat(tf)):
+        return
+    IMU_TARE_HAND = quat_conj(_norm_quat(th))
+    IMU_TARE_FOREARM = quat_conj(_norm_quat(tf))
+    _imu_tare_pending = False
+    if qt is not None:
+        tt = imu_cfg_apply(qt, "thumb")
+        if _valid_quat(tt):
+            IMU_TARE_THUMB = quat_conj(_norm_quat(tt))
+            _thumb_tare_pending = False
+    _tare_state = "provisional" if provisional else "calibrated"
+    if not provisional:
+        _save_tare({"hand": True, "forearm": True, "thumb": qt is not None})
+
+
+def _legacy_imu_display(live_map):
+    """The pre-body-model display quaternions (snapshot hand/forearm/thumb):
+    align-or-remap, offset, tare, gain, flip - now for the thumb too (its gain
+    and flip used to be silently ignored)."""
+    global IMU_TARE_THUMB, _thumb_tare_pending
+    hq_raw = _last_raw["hand"] or [1.0, 0.0, 0.0, 0.0]
+    fq_raw = _last_raw["forearm"] or [1.0, 0.0, 0.0, 0.0]
+    hq = quat_mul(IMU_TARE_HAND, imu_cfg_apply(hq_raw, "hand"))
+    fq = quat_mul(IMU_TARE_FOREARM, imu_cfg_apply(fq_raw, "forearm"))
+    hq = quat_flip_sense(quat_gain(hq, IMU_CFG["hand"]["gain"]), IMU_CFG["hand"]["flip"])
+    fq = quat_flip_sense(quat_gain(fq, IMU_CFG["forearm"]["gain"]), IMU_CFG["forearm"]["flip"])
+    thumb = None
+    if live_map.get("thumb") and _last_raw["thumb"] is not None:
+        tq_r = imu_cfg_apply(_last_raw["thumb"], "thumb")
+        if _thumb_tare_pending and BODY.has_heading():
+            # the thumb joined after the neutral (hot-plug): seat its home the
+            # first time it has been still for a second - never while moving
+            ss = BODY.still_since.get("thumb")
+            if ss is not None and BODY.t is not None and BODY.t - ss >= 1.0 and _valid_quat(tq_r):
+                IMU_TARE_THUMB = quat_conj(_norm_quat(tq_r))
+                _thumb_tare_pending = False
+        tqd = quat_mul(IMU_TARE_THUMB, tq_r)
+        tqd = quat_flip_sense(quat_gain(tqd, IMU_CFG["thumb"]["gain"]), IMU_CFG["thumb"]["flip"])
+        rel_thumb = quat_mul(quat_conj(hq), tqd)       # thumb expressed in the HAND frame
+        thumb = {"quat": [round(v, 4) for v in tqd], "rpy_deg": quat_to_rpy(*tqd),
+                 "rel_quat": [round(v, 4) for v in rel_thumb],
+                 "home": "pending" if _thumb_tare_pending else _tare_state}
+    return hq, fq, thumb
+
+
+def _on_device_boot(boot_id, reason):
+    """The device (re)booted, or we learned its boot id for the first time.
+    Everything tied to the old heading reference is dropped."""
+    global IMU_TARE_HAND, IMU_TARE_FOREARM, IMU_TARE_THUMB, _tare_state
+    global _imu_tare_pending, _thumb_tare_pending, _rel_quat_hold, _BODY_NEUTRAL_CANDIDATE
+    global _TARE_CANDIDATE
+    prev = DEVICE.get("boot_id")
+    DEVICE["boot_id"] = boot_id
+    if boot_id is None or prev != boot_id:
+        had = BODY.neutral is not None
+        if not BODY.set_boot(boot_id):
+            BODY.reset_boot(boot_id)
+    else:
+        had = False
+    IMU_TARE_HAND = [1.0, 0.0, 0.0, 0.0]
+    IMU_TARE_FOREARM = [1.0, 0.0, 0.0, 0.0]
+    IMU_TARE_THUMB = [1.0, 0.0, 0.0, 0.0]
+    _imu_tare_pending = True
+    _thumb_tare_pending = True
+    _tare_state = "none"
+    _rel_quat_hold = [1.0, 0.0, 0.0, 0.0]
+    for k in IMU_KEYS:
+        TRACKERS[k].reset(keep_bias=True)
+    adopted = False
+    if boot_id is not None:
+        cand, _BODY_NEUTRAL_CANDIDATE = _BODY_NEUTRAL_CANDIDATE, None
+        if cand and cand.get("boot_id") == boot_id and BODY.import_neutral(cand):
+            adopted = True
+            _legacy_tare_from(BODY.neutral["q0"], provisional=False)
+            print("[body] neutral restored for device boot %s (captured before this bridge start)" % boot_id)
+        elif cand:
+            print("[body] saved neutral is for device boot %s, device is on %s: discarded"
+                  % (cand.get("boot_id"), boot_id))
+        if adopted:
+            # the legacy home was just re-seated from the same neutral's averages
+            _TARE_CANDIDATE = None
+        else:
+            _tare_adopt_for_boot(boot_id)
+    if prev is not None or reason != "first":
+        print("[device] %s: boot %s -> %s (neutral %s)" % (reason, prev, boot_id,
+                                                           "dropped" if had else "none to drop"))
+        _emit({"kind": "ack", "event": "device_boot", "boot_id": boot_id, "previous": prev,
+               "reason": reason, "neutral_dropped": bool(had)})
+
+
+def _device_frame_meta(fr, now):
+    """v16 tail -> DEVICE; reboot detection (boot id, or the clock going back)."""
+    v16 = fr.get("v16")
+    t = fr["t"]
+    last_t = DEVICE.get("last_t_ms")
+    if v16 is not None:
+        boot = v16["boot_id"]
+        if boot != DEVICE.get("boot_id"):
+            _on_device_boot(boot, "first" if DEVICE.get("boot_id") is None else "device rebooted")
+        fl = v16["flags"]
+        DEVICE.update(fw=max(16, _fw.get("version") or 16), flags=fl,
+                      sd_recording=bool(fl & 1), sd_present=bool(fl & 2), standby=bool(fl & 4),
+                      host_link=bool(fl & 8), auto_record=bool(fl & 16),
+                      neutral_running=bool(fl & 32), sd_take=v16["take"], sd_rows=v16["rows"])
+        # list the card once per boot, so sd_takes has content without a click
+        if DEVICE["sd_present"] and _LOOP is not None and SD_STATE.get("listed_boot") != boot:
+            SD_STATE["listed_boot"] = boot
+            try:
+                asyncio.run_coroutine_threadsafe(sd_list(), _LOOP)
+            except RuntimeError:
+                pass
+    elif last_t is not None and t < last_t - 1000:
+        # pre-v16: no boot id, but the device clock starts again at every boot
+        _on_device_boot(None, "device clock restarted (reboot)")
+    DEVICE["last_t_ms"] = t
+    fp = _frame_rate["t_prev"]
+    if fp is not None and 0 < t - fp < 500:
+        # average the PERIOD (not 1/period, which a jittery frame biases upward)
+        dtm = float(t - fp)
+        _frame_rate["dt"] = dtm if _frame_rate.get("dt") is None else _frame_rate["dt"] + 0.02 * (dtm - _frame_rate["dt"])
+        _frame_rate["hz"] = 1000.0 / _frame_rate["dt"]
+    _frame_rate["t_prev"] = t
+
+
+def _body_step(fr, hq, fq, tq, live_map):
+    """Advance the body model by one device frame (ingest thread only)."""
+    while BODY_REQ:
+        fn = BODY_REQ.popleft()
+        try:
+            fn(BODY)
+        except Exception as e:
+            print("[body] request failed:", e)
+    imu_full = fr.get("imu_full") or {}
+    v16 = fr.get("v16") or {}
+    dv = v16.get("dv") or {}
+    dvn = v16.get("dv_n") or {}
+    stab = v16.get("stab") or {}
+    q = {"hand": hq if live_map["hand"] else None,
+         "forearm": fq if live_map["forearm"] else None,
+         "thumb": tq if live_map["thumb"] else None}
+    bf = {"t": fr["t"] / 1000.0, "q": q,
+          "gyr": {k: (imu_full.get(k) or {}).get("gyr") if live_map[k] else None for k in IMU_KEYS},
+          "lin": {k: (imu_full.get(k) or {}).get("lin") if live_map[k] else None for k in IMU_KEYS},
+          # a dv with zero integrated reports is "no data", not "no motion"
+          "dv": {k: (dv.get(k) if (live_map[k] and dvn.get(k, 1) != 0) else None) for k in IMU_KEYS},
+          "dv_n": {k: dvn.get(k) for k in IMU_KEYS},
+          "stab": {k: (stab.get(k) if stab.get(k) not in (None, 255) else None) for k in IMU_KEYS}}
+    BODY.update(bf)
+    for kind, res in BODY.pop_events():
+        _body_event(kind, res)
+    BODY_STATUS["status"] = BODY.status()
+
+
+def _body_event(kind, res):
+    if kind == "neutral_auto":
+        _legacy_tare_from(BODY.neutral["q0"], provisional=True)
+        print("[body] provisional neutral (arm still 1.5 s): %s" % res.get("report"))
+        _emit({"kind": "ack", "event": "neutral", "phase": "provisional", "ok": True,
+               "report": res.get("report")})
+    elif kind == "neutral":
+        _neutral_result(res, NEUTRAL_UI.get("source") or "device")
+    elif kind == "wrist_axis":
+        if res.get("ok"):
+            BODY_PERSIST["wrist_axis"] = res["axis_sensor"]
+            if res.get("neutral_resolved") and BODY.neutral is not None:
+                BODY_PERSIST["neutral"] = BODY.export_neutral()
+            _body_save()
+        print("[body] wrist axis: %s" % res)
+        _emit(dict({"kind": "ack", "event": "wrist_axis", "phase": "done" if res.get("ok") else "failed"},
+                   **res))
+
+
+def _neutral_result(res, source):
+    """A neutral solve finished (device event or bridge capture)."""
+    if res.get("ok"):
+        q0 = BODY.neutral["q0"]
+        _legacy_tare_from(q0, provisional=False)
+        BODY_PERSIST["neutral"] = BODY.export_neutral()
+        _body_save()
+        if NEUTRAL_UI.get("want_enc_open"):
+            # contract step 4: the encoder "open" reference, from the pose the
+            # wearer just held (fingers extended) - only for a neutral the
+            # console asked for, exactly as the old calibrate/neutral did
+            with state_lock:
+                enc_now = list(state["enc"])
+            capture_joint_ref("open", enc_now)
+        NEUTRAL_UI.update(phase="done", result=res, want_enc_open=False)
+        print("[body] neutral captured (%s): %s" % (source, res.get("report")))
+        _emit({"kind": "ack", "event": "neutral", "phase": "done", "t": 0, "ok": True,
+               "source": source, "report": res.get("report"), "spread_deg": res.get("spread_deg")})
+    else:
+        NEUTRAL_UI.update(phase="abort", result=res, want_enc_open=False)
+        print("[body] neutral refused (%s): %s" % (source, res.get("reason")))
+        _emit({"kind": "ack", "event": "neutral", "phase": "abort", "t": 0, "ok": False,
+               "source": source, "reason": res.get("reason")})
+
+
+def neutral_begin(source):
+    """Start the countdown/hold UI state (device-driven on v16, host-driven before)."""
+    NEUTRAL_UI.update(phase="countdown", t0=time.time(), source=source,
+                      last_sent=("countdown", int(NEUTRAL_COUNTDOWN_S)), hold_t0=None, result=None)
+    _emit({"kind": "ack", "event": "neutral", "phase": "countdown", "t": int(NEUTRAL_COUNTDOWN_S),
+           "source": source})
+
+
+def _neutral_ui_tick(now):
+    """Countdown/hold progress acks, once per second (broadcast loop)."""
+    ui = NEUTRAL_UI
+    if ui["phase"] not in ("countdown", "hold"):
+        return
+    el = now - ui["t0"]
+    if el < NEUTRAL_COUNTDOWN_S:
+        phase, left = "countdown", NEUTRAL_COUNTDOWN_S - el
+    else:
+        phase, left = "hold", max(0.0, NEUTRAL_COUNTDOWN_S + NEUTRAL_HOLD_S - el)
+    key = (phase, int(math.ceil(left)))
+    if key != ui["last_sent"]:
+        ui["last_sent"] = key
+        ui["phase"] = phase
+        broadcast({"kind": "ack", "event": "neutral", "phase": phase, "t": int(math.ceil(left)),
+                   "source": ui["source"]})
+    if ui["source"] == "bridge" and el >= NEUTRAL_COUNTDOWN_S + NEUTRAL_HOLD_S and ui.get("hold_t0") is None:
+        # host-timed fallback: capture the last 2 s of frames
+        ui["hold_t0"] = now
+        ui["phase"] = "solving"
+        body_call(lambda bm: _neutral_result(bm.capture_neutral(window_s=NEUTRAL_HOLD_S, kind="bridge"),
+                                             "bridge"))
+    elif ui["source"] != "bridge" and el > 15.0:
+        ui["phase"] = "abort"
+        broadcast({"kind": "ack", "event": "neutral", "phase": "abort", "t": 0, "ok": False,
+                   "source": ui["source"], "reason": "timeout: the device never reported done"})
+
+
+def _device_event(ep, line):
+    """E,rec,* / E,neutral,* / E,standby,* (serial / sim thread)."""
+    kind = ep[1]
+    if kind == "rec" and len(ep) >= 3:
+        what = ep[2]
+        if what == "start":
+            take = int(ep[3]) if len(ep) > 3 and ep[3].isdigit() else None
+            src = ep[4] if len(ep) > 4 else None
+            DEVICE.update(sd_recording=True, sd_take=take or 0)
+            with state_lock:
+                if state["recording"] and ECO.get("sd_take") is None and src == "host":
+                    ECO["sd_take"] = take
+            _emit({"kind": "ack", "event": "sd_rec", "phase": "start", "take": take, "source": src,
+                   "name": ("TAKES/TK%05u.CSV" % take) if take is not None else None})
+        elif what == "stop":
+            vals = [int(x) if x.isdigit() else None for x in ep[3:6]]
+            take, rows, ms = (vals + [None] * 3)[:3]
+            DEVICE.update(sd_recording=False, sd_take=0)
+            _on_loop(_sd_take_closed, take, rows, ms)
+            _emit({"kind": "ack", "event": "sd_rec", "phase": "stop", "take": take, "rows": rows,
+                   "ms": ms, "name": ("TAKES/TK%05u.CSV" % take) if take is not None else None})
+        elif what == "fail":
+            reason = ep[3] if len(ep) > 3 else "unknown"
+            DEVICE["last_error"] = {"text": "SD recording failed: %s" % reason, "t": time.time(),
+                                    "code": "sd_" + reason}
+            _emit({"kind": "ack", "event": "sd_rec", "phase": "fail", "reason": reason})
+        return
+    if kind == "neutral" and len(ep) >= 3:
+        what = ep[2]
+        if what == "start":
+            src = NEUTRAL_UI["source"] if (NEUTRAL_UI["phase"] == "requested") else "device"
+            want = NEUTRAL_UI.get("want_enc_open") if src != "device" else False
+            neutral_begin(src)
+            NEUTRAL_UI["want_enc_open"] = want
+        elif what == "done":
+            try:
+                t_ms = float(ep[3])
+                vals = [float(x) for x in ep[4:16]]
+            except (ValueError, IndexError):
+                t_ms, vals = None, []
+            q_avg = None
+            if len(vals) == 12:
+                q_avg = {"hand": vals[0:4], "forearm": vals[4:8], "thumb": vals[8:12]}
+                # the device averages the thumb even when it is not fitted; a
+                # thumb that was not live contributes nothing
+                if not (BODY.live.get("thumb") or _last_raw["thumb"] is not None):
+                    q_avg["thumb"] = None
+            if t_ms is None:
+                _neutral_result({"ok": False, "reason": "malformed E,neutral,done"}, "device")
+                return
+            if NEUTRAL_UI["phase"] not in ("countdown", "hold", "requested"):
+                NEUTRAL_UI["source"] = "device"
+            NEUTRAL_UI["phase"] = "solving"
+            res = BODY.request_device_neutral(t_ms / 1000.0, q_avg=q_avg)
+            if res.get("ok") is not None:
+                _neutral_result(res, NEUTRAL_UI.get("source") or "device")
+        elif what == "abort":
+            why = ep[3] if len(ep) > 3 else "aborted"
+            NEUTRAL_UI.update(phase="abort", want_enc_open=False)
+            _emit({"kind": "ack", "event": "neutral", "phase": "abort", "t": 0, "ok": False,
+                   "source": "device", "reason": {"moving": "moved during the hold",
+                                                  "imu": "a main IMU dropped out"}.get(why, why)})
+        return
+    if kind == "standby" and len(ep) >= 3:
+        DEVICE["standby"] = ep[2] == "1"
+        _emit({"kind": "ack", "event": "standby", "on": DEVICE["standby"]})
+
+
+def _sd_take_closed(take, rows, ms):
+    """E,rec,stop: annotate the bridge take recorded alongside (event loop)."""
+    if take is None:
+        return
+    for tk in takes:
+        if tk.get("sd_take") == take:
+            tk["sd_name"] = "TAKES/TK%05u.CSV" % take
+            tk["sd_rows"] = rows
+            tk["sd_ms"] = ms
+            _save_takes()
+            broadcast({"kind": "takes", "takes": takes})
+            return
+
+
+_ERR_RE = re.compile(r"\bfail(ed|ure|s)?\b|\berror\b|\bno sd\b|\bcannot\b|could not|"
+                     r"not found|\bmissing\b", re.I)
+
+
+def _device_message(line):
+    """A human-readable device line. Kept (last 16) for the snapshot; the ones
+    that report a failure become health + a broadcast, never silently dropped."""
+    now = time.time()
+    with state_lock:                   # the snapshot copies this deque on another thread
+        DEVICE["messages"].append({"t": round(now, 3), "text": line[:200]})
+    m = re.match(r"#\s*boot_id\s+(\d+)", line)
+    if m:
+        return
+    if _ERR_RE.search(line) and not line.startswith("# ver"):
+        DEVICE["last_error"] = {"text": line[:200], "t": now}
+        _emit({"kind": "ack", "event": "device_msg", "level": "error", "text": line[:200]})
+
+
+def handle_line(line):
+    """ONE device line, from the serial port or the simulated device. Returns
+    the parsed frame for S-lines (the serial thread uses it for rescans)."""
+    line = line.rstrip("\r\n")
+    now = time.time()
+    with state_lock:
+        state["last_line"] = now
+    if not line:
+        return None
+    if line.startswith("S,"):
+        fr = parse_s_line(line)
+        if fr is None:
+            return None
+        ingest_frame(fr, now)
+        return fr
+    if line.startswith("F,"):
+        if SD is not None:
+            SD.feed(line)
+        return None
+    if line.startswith("# ver"):
+        try:
+            _fw["version"] = int(line.split()[-1])
+        except ValueError:
+            _fw["version"] = 1
+        _fw["explicit_rec"] = _fw["version"] >= 2
+        print(f"[serial] firmware v{_fw['version']} "
+              f"(record: {'explicit b/e' if _fw['explicit_rec'] else 'legacy r toggle'})")
+        # The banner means the device just (re)booted or answered 'v': its RAM
+        # copy of the direction signs may be gone. Hand back the measured ones.
+        if _push_directions_to_device():
+            print("[follow] restored measured directions to the device")
+        return None
+    if line.startswith("E,watch,"):
+        # the device confirming what it applied and saved: E,watch,<face>,<cw>,<ok>
+        ep = line.split(",")
+        if len(ep) >= 5:
+            try:
+                fi, ci, ok = int(ep[2]), int(ep[3]), int(ep[4])
+            except ValueError:
+                return None
+            faces = WATCH_CATALOG["faces"]
+            if ok == 1 and 0 <= fi < len(faces):
+                cws = faces[fi].get("colorways", [])
+                if 0 <= ci < len(cws):
+                    with state_lock:
+                        WATCH["face"] = faces[fi]["id"]
+                        WATCH["colorway"] = cws[ci]["id"]
+                        WATCH_LAST_CW[faces[fi]["id"]] = cws[ci]["id"]
+                        WATCH["persisted"] = True
+                        WATCH["source"] = "device"
+            else:
+                print(f"[watch] device rejected face {fi}/{ci}")
+        return None
+    if line.startswith("E,"):
+        ep = line.split(",")
+        if len(ep) >= 2 and ep[1] in ("rec", "neutral", "standby"):
+            _device_event(ep, line)
+        elif len(ep) >= 2 and ep[1] in ("nav", "press", "screen", "home", "cal"):
+            # on-device crown/button: E,<action>[,<dir-or-screen>]
+            device_command(ep[1],
+                           direction=(ep[2] if ep[1] == "nav" and len(ep) > 2 else None),
+                           screen=(ep[2] if ep[1] == "screen" and len(ep) > 2 else None),
+                           source="device")
+        return None
+    _device_message(line)
+    return None
+
+
+def ingest_frame(fr, now):
+    """Everything one device frame changes. Runs in the serial / sim thread."""
+    t = fr["t"]
+    _stale["cleared"] = False
+    _device_frame_meta(fr, now)
+    if SIM_MODE:
+        fr["motors_fw"] = None                # the sim's motor block is zero-filled: SimMotors own motors
+        raw_enc = [(d if d >= 0.0 else -1.0) for d in fr["enc"]]
+        enc = [(d - SIM_ENC_BIAS) if d >= 0.0 else ENC_ABSENT_SIM for d in filter_encoders(raw_enc, t)]
+    else:
+        enc = filter_encoders(fr["enc"], t)
+    if fr["tq"] is not None:
+        _fw["thumb_capable"] = True
+    if fr["imu_full"] is not None:
+        _fw["full_imu"] = True
+    if _frame_rate["hz"]:
+        _fw["rate_hz"] = int(round(_frame_rate["hz"]))
+    il = fr["il"]
+    live_map = {"hand": bool(il[0]), "forearm": bool(il[1]), "thumb": bool(fr["thumb_live"])}
+    hq, fq, tq, orientation_source = select_orientation_quats(
+        fr["hq"], fr["fq"], fr["tq"], fr["imu_full"], live_map)
+    # A sensor which claims live but supplies neither a valid game nor primary
+    # quaternion is not live for pose purposes (see select_orientation_quats).
+    live_map = {"hand": live_map["hand"] and hq is not None,
+                "forearm": live_map["forearm"] and fq is not None,
+                "thumb": live_map["thumb"] and tq is not None}
+    for k, q in (("hand", hq), ("forearm", fq), ("thumb", tq)):
+        if q is not None:
+            _last_raw[k] = q
+    il = [int(live_map["hand"]), int(live_map["forearm"])]
+    act = run_activation(fr["emg_env"], fr["emg_present"])
+    # Strapdown integration (legacy `inertial` block), on the firmware clock.
+    imu_full = fr["imu_full"]
+    if imu_full:
+        t_s = t / 1000.0
+        raw_q = {"hand": hq, "forearm": fq, "thumb": tq or [1.0, 0.0, 0.0, 0.0]}
+        for sk in IMU_KEYS:
+            if live_map[sk]:
+                d = imu_full[sk]
+                TRACKERS[sk].update(raw_q[sk], d["lin"], d["gyr"], t_s)
+            else:
+                TRACKERS[sk].t = None
+    # the body model (the contract), then the legacy display derived from it
+    _body_step(fr, hq, fq, tq, live_map)
+    hq_d, fq_d, thumb = _legacy_imu_display(live_map)
+    body = dict(BODY.body())
+    body_rel = BODY.display_rel() if BODY.has_heading() else None
+    joints, n_live, encoders, n_enc = _joints_from_enc(enc)
+    derived = {"t": t, "joints": joints, "n_live": n_live, "encoders": encoders, "n_enc": n_enc,
+               "hand_q": hq_d, "forearm_q": fq_d, "thumb": thumb, "body": body,
+               "body_rel": body_rel, "tare": _tare_state}
+    with state_lock:
+        state["imu_full"] = imu_full
+        state["motors_fw"] = fr["motors_fw"]
+        state["orientation_source"] = orientation_source
+        state["t_ms"] = t
+        state["enc"] = enc
+        # Hold last valid pose across a dropout (never the zero-filled placeholder)
+        if hq is not None:
             state["hq"] = hq
+        if fq is not None:
             state["fq"] = fq
+        if tq is not None:
             state["tq"] = tq
-            state["thumb_live"] = True
-            state["imu_live"] = [1, 1]
-            state["emg_env"] = emg_env
-            state["emg_rms"] = emg_env * 0.7
-            state["emg_present"] = True
-            state["activation"] = act
-            state["last_rx"] = time.time()
-            _note_sample_locked()
-        update_joint_sweep(enc)
-        time.sleep(dt)
+        state["imu_live"] = il
+        state["thumb_live"] = live_map["thumb"]
+        state["emg_env"] = fr["emg_env"]
+        state["emg_rms"] = fr["emg_rms"]
+        state["emg_present"] = fr["emg_present"]
+        state["crown"] = fr["crown"]
+        state["activation"] = act
+        state["last_rx"] = now
+        state["derived"] = derived
+        rec = state["recording"]
+        _note_sample_locked()        # shared recording counters (all clients)
+    update_joint_sweep(enc)          # ROM sweep: capture open/closed extremes
+    if rec:
+        _record_frame(t, derived, act, imu_full, live_map)
+    return derived
+
+
+def _record_frame(t, derived, act, imu_full, live_map):
+    """One take row for this device frame (ROW_COLS order)."""
+    now = time.time()
+    with state_lock:
+        pose = dict(POSE)
+    fresh = (now - pose["t_wall"]) < POSE_FRESH_S and pose["pos"] is not None
+    joints = derived["joints"]
+    vj = pose["joints"] if fresh else None
+    jcols, used_vision = _joint_row_cols(joints, vj, SIM_MODE)
+    used_enc = any(j.get("ok") for j in joints)
+    row = [int(t)] + jcols
+    row += [round(v, 4) for v in derived["hand_q"]]
+    row += [round(v, 4) for v in derived["forearm_q"]]
+    th = derived["thumb"]
+    row += [round(v, 4) for v in (th["rel_quat"] if th else [0, 0, 0, 0])]
+    row.append(round(BLEND["assist"], 3))
+    row.append(round(act.get("level", 0.0), 3))
+    if fresh:
+        row += [round(v, 4) for v in pose["pos"]]
+        row += [round(v, 4) for v in pose["quat"]]
+    else:
+        row += [None] * 7
+    thv = (vj or {}).get("thumb") if fresh else None
+    row += ([round(float(v), 2) for v in thv] if thv else [None] * 3)
+    if imu_full and live_map["hand"] and live_map["forearm"]:
+        hp, fp = TRACKERS["hand"].p, TRACKERS["forearm"].p
+        conf = min(TRACKERS["hand"].confidence(), TRACKERS["forearm"].confidence())
+        row += [round(hp[0] * 1000, 1), round(hp[1] * 1000, 1), round(hp[2] * 1000, 1),
+                round(fp[0] * 1000, 1), round(fp[1] * 1000, 1), round(fp[2] * 1000, 1), round(conf, 2)]
+    else:
+        row += [None] * 7
+    row += BODY.take_cols()
+    _record_row(row, used_vision, used_enc, pose["env"] if (fresh and pose["env"]) else None)
+
+
+def clear_stale_device_state(reason):
+    """Link loss: the last-received readings must not keep parading as live
+    sensors. Called by the serial thread when the port drops or the stream
+    stops, so every consumer (not only the snapshot) sees the absence."""
+    with state_lock:
+        state["enc"] = [(-1.0 if not SIM_MODE else ENC_ABSENT_SIM)] * N_CH
+        state["imu_live"] = [0, 0]
+        state["thumb_live"] = False
+        state["imu_full"] = None
+        state["motors_fw"] = None
+        state["crown"] = None
+        state["emg_present"] = False
+        state["activation"] = dict(ACT_ABSENT)
+        d = state.get("derived")
+        if d is not None:
+            d = dict(d)
+            d["joints"] = [dict(j, ok=False, deg=0.0) for j in d["joints"]]
+            d["encoders"] = [dict(e, ok=False, deg=-1.0) for e in d["encoders"]]
+            d["n_live"] = d["n_enc"] = 0
+            b = dict(d["body"])
+            b["live"] = False
+            d["body"] = b
+            d["thumb"] = None
+            state["derived"] = d
+    for k in IMU_KEYS:
+        TRACKERS[k].t = None
+    print("[serial] stale device state cleared (%s)" % reason)
+
+
+SD = None                         # sdcard.SdClient, created in main
 
 
 def serial_thread(port_name, baud):
-    """Open the Teensy, turn streaming on, parse S lines into `state`."""
+    """Open the Teensy, turn streaming on, and hand every line to handle_line()."""
     while True:
         try:
             # write_timeout: a wedged device (full OS buffer) must raise into
@@ -3045,6 +3988,12 @@ def serial_thread(port_name, baud):
                             else:
                                 CAMERA_FOLLOW["error_since"] = None
                 _camera_follow_probe_tick(nowd)
+                # An SD file transfer blocks the device loop (the S stream
+                # pauses): keep the line quiet so nothing interleaves with it.
+                sd_busy = SD is not None and SD.busy
+                if sd_busy:
+                    last_dui = nowd
+                    last_sea_joint = nowd
                 if nowd - last_dui > 0.15:          # push device_ui down to the on-wrist screen
                     last_dui = nowd
                     try:
@@ -3052,7 +4001,7 @@ def serial_thread(port_name, baud):
                             ser.write(("D,%d,%d,%d\n" % (_dui.get("fw_idx", 1), _dui.get("fw_elapsed", 0), _dui.get("fw_mot", 0))).encode())
                     except Exception:
                         pass
-                if WATCH["dirty"]:              # a UI changed the face: send it down
+                if WATCH["dirty"] and not sd_busy:   # a UI changed the face: send it down
                     fi = _watch_face_index(WATCH["face"])
                     ci = _watch_cw_index(WATCH["face"], WATCH["colorway"])
                     if fi >= 0 and ci >= 0:
@@ -3089,214 +4038,19 @@ def serial_thread(port_name, baud):
                             pass
                 raw = ser.readline()
                 if not raw:
-                    # keep asserting stream-on in case it was toggled off
-                    if time.time() - last_assert > 3:
+                    # keep asserting stream-on in case it was toggled off (never
+                    # in the middle of an SD transfer)
+                    if time.time() - last_assert > 3 and not sd_busy:
                         with ser_write_lock:
                             ser.write(b"j\n")
                         last_assert = time.time()
+                    _stale_watch()
                     continue
-                line = raw.decode("utf-8", "replace").strip()
-                if line.startswith("# ver"):
-                    try:
-                        _fw["version"] = int(line.split()[-1])
-                    except ValueError:
-                        _fw["version"] = 1
-                    _fw["explicit_rec"] = _fw["version"] >= 2
-                    print(f"[serial] firmware v{_fw['version']} "
-                          f"(record: {'explicit b/e' if _fw['explicit_rec'] else 'legacy r toggle'})")
-                    # The banner means the device just (re)booted, so its RAM copy
-                    # of the direction signs is gone. Hand back the measured ones
-                    # rather than making the wearer pull the finger again for an
-                    # answer that is already on disk.
-                    if _push_directions_to_device():
-                        print("[follow] restored measured directions to the device")
+                fr = handle_line(raw.decode("utf-8", "replace"))
+                if fr is None:
+                    _stale_watch()
                     continue
-                if line.startswith("E,watch,"):
-                    # the device confirming what it applied and saved:
-                    # E,watch,<faceIdx>,<colorwayIdx>,<ok>
-                    ep = line.split(",")
-                    if len(ep) >= 5:
-                        try:
-                            fi, ci, ok = int(ep[2]), int(ep[3]), int(ep[4])
-                        except ValueError:
-                            continue
-                        faces = WATCH_CATALOG["faces"]
-                        if ok == 1 and 0 <= fi < len(faces):
-                            cws = faces[fi].get("colorways", [])
-                            if 0 <= ci < len(cws):
-                                with state_lock:
-                                    WATCH["face"] = faces[fi]["id"]
-                                    WATCH["colorway"] = cws[ci]["id"]
-                                    WATCH_LAST_CW[faces[fi]["id"]] = cws[ci]["id"]
-                                    WATCH["persisted"] = True
-                                    WATCH["source"] = "device"
-                        else:
-                            print(f"[watch] device rejected face {fi}/{ci}")
-                    continue
-                if line.startswith("E,"):
-                    # on-device crown/button: E,<action>[,<dir-or-screen>]
-                    ep = line.split(",")
-                    if len(ep) >= 2 and ep[1] in ("nav", "press", "screen", "home", "cal"):
-                        device_command(ep[1],
-                                       direction=(ep[2] if ep[1] == "nav" and len(ep) > 2 else None),
-                                       screen=(ep[2] if ep[1] == "screen" and len(ep) > 2 else None),
-                                       source="device")
-                    continue
-                if not line.startswith("S,"):
-                    continue
-                p = line.split(",")
-                # 1 tag + 1 t + 14 enc + 8 quat + 2 live = 26
-                if len(p) < 26:
-                    continue
-                try:
-                    t = int(float(p[1]))
-                    enc = filter_encoders([float(x) for x in p[2:2 + N_CH]], t)
-                    hq = [float(x) for x in p[2 + N_CH:2 + N_CH + 4]]
-                    fq = [float(x) for x in p[2 + N_CH + 4:2 + N_CH + 8]]
-                    il = [int(float(p[24])), int(float(p[25]))]
-                    # EMG fields (env, rms, present) appended by the updated firmware;
-                    # absent on the old firmware -> emg_present stays False (honest).
-                    emg_env = float(p[26]) if len(p) > 26 else 0.0
-                    emg_rms = float(p[27]) if len(p) > 27 else 0.0
-                    emg_present = len(p) > 28 and int(float(p[28])) == 1
-                    # crown pot (v3 firmware): 0..1000 -> 0..1; absent on older firmware
-                    crown = max(0.0, min(1.0, int(float(p[29])) / 1000.0)) if len(p) > 29 else None
-                    # thumb-tip IMU (v4 firmware): quat + live flag, appended after crown
-                    if len(p) > 34:
-                        tq = [float(p[30]), float(p[31]), float(p[32]), float(p[33])]
-                        thumb_live = int(float(p[34])) == 1
-                        _fw["thumb_capable"] = True
-                    else:
-                        tq, thumb_live = None, False
-                    # ---- v6 firmware: the real motor block (pos/vel/current) ----
-                    # Absent (not zeroed) on older firmware, so a client can tell
-                    # "not streamed" from "streamed and reading zero".
-                    motors_fw = None
-                    if len(p) > CROWN_LIVE_IDX:
-                        mf = int(float(p[MOT_FLAGS_IDX]))
-                        motors_fw = {"flags": mf, "taken": bool(mf & 1),
-                                     "torque": bool(mf & 2), "mode": (mf >> 2) & 7,
-                                     # v13 moves fault from bit 4 to bit 5 because bit 4
-                                     # now represents mode 4 (the two-independent-DOF SEA loop).
-                                     # Old v12-and-earlier frames only use modes 0..3, so
-                                     # their bit 4 remains a backwards-compatible fault.
-                                     "fault": bool((mf & 32) or ((mf & 16) and ((mf >> 2) & 7) != 4)), "m": {}}
-                        for _k in range(N_MOT_FW):
-                            _b = MOT_BASE + 3 * _k
-                            motors_fw["m"][_k + 1] = {
-                                "pos": float(p[_b]), "vel": float(p[_b + 1]),
-                                "ma": float(p[_b + 2])}
-                        # v9 append-only diagnostics.  A v8 device remains fully
-                        # supported; its aggregate fault flag is simply all we
-                        # can know until it is flashed.
-                        if len(p) >= MOTOR_DIAG_BASE + 8:
-                            _d = [int(float(x)) for x in p[MOTOR_DIAG_BASE:MOTOR_DIAG_BASE + 8]]
-                            _names = {
-                                0: "none", 1: "configuration write", 2: "feedback seed",
-                                3: "torque acknowledgement", 4: "sustained bus miss",
-                                5: "servo hardware alarm", 6: "bus-watchdog rearm",
-                                # v14: mode 4 was driving the finger and the host
-                                # went silent for 600 ms. De-energized on purpose.
-                                7: "host silence while driving (camera follow)",
-                            }
-                            motors_fw["diagnostic"] = {
-                                "cause_code": _d[0], "cause": _names.get(_d[0], "unknown"),
-                                "consecutive_misses": _d[1], "hardware_error": _d[2:4],
-                                "total_misses": _d[4], "fast_fallbacks": _d[5],
-                                "direct_fallbacks": _d[6],
-                                "fast_read": bool(_d[7] & 1),
-                                "indirect_read": bool(_d[7] & 2),
-                            }
-                        # v14 append-only: the DEVICE's own SEA readiness. This is
-                        # the authority for camera-follow state from here on; the
-                        # bridge's own flags are only a fallback for v13 firmware.
-                        if len(p) > SEA_STATE_IDX:
-                            _s = int(float(p[SEA_STATE_IDX]))
-                            motors_fw["sea"] = {
-                                "zeroed": bool(_s & 1), "armed": bool(_s & 2),
-                                "directions": bool(_s & 4), "joint_fresh": bool(_s & 8),
-                            }
-                    # ---- v7 firmware: the FULL IMU set, 23 fields per sensor ----
-                    # The offset is COMPUTED from the contract above, not written
-                    # as a literal, so adding a motor or an encoder channel
-                    # upstream cannot silently shift this tail and start reading
-                    # motor current as an acceleration.
-                    imu_full = None
-                    if len(p) >= V7_BASE + 3 * V7_STRIDE:
-                        imu_full = {}
-                        for si, sk in enumerate(IMU_KEYS):
-                            b = V7_BASE + si * V7_STRIDE
-                            f = [float(x) for x in p[b:b + V7_STRIDE]]
-                            imu_full[sk] = {
-                                "lin":  f[0:3],    # linear acceleration, gravity removed
-                                "acc":  f[3:6],    # accelerometer, gravity included
-                                "gyr":  f[6:9],    # rad/s
-                                "mag":  f[9:12],   # uT
-                                "grv":  f[12:15],  # gravity vector
-                                "game": f[15:19],  # game rotation vector (mag-immune)
-                                "accuracy": {"acc": int(f[19]), "gyr": int(f[20]),
-                                             "mag": int(f[21])},
-                                "rot_accuracy_rad": f[22],
-                            }
-                        _fw["full_imu"] = True
-                except Exception:
-                    continue
-                live_map = {"hand": bool(il[0]), "forearm": bool(il[1]),
-                            "thumb": bool(thumb_live)}
-                hq, fq, tq, orientation_source = select_orientation_quats(
-                    hq, fq, tq, imu_full, live_map)
-                # A sensor which claims live but supplies neither a valid game
-                # nor primary quaternion is not live for pose purposes.  Keep
-                # the last good state value below, and propagate the effective
-                # flags so every client reports the dropout honestly.
-                live_map = {"hand": live_map["hand"] and hq is not None,
-                            "forearm": live_map["forearm"] and fq is not None,
-                            "thumb": live_map["thumb"] and tq is not None}
-                il = [int(live_map["hand"]), int(live_map["forearm"])]
-                thumb_live = live_map["thumb"]
-                # advance the Fable activation filter once per real sample (outside the lock)
-                act = run_activation(emg_env, emg_present)
-                # Strapdown integration, once per real sample and OUTSIDE the lock
-                # (it is pure arithmetic on per-tracker state). Driven by the
-                # firmware's own millisecond clock rather than host wall time, so
-                # a scheduling hiccup on this machine cannot fake an acceleration.
-                if imu_full:
-                    t_s = t / 1000.0
-                    raw_q = {"hand": hq, "forearm": fq,
-                             "thumb": tq or [1.0, 0.0, 0.0, 0.0]}
-                    for sk in IMU_KEYS:
-                        if live_map[sk]:
-                            d = imu_full[sk]
-                            TRACKERS[sk].update(raw_q[sk], d["lin"], d["gyr"], t_s)
-                        else:
-                            # a dropped sensor must not resume integrating across
-                            # the gap as if nothing happened
-                            TRACKERS[sk].t = None
-                with state_lock:
-                    state["imu_full"] = imu_full
-                    state["motors_fw"] = motors_fw
-                    state["orientation_source"] = orientation_source
-                    state["t_ms"] = t
-                    state["enc"] = enc
-                    # Hold last valid pose across a dropout.  Replacing it with
-                    # the firmware's zero-filled placeholder produced the live
-                    # ~9000 deg/s forearm reading at rest.
-                    if hq is not None:
-                        state["hq"] = hq
-                    if fq is not None:
-                        state["fq"] = fq
-                    state["imu_live"] = il
-                    state["emg_env"] = emg_env
-                    state["emg_rms"] = emg_rms
-                    state["emg_present"] = emg_present
-                    state["crown"] = crown
-                    if tq is not None:
-                        state["tq"] = tq
-                    state["thumb_live"] = thumb_live
-                    state["activation"] = act
-                    state["last_rx"] = time.time()
-                    _note_sample_locked()        # shared recording counters (all clients)
-                update_joint_sweep(enc)          # ROM sweep: capture open/closed extremes
+                il = fr["il"]
                 # Hot-plug recovery WITHOUT a routine stall.  A sensor that was
                 # missing on the very first frame used to be forgotten forever:
                 # best_imu started at zero, immediately became one, and only a
@@ -3305,8 +4059,8 @@ def serial_thread(port_name, baud):
                 # healthy rig never receives a rescan, and a hard wiring fault
                 # cannot hitch the stream every 1.5 s as the old fixed cadence
                 # did.
-                n_enc_live = sum(1 for x in enc if x >= 0.0)
-                n_imu_live = int(il[0]) + int(il[1])
+                n_enc_live = sum(1 for x in fr["enc"] if x >= 0.0)
+                n_imu_live = int(bool(il[0])) + int(bool(il[1]))
                 now = time.time()
                 dropped = n_enc_live < best_enc or n_imu_live < best_imu
                 missing_required_imu = n_imu_live < 2
@@ -3329,13 +4083,36 @@ def serial_thread(port_name, baud):
             try: ser.close()
             except Exception: pass
             _ser["port"] = None
+            clear_stale_device_state("serial link lost")
+            _stale["cleared"] = True
             time.sleep(1)
+
+
+_stale = {"cleared": False}
+
+
+def _stale_watch():
+    """The port is open but frames stopped (unplugged hub, device reset, a
+    stalled SD transfer): after 1 s, clear the stale sensor state once."""
+    with state_lock:
+        lr = state["last_rx"]
+    if lr and time.time() - lr > 1.0:
+        if not _stale["cleared"] and not (SD is not None and SD.busy):
+            clear_stale_device_state("no frames for 1 s")
+            _stale["cleared"] = True
+    else:
+        _stale["cleared"] = False
 
 
 _DOOM = {"seen": False}          # easter egg: latch so we log the first relay only
 
 
 def send_teensy(cmd_byte):
+    if SIM_DEVICE is not None:
+        # --sim: the simulated device reads the same bytes a Teensy would
+        # (it ignores motor/screen lines, exactly as a no-op port did before)
+        SIM_DEVICE.write(cmd_byte)
+        return
     ser = _ser.get("port")
     if not ser:
         return
@@ -3478,24 +4255,80 @@ def build_device_ui(device_up, rec, n_imu, n_live, act, joints):
     }
 
 
+def _sd_recent_failure():
+    err = DEVICE.get("last_error")
+    return bool(err and str(err.get("code", "")).startswith("sd_") and time.time() - err["t"] < 60)
+
+
+def _sd_health_detail(device_up):
+    if DEVICE.get("flags") is None:
+        return "firmware without SD reporting (v16 needed)"
+    if SD is not None and SD.transfer():
+        tr = SD.transfer()
+        return "reading %s" % tr["name"]
+    err = DEVICE.get("last_error")
+    if err and time.time() - err["t"] < 60:
+        return err["text"]
+    if not DEVICE.get("sd_present"):
+        return "no SD card"
+    if DEVICE.get("sd_recording") and device_up:
+        return "recording TK%05u · %d rows" % (DEVICE.get("sd_take") or 0, DEVICE.get("sd_rows") or 0)
+    return "card present"
+
+
+def _device_block(device_up, data_fresh):
+    """The contract's snapshot `device` block (MOTION_PIPELINE.md s.7), plus
+    additive diagnostics. With the link down nothing is claimed as running."""
+    sdt = SD.transfer() if SD is not None else None
+    v16 = DEVICE.get("flags") is not None
+    with state_lock:
+        msgs = list(DEVICE["messages"])[-5:]
+    return {
+        "fw": DEVICE.get("fw") or _fw.get("version") or None,
+        "boot_id": DEVICE.get("boot_id"),
+        "sd_present": DEVICE.get("sd_present") if v16 else None,
+        "sd_recording": bool(DEVICE.get("sd_recording")) and device_up,
+        "sd_take": (DEVICE.get("sd_take") or 0) if device_up else 0,
+        "sd_rows": (DEVICE.get("sd_rows") or 0) if device_up else 0,
+        "standby": bool(DEVICE.get("standby")),
+        "standalone_auto_record": DEVICE.get("auto_record") if v16 else (SD.auto if SD else None),
+        "neutral_running": bool(DEVICE.get("neutral_running")) and device_up,
+        # additive
+        "link": bool(device_up), "streaming": bool(data_fresh),
+        "host_link": DEVICE.get("host_link"),
+        "rate_hz": _fw.get("rate_hz"),
+        "transfer": sdt,
+        "neutral": {"phase": NEUTRAL_UI.get("phase"), "source": NEUTRAL_UI.get("source")},
+        "last_error": DEVICE.get("last_error"),
+        "messages": msgs,
+    }
+
+
 def build_snapshot(hz):
+    now_w = time.time()
     with state_lock:
         s = dict(state)
-        enc = list(s["enc"]); hq = list(s["hq"]); fq = list(s["fq"]); il = list(s["imu_live"])
+        il = list(s["imu_live"])
         rec = s["recording"]; last_rx = s["last_rx"]; t = s["t_ms"]
+        last_line = s.get("last_line") or 0.0
         act = dict(s.get("activation", ACT_ABSENT))
         crown = s.get("crown")
-        tq_raw = list(s.get("tq", [1.0, 0.0, 0.0, 0.0]))
         thumb_live = bool(s.get("thumb_live"))
         imu_full_raw = s.get("imu_full")
         orientation_source = dict(s.get("orientation_source", {}))
+        der = s.get("derived")
+        enc_state = list(s["enc"])
         eco = {k: ECO[k] for k in ("mode", "feedback_on", "guided", "rep_goal", "reps_done",
                                    "profile", "task", "rec_id", "rec_start", "rec_samples")}
-    device_up = (time.time() - last_rx) < 1.0 if last_rx else False
-    if not device_up and not SIM_MODE:
-        # Link loss: the last-received readings must not keep parading as
-        # live sensors (frozen values previously stayed ok:true forever).
-        enc = [-1.0] * len(enc)
+    data_fresh = (now_w - last_rx) < 1.0 if last_rx else False
+    sd_busy = SD is not None and SD.busy
+    # The link is up while the device talks at all: an SD transfer pauses the
+    # S stream on purpose, which is not a fault (the sensors are simply not
+    # being sampled, and are reported so).
+    device_up = data_fresh or bool(sd_busy and last_line and (now_w - last_line) < 3.0)
+    if not data_fresh:
+        # Link loss (or a transfer): the last-received readings must not keep
+        # parading as live sensors (frozen values previously stayed ok:true).
         il = [0, 0]
         thumb_live = False
         imu_full_raw = None         # no link, no acceleration: say so, do not integrate
@@ -3507,134 +4340,67 @@ def build_snapshot(hz):
             BLEND["crown_ref"] = None
         WORLD["anchor"] = None     # never dead-reckon a wrist pose from a dead IMU
         WORLD["src"] = "none"
+    if der is None:
+        jl, nl, el, ne = _joints_from_enc(enc_state)
+        der = {"joints": jl, "n_live": nl, "encoders": el, "n_enc": ne,
+               "hand_q": [1.0, 0.0, 0.0, 0.0], "forearm_q": [1.0, 0.0, 0.0, 0.0],
+               "thumb": None, "body": BODY.body(), "body_rel": None, "tare": _tare_state}
+    joints, n_live = der["joints"], der["n_live"]
+    encoders = der["encoders"]
+    if not data_fresh:
+        joints = [dict(j, ok=False, deg=0.0) for j in joints]
+        encoders = [dict(e, ok=False, deg=-1.0) for e in encoders]
+        n_live = 0
+    body = dict(der["body"])
+    if not data_fresh:
+        body["live"] = False
 
-    # the wired finger's DOF come from ch8/9/10 (calibrated), overriding the
-    # default channel map so the twin moves that finger, not scattered joints.
-    validate_jcal_once(enc)
-    joint_override = {}
-    joint_calibrated = {}
-    for ch in ENC_DOF:
-        d = enc[ch] if ch < len(enc) else -1.0
-        if d >= 0.0:
-            jid, val = calibrated_joint(ch, d)
-            joint_override[jid] = val
-            dof, _ = ENC_DOF[ch]
-            joint_calibrated[jid] = ch in ENC_OPEN and (dof == "abduct" or ch in ENC_CLOSED)
-
-    joints = []
-    n_live = 0
-    for f in FINGERS:
-        for seg in SEGMENTS:
-            jid = f + "_" + seg
-            if jid in joint_override:
-                d = joint_override[jid]; ok = True
-            elif SIM_MODE or ENC_JOINT_SPACE_DIRECT:
-                ch = JOINT2CH[jid]
-                if ch in ENC_DOF:
-                    d = -1.0; ok = False   # wired channel: only drives the wired finger, not its default joint
-                else:
-                    d = enc[ch] if ch < len(enc) else -1000.0
-                    ok = _enc_ok(d)
-            else:
-                # Hardware channels without a measured channel/zero/direction/
-                # range remain visible in encoders[], but raw 0..360 magnet
-                # angles are not allowed to drive anatomical joint nodes.
-                d = -1.0; ok = False
-            if ok:
-                n_live += 1
-            joints.append({"id": jid, "deg": round(d, 2) if ok else 0.0, "ok": ok,
-                           "calibrated": bool(ok and (joint_calibrated.get(jid) or SIM_MODE or
-                                                       ENC_JOINT_SPACE_DIRECT))})
-
-    # raw hardware view: every physical channel 0..13, honest presence, plus the
-    # joint it currently maps to (so the enc->finger mapping is visible directly).
-    encoders = []
-    n_enc = 0
-    for ch in range(N_CH):
-        d = enc[ch] if ch < len(enc) else -1000.0
-        ok = _enc_ok(d)
-        if ok:
-            n_enc += 1
-        if ch in ENC_DOF:
-            joint_name = WIRED_FINGER + "_" + DOF_SEG[ENC_DOF[ch][0]]
-        elif SIM_MODE or ENC_JOINT_SPACE_DIRECT:
-            joint_name = CH2JOINT.get(ch)
-        else:
-            joint_name = None       # fitted sensor, mapping not measured yet
-        encoders.append({"ch": ch, "deg": round(d, 2) if ok else -1.0, "ok": ok,
-                         "joint": joint_name})
-
-    global _imu_tare_pending, IMU_TARE_HAND, IMU_TARE_FOREARM
-    # Stages 1+2 (align-or-remap, then the body-frame offset) are one call now, so
-    # the hand, the forearm and the thumb all go through IDENTICAL code. They used
-    # to differ - only the forearm got an offset applied, and the hand's was dead
-    # config - which is why setting the hand offset appeared to do nothing.
-    hq_r = imu_cfg_apply(hq, "hand")
-    fq_r = imu_cfg_apply(fq, "forearm")
-    if _imu_tare_pending and il[0] and il[1]:
-        # Live flags alone are insufficient: old fixed-width frames could carry
-        # a live bit beside a zero quaternion.  Only a genuine pair of rotations
-        # may become the persistent home.
-        if _valid_quat(hq_r) and _valid_quat(fq_r):
-            IMU_TARE_HAND = quat_conj(_norm_quat(hq_r))
-            IMU_TARE_FOREARM = quat_conj(_norm_quat(fq_r))
-            _imu_tare_pending = False
-            # provenance travels with the home (see _load_tare): which sensors were
-            # genuinely streaming, and under which mounting config.
-            _save_tare({"hand": bool(il[0]), "forearm": bool(il[1]),
-                        "thumb": bool(thumb_live)})
-    hq = quat_mul(IMU_TARE_HAND, hq_r)       # tare: left-multiply by the captured reference
-    fq = quat_mul(IMU_TARE_FOREARM, fq_r)
-    hq = quat_gain(hq, IMU_CFG["hand"]["gain"])      # sensitivity (1.0 = 1:1)
-    fq = quat_gain(fq, IMU_CFG["forearm"]["gain"])
-    hq = quat_flip_sense(hq, IMU_CFG["hand"]["flip"])
-    fq = quat_flip_sense(fq, IMU_CFG["forearm"]["flip"])
+    # Legacy display frames (align-or-remap, offset, tare, gain, flip), computed
+    # per device frame in ingest_frame. The tare is seated at the same moment as
+    # the body neutral (provisional or calibrated) and is per device boot.
+    hq, fq = list(der["hand_q"]), list(der["forearm_q"])
     hand = {"quat": [round(v, 4) for v in hq], "rpy_deg": quat_to_rpy(*hq),
-            "live": bool(il[0]), "source": orientation_source.get("hand", "unavailable")}
+            "live": bool(il[0]), "source": orientation_source.get("hand", "unavailable"),
+            "tare": der.get("tare")}
     forearm = {"quat": [round(v, 4) for v in fq], "rpy_deg": quat_to_rpy(*fq),
-               "live": bool(il[1]), "source": orientation_source.get("forearm", "unavailable")}
+               "live": bool(il[1]), "source": orientation_source.get("forearm", "unavailable"),
+               "tare": der.get("tare")}
     n_imu = int(il[0]) + int(il[1]) + (1 if thumb_live else 0)
 
-    # ---- thumb-tip IMU (v4): tared world frame + pose relative to the hand.
-    # The device mechanism stays thumb-out (locked scope); this is pure
-    # SENSING of the wearer's thumb, so the frame is emitted only while the
-    # sensor is actually reporting (absent = honestly absent).
-    global _thumb_tare_pending, IMU_TARE_THUMB
-    thumb = None
-    if thumb_live:
-        tq_r = imu_cfg_apply(tq_raw, "thumb")
-        if _thumb_tare_pending:
-            IMU_TARE_THUMB = quat_conj(tq_r)   # held pose (thumb extended) -> identity
-            _thumb_tare_pending = False
-            _save_tare({"hand": bool(il[0]), "forearm": bool(il[1]), "thumb": True})
-        tqd = quat_mul(IMU_TARE_THUMB, tq_r)
-        rel_thumb = quat_mul(quat_conj(hq), tqd)   # thumb expressed in the HAND frame
-        thumb = {"quat": [round(v, 4) for v in tqd],
-                 "rpy_deg": quat_to_rpy(*tqd),
-                 "rel_quat": [round(v, 4) for v in rel_thumb]}
+    # thumb-tip IMU (v4): present only while the sensor reports
+    thumb = der.get("thumb") if thumb_live else None
 
-    # ---- relative hand-vs-forearm pose (the forearm is the static reference).
-    # Orientation: q_rel = fq^-1 (x) hq, expressed in the forearm body frame
-    # (identity at the tared neutral). Translation: the hand cannot translate
-    # freely; it pivots about the WRIST, so the relative orientation moves the
-    # hand-IMU point along a lever arm. Frame convention matches the twins'
-    # model: +Z distal (fingers), +Y dorsal (up), +X thumb side. Units mm.
+    # ---- relative hand-vs-forearm pose. With a body neutral (provisional or
+    # calibrated) rel.quat IS the body model's hand-in-forearm rotation, soft-
+    # limited to the anatomical envelope for display, so every view agrees.
+    # Before any neutral it falls back to the legacy tared pair.
     global _rel_quat_hold
     rel_live = bool(il[0] and il[1])
-    if rel_live:
-        q_rel_raw = quat_mul(quat_conj(fq), hq)
-        q_rel_valid = _unit_quat_or_none(q_rel_raw)
-        if q_rel_valid is not None:
-            _rel_quat_hold = q_rel_valid
-        else:
-            rel_live = False
-            q_rel_raw = list(_rel_quat_hold)
+    br = der.get("body_rel")
+    if br is not None:
+        q_rel, wrist_deg, wrist_limited, q_rel_raw = list(br[0]), list(br[1]), br[2], list(br[3])
+        rel_source = "body"
+        if rel_live:
+            _rel_quat_hold = q_rel_raw
+        rel_limits = {"flexion": 80.0, "extension": 70.0, "deviation": 20.0, "radial": 20.0,
+                      "ulnar": 35.0, "pronation": 90.0}
     else:
-        # Relative wrist orientation is a two-sensor measurement.  When either
-        # side is absent, freeze the last valid pair rather than interpreting
-        # absolute hand motion against a fabricated identity forearm.
-        q_rel_raw = list(_rel_quat_hold)
-    q_rel, wrist_deg, wrist_limited = constrain_wrist_quat(q_rel_raw)
+        rel_source = "legacy"
+        rel_limits = {"flexion": WRIST_FLEX_LIMIT_DEG, "deviation": WRIST_DEV_LIMIT_DEG,
+                      "pronation": WRIST_PRON_LIMIT_DEG}
+        if rel_live:
+            q_rel_raw = quat_mul(quat_conj(fq), hq)
+            q_rel_valid = _unit_quat_or_none(q_rel_raw)
+            if q_rel_valid is not None:
+                _rel_quat_hold = q_rel_valid
+            else:
+                rel_live = False
+                q_rel_raw = list(_rel_quat_hold)
+        else:
+            # Relative wrist orientation is a two-sensor measurement: freeze the
+            # last valid pair rather than invent an identity forearm.
+            q_rel_raw = list(_rel_quat_hold)
+        q_rel, wrist_deg, wrist_limited = constrain_wrist_quat(q_rel_raw)
     p = [REL_F2W_MM[i] + quat_rot_vec(q_rel, REL_W2H_MM)[i] for i in range(3)]
     dist = math.sqrt(_vdot(p, p))
     nowr = time.time()
@@ -3652,9 +4418,8 @@ def build_snapshot(hz):
         "raw_quat": [round(v, 4) for v in q_rel_raw],
         "wrist_deg": wrist_deg,
         "limited": wrist_limited,
-        "limits_deg": {"flexion": WRIST_FLEX_LIMIT_DEG,
-                       "deviation": WRIST_DEV_LIMIT_DEG,
-                       "pronation": WRIST_PRON_LIMIT_DEG},
+        "limits_deg": rel_limits,
+        "source": rel_source,
         "pos_mm": [round(v, 1) for v in p],
         "pos0_mm": [round(REL_F2W_MM[i] + REL_W2H_MM[i], 1) for i in range(3)],
         "dist_mm": round(dist, 1),
@@ -3825,6 +4590,14 @@ def build_snapshot(hz):
          "detail": {"quest-fused": "quest-fused (right wrist)",
                     "imu-model": "imu-only (occluded)",
                     "none": "no vision anchor"}[world["source"]]},
+        {"stream": "body", "ok": bool(body.get("calibrated")) and bool(body.get("live")),
+         "rate_hz": hz if body.get("live") else 0,
+         "detail": ("calibrated" if body.get("calibrated") else
+                    ("provisional: calibrate, hold your hand flat" if body.get("provisional")
+                     else "no neutral yet")) + (" · " + body.get("pos_source", "") if body.get("live") else "")},
+        {"stream": "sd", "ok": bool(DEVICE.get("sd_present")) and not _sd_recent_failure(),
+         "rate_hz": 0,
+         "detail": _sd_health_detail(device_up)},
     ]
 
     device_ui = build_device_ui(device_up, rec, n_imu, n_live, act, joints)
@@ -3862,6 +4635,7 @@ def build_snapshot(hz):
         "safety": "ok" if device_up else "fault",
         "blend": blend,
         "link": {"device": device_up, "motors": motors_up, "clients": len(CLIENTS),
+                 "paused": "sd_transfer" if (sd_busy and not data_fresh) else None,
                  "lan": LAN_IP, "port": WS_PORT},
         "hand": hand, "forearm": forearm, "rel": rel, "world": world,
         "orientation_source": orientation_source,
@@ -3917,6 +4691,10 @@ def build_snapshot(hz):
                     "profile": eco["profile"], "task": eco["task"], "storage": "sd",
                     "elapsed_ms": elapsed_ms, "samples": eco["rec_samples"],
                     "quality": "good"},
+        # the shared body model (MOTION_PIPELINE.md s.7) and the device's own
+        # recording / power state
+        "body": body,
+        "device": _device_block(device_up, data_fresh),
         "reps": {"done": eco["reps_done"], "goal": eco["rep_goal"],
                  "active": eco["guided"] or eco["mode"] == "rhythm"},
     }
@@ -3932,61 +4710,490 @@ def build_snapshot(hz):
     if SEA_CMD["cmd"] is not None:
         snap["sea_cmd"] = SEA_CMD["cmd"]
 
-    # ---- 4D replay: host-side sample log. One compact row per broadcast tick
-    # while recording, sealed into a per-take data file on stop. Pose comes
-    # from the AR client's wrist stream (or the sim fixture) when fresh.
-    if rec:
-        # (sim self-posing now happens every tick in the fusion block above)
-        fresh = (now - POSE["t_wall"]) < POSE_FRESH_S and POSE["pos"] is not None
-        row = [int(t)]
-        # finger columns: real encoders when the rig reports; else the
-        # headset's hand-tracking (real vision) when the AR client streams it;
-        # else whatever the pipeline carries (sim, labelled on the take).
-        vj = POSE["joints"] if fresh else None
-        jcols, used_vision = _joint_row_cols(joints, vj, SIM_MODE)
-        row += jcols                                                 # 12 joints
-        used_enc = any(j.get("ok") for j in joints)
-        row += [round(v, 4) for v in hand["quat"]]
-        row += [round(v, 4) for v in forearm["quat"]]
-        row += [round(v, 4) for v in (thumb["rel_quat"] if thumb else [0, 0, 0, 0])]
-        row.append(round(blend["assist"], 3))
-        row.append(round(act.get("level", 0.0), 3))
-        if fresh:
-            row += [round(v, 4) for v in POSE["pos"]]
-            row += [round(v, 4) for v in POSE["quat"]]
-        else:
-            row += [None] * 7
-        # thumb columns (2026-07-20): only the headset's vision measures the
-        # thumb (the rig is thumb-out); None whenever no fresh vision thumb.
-        th = (vj or {}).get("thumb") if fresh else None
-        row += ([round(float(v), 2) for v in th] if th else [None] * 3)
-        # inertial translation (v7 firmware): the headset-free motion source.
-        # None rather than zeros on older firmware, so a replay can tell "this
-        # take had no acceleration data" from "the hand genuinely did not move".
-        iner = snap.get("inertial")
-        if iner:
-            hp = iner["per_imu"]["hand"]["pos_mm"]
-            fp = iner["per_imu"]["forearm"]["pos_mm"]
-            row += [hp[0], hp[1], hp[2], fp[0], fp[1], fp[2], iner["confidence"]]
-        else:
-            row += [None] * 7
-        with state_lock:
-            if len(ECO["rows"]) < REC_ROWS_CAP:
-                ECO["rows"].append(row)
-                # source counters track LOGGED rows only, so the label always
-                # describes the data actually in the file
-                if used_vision:
-                    ECO["rows_vision"] += 1
-                if used_enc:
-                    ECO["rows_enc"] += 1
-                if len(ECO["rows"]) == REC_ROWS_CAP:
-                    print(f"[takes] replay row log capped at {REC_ROWS_CAP} rows "
-                          "(~33 min at 60 Hz); recording continues, further rows "
-                          "are not logged (a forgotten recording used to grow "
-                          "without bound until RAM ran out)")
-            if fresh and POSE["env"]:
-                ECO["rec_env"] = POSE["env"]   # last fresh env wins (the room you ended in)
+    # Recording is NOT done here any more: take rows are written once per
+    # DEVICE frame by ingest_frame (_record_frame), so a 100 Hz device is never
+    # resampled at the snapshot rate and t_ms never repeats.
     return snap
+
+
+# ============================================================================
+# NEUTRAL / WRIST-AXIS COMMANDS and THE SD TAKE LIBRARY
+# ============================================================================
+def start_neutral_capture(enc_open=True, source="console"):
+    """Begin a neutral capture. Firmware v16 runs it on the device (`N`: 3-2-1
+    countdown on screen + buzzer, 2 s still hold, E,neutral,done with the
+    averaged raw quaternions). Older firmware: the bridge runs the same
+    countdown/hold on host time and averages its own frames."""
+    ui = NEUTRAL_UI
+    if ui["phase"] in ("requested", "countdown", "hold", "solving") and ui["t0"] \
+            and time.time() - ui["t0"] < 15.0:
+        return {"ok": False, "error": "a neutral capture is already running"}
+    if DEVICE.get("flags") is not None:
+        ui.update(phase="requested", source=source, t0=time.time(), last_sent=None,
+                  hold_t0=None, result=None, want_enc_open=enc_open)
+        send_teensy(b"N\n")
+        return {"ok": True, "via": "device"}
+    neutral_begin("bridge")
+    ui["want_enc_open"] = enc_open
+    return {"ok": True, "via": "bridge"}
+
+
+def _neutral_request_watch(now):
+    """A v16 device that never answers N (standby, busy) must not leave the
+    capture 'requested' forever."""
+    ui = NEUTRAL_UI
+    if ui["phase"] == "requested" and ui["t0"] and now - ui["t0"] > 3.0:
+        ui.update(phase="abort", want_enc_open=False)
+        broadcast({"kind": "ack", "event": "neutral", "phase": "abort", "t": 0, "ok": False,
+                   "source": ui["source"], "reason": "the device did not start the capture "
+                   "(standby, or firmware without N)"})
+
+
+def _wa_start(bm, duration):
+    res = bm.start_wrist_axis(duration)
+    _emit({"kind": "ack", "event": "wrist_axis", "phase": "capturing", "t": duration,
+           "frame_known": bm.has_heading(), **res})
+
+
+def _wa_reset(bm):
+    bm.wrist_axis = None
+    BODY_PERSIST["wrist_axis"] = None
+    n = bm.neutral
+    if n is not None and not n["provisional"]:
+        bm.capture_neutral(t_end=n["t"], kind=n["kind"], q_avg=n["q0"])
+        BODY_PERSIST["neutral"] = bm.export_neutral()
+    _body_save()
+    _emit({"kind": "ack", "event": "wrist_axis", "phase": "reset", "ok": True})
+
+
+def _body_reprior(bm):
+    """The mounting config changed (console #/imu): new priors; a real neutral
+    is re-solved from its stored raw averages (same boot, same pose)."""
+    bm.prior = body_priors()
+    n = bm.neutral
+    if n is not None:
+        bm.capture_neutral(t_end=n["t"], kind=n["kind"], q_avg=n["q0"], provisional=n["provisional"])
+
+
+# ---- SD library -------------------------------------------------------------
+_SD_IMPORTS_FILE = os.path.join(STATE_DIR, ".takto_sd_imports.json")
+SD_STATE = {"busy": None, "items": None, "listed_boot": None}   # busy = name being imported/listed
+SD_IMPORTS = {}                                   # name -> {"take", "bytes"}
+
+
+def _sd_imports_load():
+    global SD_IMPORTS
+    try:
+        with open(_SD_IMPORTS_FILE) as f:
+            d = json.load(f)
+        SD_IMPORTS = {str(k): v for k, v in (d.get("imports") or {}).items() if isinstance(v, dict)}
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        _quarantine_corrupt(_SD_IMPORTS_FILE, e, "sd")
+
+
+def _sd_imports_save():
+    try:
+        _write_json_atomic(_SD_IMPORTS_FILE, {"imports": SD_IMPORTS})
+    except Exception as e:
+        print("[sd] could not save the import index:", e)
+
+
+def sd_takes_msg():
+    items = []
+    for name, size in (SD_STATE["items"] or []):
+        imp = SD_IMPORTS.get(name)
+        taken = imp["take"] if (imp and imp.get("bytes") == size
+                                and any(t.get("id") == imp["take"] for t in takes)) else None
+        items.append({"name": name, "file": name.rsplit("/", 1)[-1], "bytes": size,
+                      "imported_take": taken})
+    return {"kind": "sd_takes", "items": items, "busy": bool(SD_STATE["busy"]),
+            "busy_name": SD_STATE["busy"], "listed": SD_STATE["items"] is not None,
+            "auto": (DEVICE.get("auto_record") if DEVICE.get("flags") is not None
+                     else (SD.auto if SD is not None else None))}
+
+
+def _sd_guard(for_import):
+    if SD is None:
+        return "no device link"
+    if SIM_DEVICE is None and _ser.get("port") is None:
+        return "the device is not connected"
+    if DEVICE.get("flags") is None and not SIM_MODE:
+        return "the SD library needs firmware v16"
+    if SD.busy or SD_STATE["busy"]:
+        return "an SD transfer is already running"
+    if for_import:
+        if state["recording"] or DEVICE.get("sd_recording"):
+            return "stop the recording first (a transfer pauses the device loop)"
+        if CAMERA_FOLLOW.get("armed"):
+            return "camera follow is armed; stop it first (a transfer pauses the joint stream)"
+    return None
+
+
+async def sd_list(c=None):
+    err = _sd_guard(False)
+    if err:
+        if c is not None:
+            _ack(c, event="error", error="sd: " + err)
+        broadcast(sd_takes_msg())
+        return
+    SD_STATE["busy"] = "list"
+    try:
+        items = await asyncio.to_thread(SD.list)
+        SD_STATE["items"] = items
+    except sdcard.SdError as e:
+        if c is not None:
+            _ack(c, event="error", error="sd list: %s" % e)
+    finally:
+        SD_STATE["busy"] = None
+    broadcast(sd_takes_msg())
+
+
+async def sd_set_auto(c, on):
+    err = _sd_guard(False)
+    if err:
+        _ack(c, event="error", error="sd: " + err)
+        return
+    SD_STATE["busy"] = "auto"
+    try:
+        val = await asyncio.to_thread(SD.set_auto, bool(on))
+        _ack(c, event="sd_auto", ok=True, on=val)
+    except sdcard.SdError as e:
+        _ack(c, event="error", error="sd auto: %s" % e)
+    finally:
+        SD_STATE["busy"] = None
+    broadcast(sd_takes_msg())
+
+
+async def sd_import(c, name):
+    err = _sd_guard(True)
+    if err:
+        _ack(c, event="error", error="sd import: " + err)
+        return
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_./-]{1,64}", name) or ".." in name:
+        _ack(c, event="error", error="sd import: bad file name")
+        return
+    SD_STATE["busy"] = name
+    broadcast(sd_takes_msg())
+    take_id = None
+    loop = asyncio.get_running_loop()
+
+    last_pct = [-1]
+
+    def prog(frac):
+        pct = int(max(0, min(99, frac * 100)))
+        if pct == last_pct[0]:
+            return
+        last_pct[0] = pct
+        loop.call_soon_threadsafe(broadcast, {"kind": "ack", "event": "sd_import", "name": name,
+                                              "pct": pct})
+    try:
+        text = await asyncio.to_thread(                      # the file's lines, CRC-verified
+            SD.get, name, lambda got, total: prog(0.6 * (got / total if total else 0.0)))
+        prog(0.6)
+        take_id = "take_%04d" % _next_state_id("take")
+        _RESERVED_IDS.add(take_id)
+        take = await asyncio.to_thread(import_sd_take, text, name, take_id,
+                                       lambda f: prog(0.6 + 0.4 * f))
+        takes.insert(0, take)
+        _save_takes()
+        SD_IMPORTS[name] = {"take": take_id, "bytes": (SD.last_get or {}).get("bytes"),
+                            "crc": (SD.last_get or {}).get("crc")}
+        _sd_imports_save()
+        broadcast({"kind": "takes", "takes": takes})
+        broadcast({"kind": "ack", "event": "sd_import", "name": name, "pct": 100})
+        broadcast({"kind": "ack", "event": "sd_imported", "name": name, "take": take_id,
+                   "neutral": take.get("neutral"), "rows": take.get("rows")})
+        print("[sd] imported %s -> %s (%s rows, neutral %s)" % (name, take_id, take.get("rows"),
+                                                                 take.get("neutral")))
+    except sdcard.SdError as e:
+        broadcast({"kind": "ack", "event": "sd_import", "name": name, "pct": None, "ok": False,
+                   "error": str(e)})
+        _ack(c, event="error", error="sd import %s: %s" % (name, e))
+    except Exception as e:
+        print("[sd] import failed:", e)
+        broadcast({"kind": "ack", "event": "sd_import", "name": name, "pct": None, "ok": False,
+                   "error": str(e)})
+        _ack(c, event="error", error="sd import %s: %s" % (name, e))
+    finally:
+        if take_id:
+            _RESERVED_IDS.discard(take_id)
+        SD_STATE["busy"] = None
+        send_teensy(b"j\n")            # make sure the stream is back on after a stalled transfer
+    broadcast(sd_takes_msg())
+
+
+class _OfflineJoints:
+    """The live encoder -> joint mapping, re-run on a recorded take with its
+    OWN state (filters, unwrap, open seed), so an import never touches the
+    live encoder calibration. Uses the bridge's current marks."""
+
+    def __init__(self):
+        self.dof = dict(ENC_DOF)
+        self.open = dict(ENC_OPEN)
+        self.closed = dict(ENC_CLOSED)
+        self.filters = {}
+        self.cont = {}
+        self.anchor = {}
+        self.seed = {}
+
+    def __call__(self, enc_raw, t_ms):
+        enc = []
+        for ch, d in enumerate(enc_raw):
+            if d is None or d < 0.0:
+                self.filters.pop(ch, None)
+                self.cont.pop(ch, None)
+                self.anchor.pop(ch, None)
+                enc.append(-1.0)
+                continue
+            f = self.filters.get(ch)
+            if f is None:
+                f = self.filters[ch] = _OneEuroAngle(ENC_FILTER_MIN_CUTOFF, ENC_FILTER_BETA)
+            enc.append(f(d, t_ms / 1000.0) if ENC_FILTER_ON else d)
+        cols = [0.0] * 12
+        oks = [False] * 12
+        if SIM_MODE or ENC_JOINT_SPACE_DIRECT:
+            for jid, ch in JOINT2CH.items():
+                if ch in self.dof:
+                    continue
+                d = enc[ch] if ch < len(enc) else -1.0
+                if d >= 0.0:
+                    i = list(JOINT2CH).index(jid)
+                    cols[i] = round(d - (SIM_ENC_BIAS if SIM_MODE else 0.0), 2)
+                    oks[i] = True
+        for ch, (dof, sign) in self.dof.items():
+            d = enc[ch] if ch < len(enc) else -1.0
+            if d < 0.0:
+                continue
+            st = self.cont.get(ch)
+            if st is None:
+                st = self.cont[ch] = {"cont": d, "last": d}
+            else:
+                st["cont"] += _wrap180(d - st["last"])
+                st["last"] = d
+            o = self.open.get(ch)
+            if o is None:
+                buf = self.seed.setdefault(ch, [])
+                buf.append(d)
+                if len(buf) >= _SEED_FRAMES:
+                    sx = sum(math.cos(math.radians(v)) for v in buf)
+                    sy = sum(math.sin(math.radians(v)) for v in buf)
+                    o = self.open[ch] = math.degrees(math.atan2(sy, sx)) % 360.0
+            if o is None:
+                travel = 0.0
+                o = d
+            else:
+                a = self.anchor.get(ch)
+                if a is None:
+                    a = self.anchor[ch] = st["cont"] - _wrap180(d - o)
+                travel = st["cont"] - a
+            val = joint_value(dof, sign, travel, o, self.closed.get(ch))
+            jid = WIRED_FINGER + "_" + DOF_SEG[dof]
+            i = list(JOINT2CH).index(jid)
+            cols[i] = round(val, 2)
+            oks[i] = True
+        return cols, oks
+
+
+def import_sd_take(text, name, take_id, progress=None):
+    # `text`: the file as a string, or its lines (what SdClient.get returns)
+    """Run one SD take file through the SAME pipeline as live data - encoder
+    calibration, a FRESH BodyModel (its own neutral, trackers, inertial state),
+    the legacy display and the take-row builder - and write it as a normal
+    take. Nothing here reads or writes the live state beyond the (read-only)
+    calibration constants. Worker thread."""
+    parsed = sdcard.parse_take_csv(text)
+    idx, raw_rows = parsed["idx"], parsed["rows"]
+    if not raw_rows:
+        raise sdcard.SdError("the take has no rows")
+    meta = parsed["meta"]
+    ncols = len(parsed["cols"])
+
+    def rows_iter(step=1):
+        for line in raw_rows[::step]:
+            yield sdcard.parse_row(line, ncols)
+
+    def g(r, key):
+        i = idx.get(key)
+        return None if i is None else r[i]
+
+    def vec(r, keys):
+        v = [g(r, k) for k in keys]
+        return None if any(x is None for x in v) else v
+
+    short = {"hand": "h", "forearm": "f", "thumb": "t"}
+    live_col = {"hand": "h_live", "forearm": "f_live", "thumb": "t_live"}
+    try:
+        boot = int(meta.get("boot")) if meta.get("boot") is not None else None
+    except ValueError:
+        boot = None
+
+    def frame_of(r):
+        fr = {"t": g(r, "t_ms") / 1000.0, "q": {}, "gyr": {}, "lin": {}, "dv": {}, "stab": {}}
+        for k in IMU_KEYS:
+            n = k
+            lv = g(r, live_col[k])
+            if lv is None:                        # pre-v16 file: v15 flags where they exist
+                lv = g(r, "thumb_live") if k == "thumb" else 1.0
+            live = bool(lv) and lv > 0.5
+            q = vec(r, ["%s_gqw" % n, "%s_gqx" % n, "%s_gqy" % n, "%s_gqz" % n])
+            if q is None or motion.valid_quat(q) is None:
+                s = short[k]
+                q = vec(r, ["%s_qw" % s, "%s_qx" % s, "%s_qy" % s, "%s_qz" % s])
+            fr["q"][k] = q if (live and motion.valid_quat(q) is not None) else None
+            fr["gyr"][k] = vec(r, ["%s_gx" % n, "%s_gy" % n, "%s_gz" % n]) if live else None
+            fr["lin"][k] = vec(r, ["%s_lax" % n, "%s_lay" % n, "%s_laz" % n]) if live else None
+            s = short[k]
+            fr["dv"][k] = vec(r, ["%s_dvx" % s, "%s_dvy" % s, "%s_dvz" % s]) if live else None
+            st = g(r, "%s_stab" % s)
+            fr["stab"][k] = int(st) if (st is not None and st != 255) else None
+        return fr
+
+    thumb_seen = any(bool(g(r, "t_live")) for r in rows_iter(max(1, len(raw_rows) // 200)))
+    # ---- neutrals: header > inline events > this bridge's neutral for that boot
+    neutrals = []
+    if parsed["neutral"]:
+        neutrals.append((parsed["neutral"]["t_ms"], parsed["neutral"]["q"], "header"))
+    for ev in parsed["events"]:
+        if ev["kind"] == "neutral" and ev["args"][:1] == ["done"] and ev.get("q"):
+            neutrals.append((ev["t_ms"], ev["q"], "event"))
+    neutrals.sort(key=lambda n: n[0])
+    rec = BODY_PERSIST.get("neutral")
+    if not neutrals and rec and boot is not None and rec.get("boot_id") == boot and rec.get("t") is not None:
+        neutrals.append((rec["t"] * 1000.0, rec["q0"], "boot"))
+    for i, (t_n, q, src) in enumerate(neutrals):
+        q = dict(q)
+        if not thumb_seen:
+            q["thumb"] = None
+        neutrals[i] = (t_n, q, src)
+
+    def make_model():
+        bm = motion.BodyModel(body_priors(), cfg=dict(BODY_PERSIST.get("arm") or {}),
+                              wrist_axis=BODY_PERSIST.get("wrist_axis"))
+        bm.set_boot(boot)
+        return bm
+
+    provisional = None
+    if not neutrals:
+        # no neutral anywhere: the first 1.5 s still window of the take, used
+        # retroactively for the whole take and flagged provisional
+        probe = make_model()
+        for r in rows_iter():
+            if g(r, "t_ms") is None:
+                continue
+            probe.update(frame_of(r))
+            if probe.neutral is not None:
+                provisional = (probe.neutral["t"], probe.neutral["q0"])
+                break
+    bm = make_model()
+    bm.auto_neutral = False
+    applied = {"src": "none", "i": 0}
+
+    def apply(t_n, q, src, prov=False):
+        res = bm.capture_neutral(t_end=t_n / 1000.0, kind="sd-" + src, q_avg=q, provisional=prov)
+        if res.get("ok"):
+            applied["src"] = src
+        return res.get("ok")
+
+    if neutrals:
+        apply(*neutrals[0])
+        applied["i"] = 1
+    elif provisional:
+        apply(provisional[0] * 1000.0, provisional[1], "auto", prov=True)
+
+    def tare_of(q0):
+        out = {}
+        for k in IMU_KEYS:
+            q = q0.get(k) if q0 else None
+            tq = imu_cfg_apply(q, k) if q is not None else None
+            out[k] = quat_conj(_norm_quat(tq)) if (tq is not None and _valid_quat(tq)) else [1.0, 0.0, 0.0, 0.0]
+        return out
+    tare = tare_of(bm.neutral["q0"] if bm.neutral else None)
+    joints = _OfflineJoints()
+    trackers = {k: InertialTracker(k) for k in IMU_KEYS}
+    enc_names = ["enc%02d" % ch for ch in range(N_CH)]
+    path = _take_data_path(take_id)
+    tmp = path + ".tmp"
+    n_out, last_t, spark, t_first, any_iner, any_enc = 0, None, [], None, False, False
+    pip_i = list(JOINT2CH).index(WIRED_FINGER + "_pip")
+    with open(tmp, "w") as out:
+        out.write('{"id":%s,"cols":%s,"rows":[' % (json.dumps(take_id), json.dumps(ROW_COLS)))
+        for ri, r in enumerate(rows_iter()):
+            t_ms = g(r, "t_ms")
+            if t_ms is None or (last_t is not None and t_ms <= last_t):
+                continue                            # never duplicate a t_ms
+            last_t = t_ms
+            if t_first is None:
+                t_first = t_ms
+            while applied["i"] < len(neutrals) and neutrals[applied["i"]][0] <= t_ms:
+                if apply(*neutrals[applied["i"]]):
+                    tare = tare_of(bm.neutral["q0"])
+                applied["i"] += 1
+            fr = frame_of(r)
+            bm.update(fr)
+            bm.pop_events()
+            cols, oks = joints([g(r, n) for n in enc_names], t_ms)
+            any_enc = any_enc or any(oks)
+            # legacy display quats relative to the neutral's raw averages
+            disp = {}
+            for k in IMU_KEYS:
+                q = bm.raw[k] or [1.0, 0.0, 0.0, 0.0]
+                d = quat_mul(tare[k], imu_cfg_apply(q, k))
+                disp[k] = quat_flip_sense(quat_gain(d, IMU_CFG[k]["gain"]), IMU_CFG[k]["flip"])
+            th_rel = (quat_mul(quat_conj(disp["hand"]), disp["thumb"]) if bm.live["thumb"]
+                      else [0, 0, 0, 0])
+            crown, crown_live = g(r, "crown"), g(r, "crown_live")
+            blend = (max(0.0, min(1.0, crown / 1000.0)) if (crown is not None and crown_live == 1)
+                     else 0.35)
+            iner = [None] * 7
+            if bm.live["hand"] and bm.live["forearm"] and fr["lin"]["hand"] and fr["lin"]["forearm"]:
+                for k in ("hand", "forearm"):
+                    trackers[k].update(bm.raw[k], fr["lin"][k], fr["gyr"][k] or [0.0, 0.0, 0.0],
+                                       t_ms / 1000.0)
+                hp, fp = trackers["hand"].p, trackers["forearm"].p
+                conf = min(trackers["hand"].confidence(), trackers["forearm"].confidence())
+                iner = [round(hp[0] * 1000, 1), round(hp[1] * 1000, 1), round(hp[2] * 1000, 1),
+                        round(fp[0] * 1000, 1), round(fp[1] * 1000, 1), round(fp[2] * 1000, 1),
+                        round(conf, 2)]
+                any_iner = True
+            row = ([int(t_ms)] + cols + [round(v, 4) for v in disp["hand"]]
+                   + [round(v, 4) for v in disp["forearm"]] + [round(v, 4) for v in th_rel]
+                   + [round(blend, 3), 0.0] + [None] * 7 + [None] * 3 + iner + bm.take_cols())
+            out.write(("," if n_out else "") + json.dumps(row, separators=(",", ":")))
+            n_out += 1
+            if n_out % 5 == 0:
+                spark.append(max(0.0, min(1.0, (cols[pip_i] - FLEX_OPEN) / (FLEX_CLOSED - FLEX_OPEN)))
+                             if oks[pip_i] else 0.0)
+            if progress and ri % 1000 == 0:
+                progress(ri / max(1, len(raw_rows)))
+        out.write("]}")
+    os.replace(tmp, path)
+    dur = ((last_t or 0) - (t_first or 0)) / 1000.0
+    src = applied["src"]
+    take = {
+        "id": take_id, "profile": "SD card", "task": "SD take %s" % (meta.get("take") or name),
+        "created_ms": int(time.time() * 1000), "duration_s": round(dur, 1),
+        "samples": n_out, "rows": n_out, "quality": "good" if not parsed["warnings"] else "partial",
+        "spark": _downsample(spark), "has_data": True, "traj": False,
+        "traj_inertial": any_iner, "body": True,
+        "joint_source": ("sim" if SIM_MODE else ("encoders" if any_enc else "none")),
+        "source": "sd", "sd_name": name, "sd_take": int(meta["take"]) if str(meta.get("take", "")).isdigit() else None,
+        "boot_id": boot, "rate_hz": int(float(meta["rate_hz"])) if meta.get("rate_hz") else None,
+        "recorded_by": meta.get("source"),
+        # where the body neutral came from: header / event (the device's own
+        # capture), boot (this bridge's capture for that power-up), auto
+        # (provisional: first still 1.5 s), none
+        "neutral": {"header": "device", "event": "device", "boot": "bridge",
+                    "auto": "provisional"}.get(src, "none"),
+        "body_cal": "calibrated" if src in ("header", "event", "boot") else
+                    ("provisional" if src == "auto" else "none"),
+    }
+    if parsed["warnings"]:
+        take["warnings"] = parsed["warnings"][:10]
+    if progress:
+        progress(1.0)
+    return take
 
 
 # ============================================================================
@@ -4086,6 +5293,9 @@ async def _broadcast_loop():
     next_t = loop.time() + period
     while True:
         try:
+            _now = time.time()
+            _neutral_ui_tick(_now)
+            _neutral_request_watch(_now)
             text = wire_json(build_snapshot(HZ))
             for c in list(CLIENTS):
                 c.offer_snap(text)
@@ -4146,6 +5356,7 @@ def handle_command(c, raw):
                 _ack(c, event="imu_cfg", ok=False, error=f"unknown imu {who!r}")
                 return
             imu_cfg_save()
+            body_call(_body_reprior)          # the body model's mounting priors follow
             broadcast({"kind": "imu_cfg", "cfg": IMU_CFG})
             _ack(c, event="imu_cfg", ok=True, cfg=IMU_CFG)
             return
@@ -4165,6 +5376,7 @@ def handle_command(c, raw):
                 IMU_CFG[who]["align"] = None
             IMU_CFG[who].update(clean)
             imu_cfg_save()
+            body_call(_body_reprior)          # the body model's mounting priors follow
             broadcast({"kind": "imu_cfg", "cfg": IMU_CFG})
             _ack(c, event="imu_cfg", ok=True, imu=who, cfg=IMU_CFG)
             return
@@ -4187,7 +5399,7 @@ def handle_command(c, raw):
         # holds the last-received (frozen) degrees, and a capture would persist
         # them over the real bench calibration with a success ack. (The IMU tare
         # is inherently gated on the live flags; the encoder path was not.)
-        if what in ("imu", "neutral", "joints_open", "joints_closed", "joint_closed",
+        if what in ("imu", "neutral", "wrist_axis", "joints_open", "joints_closed", "joint_closed",
                     "sweep_start", "sweep_stop") and not SIM_MODE:
             with state_lock:
                 lr = state["last_rx"]
@@ -4200,18 +5412,33 @@ def handle_command(c, raw):
             res = imu_align_step(cmd.get("step", ""), cmd.get("imu", "forearm"))
             _ack(c, event="imu_align", **res)
             if res.get("ok"):
+                body_call(_body_reprior)
                 broadcast({"kind": "imu_cfg", "cfg": IMU_CFG})
         elif what == "imu":
-            trigger_imu_tare()    # capture the current pose as the aligned reference
-            _ack(c, event="calibrated")
+            # "This pose is home, now": an immediate capture from the last 0.5 s
+            # of frames (refused if the arm moved), seating the body neutral and
+            # the legacy display home together. For the guided flow use neutral.
+            body_call(lambda bm: _neutral_result(bm.capture_neutral(window_s=0.5, kind="imu"), "imu"))
+            _ack(c, event="calibrated", what="imu")
         elif what == "neutral":
-            # arm-flat, fingers-extended pose = the zero: tare both IMUs AND set
-            # the flexion OPEN (extended) reference in one capture.
-            trigger_imu_tare()
-            with state_lock:
-                enc_now = list(state["enc"])
-            capture_joint_ref("open", enc_now)
-            _ack(c, event="calibrated")
+            # The body neutral (MOTION_PIPELINE.md s.3): palm down, forearm level
+            # and forward, wrist straight, fingers extended. The device counts
+            # down and holds; the averaged pose seats the body frame, the legacy
+            # home, and (as before) the encoder OPEN reference.
+            res = start_neutral_capture(enc_open=True, source="console")
+            if res.get("ok"):
+                _ack(c, event="neutral", phase="requested", via=res["via"])
+            else:
+                _ack(c, event="error", error=res.get("error"))
+        elif what == "wrist_axis":
+            # optional functional step: 5 s of wrist flexion/extension
+            dur = cmd.get("seconds", 5.0)
+            dur = float(dur) if isinstance(dur, (int, float)) and 3.0 <= dur <= 15.0 else 5.0
+            body_call(lambda bm: _wa_start(bm, dur))
+            _ack(c, event="wrist_axis", phase="requested", t=dur)
+        elif what == "wrist_axis_reset":
+            body_call(_wa_reset)
+            _ack(c, event="wrist_axis", phase="reset_requested")
         elif what == "joint_closed":
             try:
                 ch = int(cmd.get("channel"))
@@ -4279,6 +5506,9 @@ def handle_command(c, raw):
 
     if name == "record":
         action = cmd.get("action")
+        if action == "start" and (SD_STATE["busy"] or (SD is not None and SD.busy)):
+            _ack(c, event="error", error="an SD transfer is running; record after it finishes")
+            return
         if action == "start":
             prof = cmd.get("profile") or cmd.get("patient") or {}
             pname = prof.get("name") if isinstance(prof, dict) else str(prof)
@@ -4291,6 +5521,30 @@ def handle_command(c, raw):
             _ack(c, event="rec_stopped", id=take["id"] if take else None)
             if take:
                 broadcast({"kind": "takes", "takes": takes})
+        return
+
+    if name == "sim":             # --sim only: drive the simulated device (tests, demos)
+        if not SIM_MODE or SIM_DEVICE is None:
+            _ack(c, event="error", error="sim commands need --sim")
+            return
+        if cmd.get("action") == "reboot":
+            SIM_DEVICE.write(b"X,reboot\n")       # power-cycle: new boot id + heading reference
+            _ack(c, event="sim", action="reboot")
+        else:
+            _ack(c, event="error", error="unknown sim action")
+        return
+
+    if name == "sd":              # the device's SD take library (MOTION_PIPELINE.md s.6-7)
+        action = cmd.get("action", "list")
+        loop = asyncio.get_running_loop()
+        if action == "list":
+            loop.create_task(sd_list(c))
+        elif action == "import":
+            loop.create_task(sd_import(c, cmd.get("name")))
+        elif action == "auto":
+            loop.create_task(sd_set_auto(c, bool(cmd.get("on"))))
+        else:
+            _ack(c, event="error", error="unknown sd action")
         return
 
     if name == "tendon":          # guarded tendon calibration (web Calibration card)
@@ -4783,6 +6037,7 @@ async def ws_handler(ws, *args):
     c.queue({"kind": "watch_catalog", **WATCH_CATALOG})   # the watch-face catalog
     c.queue({"kind": "imu_cfg", "cfg": IMU_CFG,           # per-IMU mounting config
              "presets": IMU_OFFSET_PRESETS})
+    c.queue(sd_takes_msg())                               # the SD library (contract s.7)
     writer = asyncio.get_running_loop().create_task(_client_writer(c))
     try:
         async for msg in ws:
@@ -4802,6 +6057,8 @@ async def main_async(host, port, ssl_ctx=None):
     scheme = "wss" if ssl_ctx else "ws"
     # max_size raised for env_save: a Quest scene mesh serializes to a few MB
     # (default 1 MiB would sever the AR client mid-upload)
+    global _LOOP
+    _LOOP = asyncio.get_running_loop()
     async with websockets.serve(ws_handler, host, port, ssl=ssl_ctx,
                                 max_size=32 * 1024 * 1024):
         _ensure_hub()
@@ -4861,15 +6118,18 @@ if __name__ == "__main__":
 
     HZ = args.hz
     WS_PORT = args.ws_port
+    SD = sdcard.SdClient(send_teensy)
     if args.sim:
         SIM_MODE = True
         enable_sim_pipeline()
+        _SD_IMPORTS_FILE += ".sim"
         n = max(0, min(4, args.sim_motors))
         if n:
             MOTORS = SimMotors(("index_drive", "middle_drive", "ring_drive", "pinky_drive")[:n])
         th = threading.Thread(target=sim_thread, daemon=True)
     else:
         th = threading.Thread(target=serial_thread, args=(args.port, args.baud), daemon=True)
+    _sd_imports_load()
     th.start()
     try:
         asyncio.run(main_async(args.ws_host, args.ws_port, ssl_ctx))

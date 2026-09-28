@@ -48,3 +48,16 @@ location.hash = '#/replay';
 
 The takes reference `env_0001`, so the Sim Lab wireframe loads with them. Recording
 your own takes writes the same format; see the capture surface in the web app.
+
+## Format note (motion pipeline, firmware v16)
+
+These samples use the original 34-column row at 50 Hz and carry no body
+columns. Takes recorded (or imported from the device's SD card) by the current
+bridge have 59 columns: the same leading columns, then `thumb_abd..thumb_ip`,
+the legacy inertial `ihx..i_conf`, and the body-model block
+`b_ex,b_ey,b_ez,b_wx,b_wy,b_wz,b_fq_w..b_fq_z,b_hq_w..b_hq_z,b_cal`
+(`software/MOTION_PIPELINE.md` section 7). Rows are one per device frame
+(100 Hz on v16). Every take ships its own `cols` array, and readers must index by
+name, so both generations play side by side; a sample simply has no `b_*`
+columns, and a surface that wants the body model falls back to the legacy
+quaternions for it.
