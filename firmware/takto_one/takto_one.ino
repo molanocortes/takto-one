@@ -1802,7 +1802,12 @@ static void ap(const char* fmt, ...) {
 }
 
 bool sdEnsure() {
-  if (!sdOK) sdOK = SD.begin(BUILTIN_SDCARD);
+  // [BENCH 2026-09-29] NOT SD.begin(): with no card it blocks ~2 s, which put a
+  // 2 s hole in the sensor stream every time a take was requested without a
+  // card. mediaPresent() reads the socket's DAT3 card-detect line first (instant
+  // when empty) and only mounts when a card is actually there: hot-insertion
+  // works without a reboot, and an empty slot costs nothing.
+  if (!sdOK) sdOK = SD.mediaPresent();
   if (sdOK && !SD.exists("TAKES")) SD.mkdir("TAKES");
   return sdOK;
 }
