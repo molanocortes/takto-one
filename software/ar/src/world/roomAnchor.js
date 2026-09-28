@@ -73,6 +73,40 @@ export function relocationMatrix(anchorNow, anchorAtSave) {
   return mul4(anchorNow, invertRigid(anchorAtSave));
 }
 
+/** Rotation part of a column-major rigid 4x4 as a quaternion [w,x,y,z]. */
+export function quatFromMatrix(m) {
+  const m00 = m[0], m01 = m[4], m02 = m[8];
+  const m10 = m[1], m11 = m[5], m12 = m[9];
+  const m20 = m[2], m21 = m[6], m22 = m[10];
+  const tr = m00 + m11 + m22;
+  let w, x, y, z;
+  if (tr > 0) {
+    const s = 0.5 / Math.sqrt(tr + 1);
+    w = 0.25 / s; x = (m21 - m12) * s; y = (m02 - m20) * s; z = (m10 - m01) * s;
+  } else if (m00 > m11 && m00 > m22) {
+    const s = 2 * Math.sqrt(1 + m00 - m11 - m22);
+    w = (m21 - m12) / s; x = 0.25 * s; y = (m01 + m10) / s; z = (m02 + m20) / s;
+  } else if (m11 > m22) {
+    const s = 2 * Math.sqrt(1 + m11 - m00 - m22);
+    w = (m02 - m20) / s; x = (m01 + m10) / s; y = 0.25 * s; z = (m12 + m21) / s;
+  } else {
+    const s = 2 * Math.sqrt(1 + m22 - m00 - m11);
+    w = (m10 - m01) / s; x = (m02 + m20) / s; y = (m12 + m21) / s; z = 0.25 * s;
+  }
+  const n = Math.hypot(w, x, y, z) || 1;
+  return [w / n, x / n, y / n, z / n];
+}
+
+/** Apply a column-major 4x4 to one point [x,y,z]; returns a new array. */
+export function applyToPoint(m, p) {
+  const x = p[0], y = p[1], z = p[2];
+  return [m[0] * x + m[4] * y + m[8] * z + m[12],
+          m[1] * x + m[5] * y + m[9] * z + m[13],
+          m[2] * x + m[6] * y + m[10] * z + m[14]];
+}
+
+export const IDENTITY4 = Float64Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);   // treat as read-only
+
 /** Apply a column-major 4x4 to a flat xyz array IN PLACE. Metres in, metres out. */
 export function applyToPoints(m, flatXYZ) {
   for (let i = 0; i + 2 < flatXYZ.length; i += 3) {
@@ -110,6 +144,10 @@ export function storedAnchors() { return _store(); }
 /** The newest stored record, or null. */
 export function latestAnchor() { return _store()[0] || null; }
 
+/** The newest stored record that is bound to an env id (the only kind worth
+ *  restoring: an anchor whose upload never got an id relocates nothing). */
+export function latestEnvAnchor() { return _store().find((a) => a.envId) || null; }
+
 /** The stored record for one env id, or null. */
 export function anchorForEnv(envId) {
   return _store().find((a) => a.envId === envId) || null;
@@ -135,8 +173,12 @@ export class RoomAnchor {
     this.handle = null;        // persistent handle string
     this.matrixAtSave = null;  // Float64Array(16), anchor pose when it was saved
     this.relocated = null;     // Float64Array(16) after a successful restore
-    this.state = "idle";       // idle | creating | live | restoring | restored | unsupported | error
+    // idle | creating | live | restoring | localizing | restored | unsupported | error
+    this.state = "idle";
     this.reason = "";          // honest, human-readable, shown on the diag HUD
+    this.envId = null;         // the env a restored anchor belongs to
+    this.pending = false;      // an async create/restore is in flight
+    this._locT0 = 0;           // when localization started (ms)
   }
 
   /** True when the running session negotiated the anchors feature. */
@@ -164,6 +206,7 @@ export class RoomAnchor {
       return null;
     }
     this.state = "creating";
+    this.pending = true;
     try {
       const viewer = xrFrame.getViewerPose(refSpace);
       if (!viewer) { this.state = "error"; this.reason = "no viewer pose to anchor to"; return null; }
@@ -196,7 +239,7 @@ export class RoomAnchor {
       this.state = "error";
       this.reason = "createAnchor failed: " + ((e && e.name) || e);
       return null;
-    }
+    } finally { this.pending = false; }
   }
 
   // keep the newest MAX_ANCHORS; delete the overflow from the runtime too, so
@@ -215,38 +258,64 @@ export class RoomAnchor {
   }
 
   /**
-   * Restore a previously persisted anchor and compute the relocation matrix
-   * that maps geometry saved against it into today's reference space.
-   * Returns the matrix, or null with `reason` set.
+   * Restore a previously persisted anchor. ASYNC and FRAME-FREE on purpose:
+   * an XRFrame is only valid inside its own rAF callback, so the old code's
+   * `xrFrame.getPose` after `await restorePersistentAnchor` always threw
+   * (reported as "private browsing"). The pose is read later, inside a real
+   * frame, by tick(). Resolves true when the anchor object came back (state
+   * "localizing"), false with `reason` set otherwise.
    */
-  async restore(handle, xrFrame, refSpace, session) {
+  async restore(handle, session, nowMs = 0) {
     const rec = _store().find((a) => a.handle === handle) || null;
-    if (!rec) { this.state = "error"; this.reason = "no stored anchor for that handle"; return null; }
+    if (!rec) { this.state = "error"; this.reason = "no stored anchor for that handle"; return false; }
     if (!RoomAnchor.supported(session)) {
       this.state = "unsupported";
       this.reason = "anchors feature not granted by the session";
-      return null;
+      return false;
     }
     this.state = "restoring";
+    this.pending = true;
     try {
       const anchor = await session.restorePersistentAnchor(handle);
       this.anchor = anchor;
       this.handle = handle;
-      const pose = xrFrame.getPose(anchor.anchorSpace, refSpace);
-      if (!pose) { this.state = "error"; this.reason = "anchor restored but not localized this frame"; return null; }
-      const now = Float64Array.from(pose.transform.matrix);
-      const saved = Float64Array.from(rec.matrix);
-      this.matrixAtSave = saved;
-      this.relocated = relocationMatrix(now, saved);
-      this.state = "restored";
-      this.reason = "relocated against a persisted anchor";
-      return this.relocated;
+      this.envId = rec.envId || null;
+      this.matrixAtSave = Float64Array.from(rec.matrix);
+      this.state = "localizing";
+      this.reason = "restored; waiting for the headset to localize it";
+      this._locT0 = nowMs;
+      return true;
     } catch (e) {
       this.state = "error";
-      // the honest cause: private mode and cleared site data both land here
+      // several causes land here; name the exception, list the usual ones
       this.reason = "restorePersistentAnchor failed (" + ((e && e.name) || e) +
-                    "); private browsing or cleared site data both do this";
-      return null;
+                    "): the anchor was deleted, site data cleared, or private browsing";
+      return false;
+    } finally { this.pending = false; }
+  }
+
+  /**
+   * Per XR frame (inside the frame callback). While localizing/restored, read
+   * the anchor's pose NOW and keep the relocation matrix current (anchors
+   * refine their pose as tracking improves). Gives up after `timeoutMs`
+   * without a pose: the room was not recognised.
+   */
+  tick(xrFrame, refSpace, nowMs, timeoutMs = 15000) {
+    if (this.state !== "localizing" && this.state !== "restored") return;
+    if (!this.anchor || !xrFrame || !xrFrame.getPose) return;
+    let pose = null;
+    try { pose = xrFrame.getPose(this.anchor.anchorSpace, refSpace); } catch (_) { pose = null; }
+    if (pose && this.matrixAtSave) {
+      this.relocated = relocationMatrix(Float64Array.from(pose.transform.matrix), this.matrixAtSave);
+      if (this.state !== "restored") {
+        this.state = "restored";
+        this.reason = "relocated against a persisted anchor";
+      }
+    } else if (this.state === "localizing" && nowMs - this._locT0 > timeoutMs) {
+      this.state = "error";
+      this.relocated = null;
+      this.reason = `anchor restored but never localized in ${Math.round(timeoutMs / 1000)} s ` +
+                    "(this room was not recognised)";
     }
   }
 
@@ -272,6 +341,7 @@ export class RoomAnchor {
     this.anchor = null; this.handle = null;
     this.matrixAtSave = null; this.relocated = null;
     this.state = "idle"; this.reason = "";
+    this.envId = null; this.pending = false; this._locT0 = 0;
   }
 }
 

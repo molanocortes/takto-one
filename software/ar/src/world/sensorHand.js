@@ -131,10 +131,11 @@ export class SensorHand {
     this._seedP = mkSeeds(this._dustP.n);
     this._seedA = mkSeeds(this._dustA.n);
 
-    // damped joint angles [deg]
+    // damped joint angles [deg], keyed by WIRE channel: {f}_mcp is the MCP
+    // ABDUCTION (rests at 0), {f}_pip the MCP flexion, {f}_dip the PIP flexion
     this._angles = {};
     for (const f of FINGERS) for (const seg of SEGMENTS) {
-      this._angles[`${f}_${seg}`] = new Damped(10, 0.075);
+      this._angles[`${f}_${seg}`] = new Damped(seg === "mcp" ? 0 : 10, 0.075);
     }
     this._fq = new THREE.Quaternion();    // damped forearm orientation
 
@@ -149,11 +150,18 @@ export class SensorHand {
   /**
    * Pose the armature.
    *  pos: world palm position (Vector3)
-   *  quat: palm orientation (hand sensor)
+   *  quat: palm orientation (hand sensor); local frame = the WebXR wrist
+   *        joint's: fingers -Z, dorsal +Y, thumb side -X (right hand)
    *  forearmQuat: forearm orientation (second sensor); optional
-   *  anglesById: { index_mcp: deg, ... }; missing joints ease to a rest curl
+   *  anglesById: WIRE channels, palm outward (telemetry.js / deviceHand.js):
+   *        {f}_mcp = MCP ABDUCTION (signed deg, + toward the thumb),
+   *        {f}_pip = MCP flexion, {f}_dip = PIP flexion.
+   *        The DIP is not sensed; it follows the PIP by the anatomical
+   *        coupling DIP ~ 2/3 PIP. Missing channels ease to a rest pose.
+   *  elbowWorld: optional Vector3, the real elbow (body model): when given the
+   *        forearm is drawn wrist -> elbow instead of from forearmQuat
    */
-  pose(pos, quat, forearmQuat, anglesById, dt) {
+  pose(pos, quat, forearmQuat, anglesById, dt, elbowWorld = null) {
     const s = this.scale;
     let li = 0;
     const L = this._segs;
@@ -183,18 +191,28 @@ export class SensorHand {
     for (let i = 0; i < 3; i++) put(bx[i], by[i], bz[i], bx[i + 1], by[i + 1], bz[i + 1]);
     put(bx[3], by[3], bz[3], wx, wy, wz);
 
-    // fingers: FK from the damped joint angles
+    // fingers: FK from the damped joint angles. The chain is the device's:
+    // abduction about the palm normal first, then MCP flexion on the proximal
+    // phalanx, PIP flexion on the middle one, and the coupled DIP on the
+    // distal one. (It used to read the three channels as three flexions, so
+    // the abduction channel curled the proximal phalanx and every fingertip
+    // was placed wrong.)
+    const want = (id, rest) => (anglesById && Number.isFinite(anglesById[id]) ? anglesById[id] : rest);
     let ki = 0;
     for (const f of FINGERS) {
       const fi = FINGERS.indexOf(f);
+      const abd = this._angles[`${f}_mcp`].step(clamp(want(`${f}_mcp`, 0), -30, 30), dt) * D2R;
+      const mcp = this._angles[`${f}_pip`].step(want(`${f}_pip`, 12), dt) * D2R;
+      const pip = this._angles[`${f}_dip`].step(want(`${f}_dip`, 12), dt) * D2R;
+      const flex = [mcp, pip, pip * (2 / 3)];
+      const sa = Math.sin(abd), ca = Math.cos(abd);
       let cum = 0;
       let px = bx[fi], py = by[fi], pz = bz[fi];
       for (let seg = 0; seg < 3; seg++) {
-        const id = `${f}_${SEGMENTS[seg]}`;
-        const target = anglesById && anglesById[id] !== undefined ? anglesById[id] : 12;
-        const deg = this._angles[id].step(target, dt);
-        cum += deg * D2R;
-        this._dir.set(0, -Math.sin(cum), -Math.cos(cum)).applyQuaternion(quat);
+        cum += flex[seg];
+        // + abduction swings toward the thumb side (-X in this frame)
+        const c = Math.cos(cum);
+        this._dir.set(-sa * c, -Math.sin(cum), -ca * c).applyQuaternion(quat);
         const len = LENGTHS[f][seg] * s;
         const nx = px + this._dir.x * len, ny = py + this._dir.y * len, nz = pz + this._dir.z * len;
         put(px, py, pz, nx, ny, nz);
@@ -207,11 +225,17 @@ export class SensorHand {
 
     // forearm: posed by ITS OWN sensor, sloping down and back from the wrist
     // (a giant keeps a modest forearm, or it becomes a pillar)
-    if (forearmQuat) this._fq.slerp(forearmQuat, dt ? 1 - Math.exp(-dt * 6) : 1);
-    const fl = 0.24 * Math.min(s, 1.3);
-    this._dir.set(0, -0.38, 1).normalize().applyQuaternion(this._fq);
-    const ex = wx + this._dir.x * fl, ey = wy + this._dir.y * fl, ez = wz + this._dir.z * fl;
-    const mx = wx + this._dir.x * fl * 0.5, my = wy + this._dir.y * fl * 0.5, mz = wz + this._dir.z * fl * 0.5;
+    let ex, ey, ez;
+    if (elbowWorld) {
+      // the body model knows where the elbow is: draw the real forearm
+      ex = elbowWorld.x; ey = elbowWorld.y; ez = elbowWorld.z;
+    } else {
+      if (forearmQuat) this._fq.slerp(forearmQuat, dt ? 1 - Math.exp(-dt * 6) : 1);
+      const fl = 0.24 * Math.min(s, 1.3);
+      this._dir.set(0, -0.38, 1).normalize().applyQuaternion(this._fq);
+      ex = wx + this._dir.x * fl; ey = wy + this._dir.y * fl; ez = wz + this._dir.z * fl;
+    }
+    const mx = (wx + ex) * 0.5, my = (wy + ey) * 0.5, mz = (wz + ez) * 0.5;
     put(wx, wy, wz, mx, my, mz);
     put(mx, my, mz, ex, ey, ez);
     this._elbowGlint.position.set(ex, ey, ez);

@@ -253,6 +253,21 @@ export class Capture extends Mode {
     this._sendWord.position.copy(this._scanWord.position);
     g.add(this._sendWord);
 
+    // ---- the replay light (right of begin): play takes back in the room ------
+    this._replayBtn = new THREE.Group();
+    const rCore = makeGlow(AQUA, 0.026, 0);
+    const rRing = makeRingSprite(AQUA_HALO, 0.040, 0);
+    rRing.material.depthTest = false; rRing.renderOrder = 7;
+    this._replayBtn.add(rCore, rRing);
+    this._replayBtn.position.set(0.165, 0.045, RING_C.z + RING_R * 0.5);
+    tagRoot(this._replayBtn, "replay");
+    g.add(this._replayBtn);
+    this._replayCore = rCore; this._replayRing = rRing;
+    this.interactives.push(this._replayBtn);
+    this._replayWord = makeWord("replay", { size: 0.092 });
+    this._replayWord.position.copy(this._replayBtn.position).add(new THREE.Vector3(0, 0.052, 0));
+    g.add(this._replayWord);
+
     // countdown set piece above the ring
     this._count = new Countdown(this.group, this.ctx.audio,
       { center: new THREE.Vector3(0, 0.30, RING_C.z + 0.10), size: 0.16 });
@@ -265,13 +280,17 @@ export class Capture extends Mode {
     g.add(this._motes.points);
   }
 
-  // desktop keyboards name takes directly; the harness never demands it
+  // desktop keyboards name takes directly; the harness never demands it.
+  // A name STARTS with a letter: digits only join a name already begun, so
+  // the global mode keys 1-6 still switch modes from a fresh console (they
+  // used to be swallowed here, leaving desktop capture a dead end).
   _bindTyping() {
     addEventListener("keydown", (ev) => {
       if (!this.active || this._state !== "choose") return;
       if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
       if (ev.key === "Backspace") { this._label = this._label.slice(0, -1); ev.stopImmediatePropagation(); }
-      else if (ev.key.length === 1 && /[a-zA-Z0-9 _-]/.test(ev.key) && this._label.length < 14) {
+      else if (ev.key.length === 1 && this._label.length < 14 &&
+               (/[a-zA-Z]/.test(ev.key) || (this._label.length > 0 && /[0-9 _-]/.test(ev.key)))) {
         this._label += ev.key.toLowerCase();
         ev.stopImmediatePropagation();
       }
@@ -336,6 +355,10 @@ export class Capture extends Mode {
       } else if (this._state === "scan") {
         finishScan(this.ctx.tele);
       }
+      return;
+    }
+    if (key === "replay" && this._state === "choose") {
+      this.ctx.switchTo("replay");
       return;
     }
     if (key === "name" && this._state === "choose") {
@@ -554,6 +577,14 @@ export class Capture extends Mode {
     const showSend = this._state === "scan" && scan.phase === "scanning";
     this._scanWord.material.opacity += (((scanVisible && !showSend) ? 0.75 + (hover === "scan" ? 0.15 : 0) : 0) - this._scanWord.material.opacity) * (1 - Math.exp(-dt * 5));
     this._sendWord.material.opacity += ((showSend ? 1 + (hover === "scan" ? 0.1 : 0) : 0) - this._sendWord.material.opacity) * (1 - Math.exp(-dt * 5));
+
+    // replay light: only between takes
+    const replayOn = this._state === "choose" ? 1 : 0;
+    const rk = 1 - Math.exp(-dt * 5);
+    this._replayCore.material.opacity += ((replayOn * (0.4 + bb * 0.2)) - this._replayCore.material.opacity) * rk;
+    this._replayRing.material.opacity += ((replayOn * (0.3 + (hover === "replay" ? 0.3 : 0))) - this._replayRing.material.opacity) * rk;
+    this._replayRing.scale.setScalar(0.04 * (1 + (hover === "replay" ? 0.25 : 0)));
+    this._replayWord.material.opacity += ((replayOn * (0.75 + (hover === "replay" ? 0.15 : 0))) - this._replayWord.material.opacity) * rk;
 
     // ---- countdown ----------------------------------------------------------
     if (this._count.active) this._count.update(dt, this.ctx.world.camera);

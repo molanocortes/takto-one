@@ -82,7 +82,7 @@ export class DiagHud {
         ? `<span style="color:${OK}">ws connected</span> ${esc(t.url || "")}`
         : `<span style="color:${WARN}">ws connecting...</span> ${esc(t.url || "")}`;
     } else {
-      transport = `<span style="color:${BAD}">mock - no bridge</span> (add ?ws=wss://host:8443/ws to store)`;
+      transport = `<span style="color:${BAD}">SIMULATED - no bridge</span> (add ?ws=wss://PC-IP:8765/ws, see README.md)`;
     }
 
     const phaseColor = { done: OK, error: BAD, empty: WARN, scanning: AQUA, uploading: AQUA }[diag.phase] || "#9fb2c8";

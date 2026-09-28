@@ -8,8 +8,8 @@
 //   1. {cmd:"diag", ...} over the telemetry socket -> the bridge appends it to
 //      ~/.sensoryhand_diag.log (teensy_bridge.py). Works whenever the bridge
 //      socket is live.
-//   2. HTTP POST /diag to the SERVING ORIGIN -> serve_quest.py appends to the
-//      same log file. This covers the blind spot where the transport is the
+//   2. HTTP POST /diag to the SERVING ORIGIN -> serve_https.py (this folder)
+//      appends to the same log file; any other static server just 404s it. This covers the blind spot where the transport is the
 //      mock (no bridge socket at all) - the exact case that made round 1
 //      undiagnosable. sendBeacon survives page teardown; fetch(keepalive) is
 //      the fallback.
@@ -31,7 +31,9 @@ export function sendDiag(tele, event, diag) {
   };
   try { if (tele) tele.send(msg); } catch (_) { /* transport down: beacon still fires */ }
   try {
-    if (typeof location !== "undefined" && /^https?:$/.test(location.protocol)) {
+    // only an https origin can be serve_https.py (the one server with /diag);
+    // plain-http previews (the localhost router, adb reverse) would just 501
+    if (typeof location !== "undefined" && location.protocol === "https:") {
       const body = JSON.stringify(msg);
       let sent = false;
       if (typeof navigator !== "undefined" && navigator.sendBeacon) {

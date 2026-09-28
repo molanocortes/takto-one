@@ -13,9 +13,14 @@ import { AQUA, AQUA_DEEP, AQUA_HALO, AMBER, CANDLE } from "../design/palette.js"
 import { clamp, lerp, Damped, Spring, Breath } from "../design/motion.js";
 import { makeGlow, makeRingSprite, glowTexture, rng } from "./materials.js";
 import { SensorHand, FINGERS } from "./sensorHand.js";
+import { BodyAnchor, bodyUsable, fallbackPose } from "./poseFallback.js";
 
 const _c1 = new THREE.Color(), _c2 = new THREE.Color();
 const _fq = new THREE.Quaternion();
+const _fbQ = new THREE.Quaternion();
+const _fbP = new THREE.Vector3();
+const _fbE = new THREE.Vector3();
+const MODE_HOLD_S = 0.2;       // a desktop mode's moveTo() owns the root this long
 // (the old ?src=headset override is gone: since 2026-07-19 the tracked bare
 // hand ALWAYS owns the pose when present - no forcing needed)
 
@@ -132,13 +137,31 @@ export class HandLight {
     this._auraNoise = rng(77);
 
     this._t = 0;
+    this._holdT = -Infinity;                 // last moveTo() (HandLight clock)
+
+    // ---- pose provenance (2026-09 motion pipeline) ------------------------
+    // poseSource: who placed the hand THIS frame
+    //   vision     the headset tracks the bare hand (always wins)
+    //   world      the bridge's vision-anchored IMU fusion (snap.world)
+    //   body       the arm model (snap.body) under bodyAnchor
+    //   controller the Quest controller test overlay
+    //   rest       nothing measured the position: the eased mode target
+    this.poseSource = "rest";
+    this.bodyAnchor = new BodyAnchor();      // body frame -> room, see poseFallback.js
+    this.deviceLinked = false;               // the physical rig is streaming
+    this.controllerDriven = false;           // the controller overlay owns the data
   }
 
   // ---- mode-facing API ------------------------------------------------------
 
-  // desktop: ease the hand root toward a point (springy, alive)
-  moveTo(p, snappiness = 6) { this._target.copy(p); this._snap = snappiness; }
-  rest() { this._target.copy(this.restPos); this._snap = 3; }
+  // desktop: ease the hand root toward a point (springy, alive). While a mode
+  // keeps calling this it OWNS the desktop root (Touch's approach, Capture's
+  // reach); otherwise the body model places the hand.
+  moveTo(p, snappiness = 6) { this._target.copy(p); this._snap = snappiness; this._holdT = this._t; }
+  rest() { this._target.copy(this.restPos); this._snap = 3; this._holdT = -Infinity; }
+
+  /** True when the fingertips are MEASURED (not the eased stand-in). */
+  get measured() { return this.poseSource !== "rest"; }
 
   // effort halo (RHYTHM): level 0..1, warm 0..1 (amber), fatigue 0..1
   setHalo(on) { this._haloOn = on; }
@@ -165,24 +188,44 @@ export class HandLight {
   }
 
   // ---- per-frame ------------------------------------------------------------
-  update(dt, snap, xr) {
+  /**
+   * ctx (all optional): { presenting, msSinceOwnPose, headPos:[x,y,z],
+   *   headFwd:[x,y,z], nowMs, controllerTracked }
+   * xr: { hand:{joints}, handedness } from input/xrHands.js, or null. The
+   *   caller only passes a hand that is tracked THIS frame (or within the
+   *   reader's short grace) - a lost hand is null, never a frozen one.
+   */
+  update(dt, snap, xr, ctx = {}) {
     this._t += dt;
     const t = this._t;
 
     // pose policy (2026-07-19, owner-directed): the REAL hand always wins.
     // When the headset tracks a bare hand, the light dresses IT - presence
     // and reach-interaction belong to the wearer, whatever the device is
-    // streaming. The constellation stand-in poses from telemetry (or the
-    // controller overlay) only when no bare hand is tracked: desktop, or
-    // controllers in hand. deviceDriven stays a pure DATA flag for the
-    // modes (is the device stream up), independent of who owns the pose.
-    this.deviceDriven = !!(snap && snap.link && snap.link.device);
+    // streaming. Otherwise the ladder is world -> body -> eased rest target
+    // (poseFallback.js). deviceDriven stays a pure DATA flag for the modes
+    // (a joint stream is up: the rig, or the controller test overlay);
+    // deviceLinked is the physical rig only.
+    this.controllerDriven = !!(snap && snap.source === "controller");
+    this.deviceLinked = !!(snap && snap.link && snap.link.device);
+    this.deviceDriven = this.deviceLinked || this.controllerDriven;
     let posed = false;
     if (xr && xr.hand && xr.hand.joints) {
       posed = this._poseFromXR(xr.hand);
       if (posed && xr.handedness) this.bareHandedness = xr.handedness;
     }
-    if (!posed) this._poseFromTelemetry(dt, snap);
+    if (posed) {
+      this.poseSource = "vision";
+      // keep the body model registered to the room while vision sees the
+      // RIG hand, so an occlusion hands over without a jump
+      const w = xr.handedness === "right" && xr.hand.joints.wrist;
+      if (w && snap && bodyUsable(snap.body)) {
+        this.bodyAnchor.solveFromVision(snap.body,
+          [w.position.x, w.position.y, w.position.z],
+          [w.quaternion.w, w.quaternion.x, w.quaternion.y, w.quaternion.z],
+          dt, ctx.nowMs || 0);
+      }
+    } else this._poseFromTelemetry(dt, snap, ctx);
     this._deviceSignals(snap);
 
     // index tip velocity (for contact + vigor proxy)
@@ -321,10 +364,52 @@ export class HandLight {
     return true;
   }
 
-  _poseFromTelemetry(dt, snap) {
+  _poseFromTelemetry(dt, snap, ctx = {}) {
     this._xrPosed = false;
     this.bareActive = false;
     this.bareFlex = null;
+
+    const byId = {};
+    if (snap && snap.joints) for (const jj of snap.joints) byId[jj.id] = jj.deg;
+
+    // ---- the fallback ladder: world (fresh, our anchor) -> body -> rest ----
+    // Desktop modes that choreograph the stand-in (Touch's approach, the
+    // Capture reach) keep the root while they call moveTo(); the controller
+    // overlay rides its grip.
+    const modeHold = !ctx.presenting && (this._t - this._holdT) < MODE_HOLD_S;
+    let fb = { source: "rest" };
+    if (!this.controllerDriven && !modeHold && snap) {
+      if (!this.bodyAnchor.valid && bodyUsable(snap.body)) {
+        if (ctx.presenting && ctx.headPos && ctx.headFwd) this.bodyAnchor.setDefaultFromHead(ctx.headPos, ctx.headFwd);
+        else if (!ctx.presenting) this.bodyAnchor.setDefaultNeutralAt([this.restPos.x, this.restPos.y, this.restPos.z]);
+      }
+      fb = fallbackPose(snap, { msSinceOwnPose: ctx.msSinceOwnPose, anchor: this.bodyAnchor,
+                                presenting: !!ctx.presenting });
+    }
+    if (fb.source === "world" || fb.source === "body") {
+      this.poseSource = fb.source;
+      this.fallbackOccluded = !!fb.occluded;
+      _fbP.set(fb.palm[0], fb.palm[1], fb.palm[2]);
+      const q = fb.wristQuat;
+      _fbQ.set(q[1], q[2], q[3], q[0]);
+      // short glide: absorbs the handover from vision / between sources
+      const k = 1 - Math.exp(-dt * 16);
+      this._pos.lerp(_fbP, k);
+      this._target.copy(this._pos);          // a later rest() eases from here
+      this._quat.slerp(_fbQ, k);
+      this._qEff.copy(this._quat);           // absolute: no presentation base
+      this.handQuat.copy(this._qEff);
+      let elbow = null;
+      if (fb.elbow) elbow = _fbE.set(fb.elbow[0], fb.elbow[1], fb.elbow[2]);
+      this._arm.setVisible(true);
+      this._arm.pose(this._pos, this._qEff, null, byId, dt, elbow);
+      this.palm.copy(this._arm.palm);
+      for (const f of FINGERS) this.tips[f].copy(this._arm.tips[f]);
+      return;
+    }
+    this.poseSource = this.controllerDriven && ctx.controllerTracked ? "controller" : "rest";
+    this.fallbackOccluded = false;
+
     // root eases toward the mode's target
     const k = 1 - Math.exp(-dt * (this._snap || 4));
     this._pos.lerp(this._target, k);
@@ -339,8 +424,6 @@ export class HandLight {
     this.handQuat.copy(this._qEff);
 
     // the coherent sensor-hand: forearm sensor + hand sensor + joint encoders
-    const byId = {};
-    if (snap && snap.joints) for (const jj of snap.joints) byId[jj.id] = jj.deg;
     if (snap && snap.forearm && snap.forearm.quat) {
       const q = snap.forearm.quat;
       _fq.set(q[1], q[2], q[3], q[0]);       // its own sensor, its own frame

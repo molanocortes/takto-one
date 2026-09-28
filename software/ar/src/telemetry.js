@@ -7,7 +7,20 @@
 //                      the python mock (ws://localhost:8766/ws).
 //
 // Build the whole experience against TelemetrySource. Flip one flag to go live.
-// The snapshot shape is defined in ../../HARDWARE_IO.md Section 3.
+// The snapshot shape is defined in ../../HARDWARE_IO.md Section 3; the `body`,
+// `device` and `world` blocks and the neutral-calibration acks follow
+// ../MOTION_PIPELINE.md (the binding motion contract).
+//
+// TRANSPORT SELECTION (explicit, never silent - see ../ar/README.md):
+//   ?ws=<url>      use this bridge; REMEMBERED in localStorage for next time
+//   ?ws=off        forget the remembered bridge
+//   ?mock=1        force the in-page simulator (an explicit ?ws= still wins)
+//   ?mock=0        refuse the simulator: talk to the default bridge below
+//   no params      remembered ?ws=, else https -> wss://<same host>/ws (the
+//                  serve_https.py tunnel), else http -> the SIMULATOR.
+// Whenever the simulator runs, describe().simulated is true and the page shows
+// a SIMULATED badge (DOM + in-headset), so mock data is never mistaken for the
+// device.
 //
 // Usage:
 //   import { makeTelemetry } from "./telemetry.js";
@@ -19,6 +32,7 @@
 // No em dashes. SI where physical; deg/ms/mA in the wire format.
 
 import { curlToJoints } from "./kinematics.js";
+import { qmul, qrot, qFromAxisAngle, BodyAnchor, Q_SEG_TO_WRIST } from "./world/poseFallback.js";
 
 const KT_NM_PER_A = 0.92;          // torque constant [N m/A]
 const I_GENTLE_MA = 80;            // gentle current ceiling [mA]
@@ -109,8 +123,10 @@ class WebSocketSource extends TelemetrySource {
     this._ws.onopen = () => { this._attempt = 0; this._lastRx = performance.now(); this.connected = true; };
     this._ws.onmessage = (ev) => {
       this._lastRx = performance.now();
-      // forward snaps AND acks; consumers filter on kind (main.js keeps snaps)
-      try { const s = JSON.parse(ev.data); if (s && (s.kind === "snap" || s.kind === "ack")) this._emit(s); }
+      // forward EVERY typed message (snap, ack, takes, take_data, env, envs,
+      // ...); consumers filter on kind. The old snap/ack-only gate dropped the
+      // take library, so replay could never list a take.
+      try { const s = JSON.parse(ev.data); if (s && typeof s.kind === "string") this._emit(s); }
       catch (_) {}
     };
     this._ws.onclose = () => { this.connected = false; if (!this._closed) this._retry(); };
@@ -124,7 +140,17 @@ class WebSocketSource extends TelemetrySource {
   send(cmd) {
     if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify(cmd));
   }
-  describe() { return { kind: "ws", url: this.url, connected: this.connected }; }
+  // a message already serialized elsewhere (envScan builds multi-MB uploads
+  // in chunks across frames, so no single frame pays for one JSON.stringify)
+  sendRaw(str) {
+    if (this._ws && this._ws.readyState === 1) { this._ws.send(str); return true; }
+    return false;
+  }
+  get isOpen() { return !!(this._ws && this._ws.readyState === 1); }
+  describe() {
+    return { kind: "ws", url: this.url, connected: this.connected, simulated: false,
+             reason: this.reason || "" };
+  }
 }
 
 // =============================================================================
@@ -149,13 +175,49 @@ class MockSource extends TelemetrySource {
     this._fatigue = 0;
     this._dropoutUntil = 0;                  // scripted sensor dropout window
     this._nextDropout = 6000;               // first dropout at t=6 s
+    // MOTION_PIPELINE.md body model: provisional neutral until a calibrate
+    // command runs the countdown/hold/done sequence (acks exactly like the
+    // bridge's), then calibrated. boot_id is per mock "power-up".
+    this._bootId = 1 + Math.floor(this.rng() * 65534);
+    this._calibrated = false;
+    this._neutralAt = 0;                     // ms (mock clock) of the last neutral
+    this._neutralRunning = false;
+    this._neutralTimers = [];
+    this._takes = [makeMockTakeMeta("mock_take_0001", "reach + grasp (simulated)", 12)];
   }
 
   start() {
     const dt = 1000 / this.hz;
     this._timer = setInterval(() => this._tick(), dt);
+    // the bridge pushes the take library on join; so does the mock
+    setTimeout(() => this._emit({ kind: "takes", takes: this._takes.slice() }), 0);
   }
-  stop() { if (this._timer) clearInterval(this._timer); }
+  stop() {
+    if (this._timer) clearInterval(this._timer);
+    for (const h of this._neutralTimers) clearTimeout(h);
+  }
+  sendRaw(str) { try { this.send(JSON.parse(str)); return true; } catch (_) { return false; } }
+  get isOpen() { return true; }
+
+  // neutral capture, simulated with the bridge's ack shape:
+  //   {kind:"ack", event:"neutral", phase:"countdown"|"hold"|"done"|"abort", t}
+  _runNeutral() {
+    if (this._neutralRunning) return;
+    this._neutralRunning = true;
+    const ack = (phase, t) => this._emit({ kind: "ack", event: "neutral", phase, t });
+    const at = (ms, fn) => this._neutralTimers.push(setTimeout(fn, ms));
+    ack("countdown", 3);
+    at(1000, () => ack("countdown", 2));
+    at(2000, () => ack("countdown", 1));
+    at(3000, () => ack("hold", 2));
+    at(4000, () => ack("hold", 1));
+    at(5000, () => {
+      this._neutralRunning = false;
+      this._calibrated = true;
+      this._neutralAt = this._now();
+      ack("done", 0);
+    });
+  }
 
   send(cmd) {
     if (!cmd || !cmd.cmd) return;
@@ -173,7 +235,27 @@ class MockSource extends TelemetrySource {
         } else if (cmd.action === "stop") {
           this._recording = false;
           this._emit({ kind: "ack", event: "rec_stopped", id: this._recId });
+          // the stopped take joins the library with synthetic replay rows, so
+          // the replay mode round-trips offline exactly like on the bridge
+          const secs = Math.max(2, Math.min(60, (this._now() - this._recStart) / 1000));
+          this._takes.unshift(makeMockTakeMeta(this._recId, "recorded in the mock", secs));
+          this._emit({ kind: "takes", takes: this._takes.slice() });
         }
+        break;
+      case "calibrate":
+        if (cmd.what === "neutral") this._runNeutral();
+        else this._emit({ kind: "ack", event: "calibrated" });
+        break;
+      case "take_data": {
+        const meta = this._takes.find((t) => t.id === cmd.id);
+        if (!meta) { this._emit({ kind: "ack", event: "error", error: "no replay data", id: cmd.id }); break; }
+        setTimeout(() => this._emit(makeMockTakeData(meta)), 30);
+        break;
+      }
+      case "env_get":
+        // the mock never stores rooms (see env_save below): say so, like the
+        // bridge does for an unknown id
+        this._emit({ kind: "ack", event: "error", error: "unknown env", id: cmd.id });
         break;
       case "env_save":
         // HONESTY: the mock has no bridge and no disk. It must NEVER ack
@@ -182,14 +264,16 @@ class MockSource extends TelemetrySource {
         // fails fast and legibly instead of hanging until the 8 s upload
         // timeout. envScan's ack hook turns this into phase "error".
         this._emit({ kind: "ack", event: "error",
-          error: "env_save: not connected to a bridge (mock transport). "
-               + "Open the AR page with ?ws=wss://<host>:8443/ws so the room can be stored + sent." });
+          error: "env_save: not connected to a bridge (SIMULATED transport). "
+               + "Open the AR page with ?ws=wss://<PC-IP>:8765/ws (see software/ar/README.md)." });
         break;
       default: break;
     }
   }
 
-  describe() { return { kind: "mock", url: null, connected: false }; }
+  describe() {
+    return { kind: "mock", url: null, connected: false, simulated: true, reason: this.reason || "" };
+  }
 
   _now() { return this.t0 == null ? 0 : (performance.now() - this.t0); }
 
@@ -303,12 +387,27 @@ class MockSource extends TelemetrySource {
       samples: this._recording ? Math.floor((t - this._recStart) / 20) : 0,
     };
 
+    // ---- body model (MOTION_PIPELINE.md section 7) + device + world --------
+    const body = mockBody(ts, {
+      calibrated: this._calibrated,
+      sinceNeutralS: this._calibrated ? (t - this._neutralAt) / 1000 : ts,
+    });
+    const device = {
+      fw: 16, boot_id: this._bootId,
+      sd_present: true, sd_recording: this._recording, sd_take: this._recording ? 1 : 0,
+      sd_rows: this._recording ? Math.floor((t - this._recStart) / 10) : 0,
+      standby: false, standalone_auto_record: true, neutral_running: this._neutralRunning,
+    };
+    // no headset feeds the mock, so there is never a vision-anchored world
+    const world = { pos_m: null, quat: null, source: "none", occluded: false };
+
     this._emit({
-      kind: "snap", t_ms: Math.floor(t),
+      kind: "snap", t_ms: Math.floor(t), source: "mock",
       mode: this.mode, state: this._recording ? "running" : "ready", safety: "ok",
       link: { device: true, motors: true },
       hand, forearm, joints, actuators, activation,
       session, reps: { done: this._reps.done, goal: this._reps.goal },
+      body, device, world,
     });
   }
 
@@ -332,39 +431,137 @@ class MockSource extends TelemetrySource {
 }
 
 // =============================================================================
+// mock body model + mock takes (pure functions of time; deterministic)
+// =============================================================================
+const X_AXIS = [1, 0, 0], Y_AXIS = [0, 1, 0], Z_AXIS = [0, 0, 1];
+const L_UA = 0.30, L_FA = 0.26;
+const r4 = (v) => Math.round(v * 1e4) / 1e4;
+
+/** A plausible right arm in the body frame at time ts [s]: the forearm sweeps
+ *  left/right and lifts a little, the wrist flexes and deviates, the upper arm
+ *  mostly hangs. Positions follow the section-4 chain exactly. */
+export function mockBody(ts, { calibrated = false, sinceNeutralS = 0 } = {}) {
+  const yaw = 0.35 * Math.sin(ts * 0.23);                  // forearm heading [rad]
+  const lift = 0.12 + 0.10 * Math.sin(ts * 0.31);          // forearm elevation
+  const elev = 0.22 + 0.08 * Math.sin(ts * 0.19);          // upper-arm elevation
+  const flexD = 18 * Math.sin(ts * 0.5);                   // + palm-ward
+  const devD = 8 * Math.sin(ts * 0.37);                    // + radial (thumb side)
+  const proD = 10 * Math.sin(ts * 0.17);                   // + pronation
+  const D = Math.PI / 180;
+  const qU = qFromAxisAngle(X_AXIS, Math.PI / 2 - elev);   // +Z -> down, raised by elev
+  const qF = qmul(qmul(qFromAxisAngle(Y_AXIS, yaw), qFromAxisAngle(X_AXIS, -lift)),
+                  qFromAxisAngle(Z_AXIS, proD * D));
+  const qH = qmul(qmul(qF, qFromAxisAngle(X_AXIS, flexD * D)), qFromAxisAngle(Y_AXIS, devD * D));
+  const shoulder = [0, 0, 0];
+  const elbow = qrot(qU, [0, 0, L_UA]);
+  const wrist = elbow.map((v, i) => v + qrot(qF, [0, 0, L_FA])[i]);
+  const hand = wrist.map((v, i) => v + qrot(qH, [0, 0.01, 0.055])[i]);
+  const q4 = (q) => q.map(r4);
+  return {
+    frame: "body_yup_v1",
+    calibrated, provisional: !calibrated, live: true,
+    shoulder_m: shoulder, elbow_m: elbow.map(r4), wrist_m: wrist.map(r4), hand_m: hand.map(r4),
+    upperarm_quat: q4(qU), forearm_quat: q4(qF), hand_quat: q4(qH), thumb_quat: null,
+    wrist_deg: { flex: +flexD.toFixed(2), dev: +devD.toFixed(2), pro: +proD.toFixed(2) },
+    pos_source: "arm",
+    quality: { since_neutral_s: +sinceNeutralS.toFixed(1), inertial_conf: 0, still: false },
+  };
+}
+
+export function makeMockTakeMeta(id, task, secs) {
+  return { id, task, profile: "mock", created_ms: Date.now(), duration_s: +secs.toFixed(1),
+           samples: Math.round(secs * 50), has_data: true, traj: true, joint_source: "sim",
+           simulated: true };
+}
+
+// replay row columns: the bridge's ROW_COLS, then the section-7 body columns
+const MOCK_COLS = ["t_ms"]
+  .concat(...FINGERS.map((f) => SEGMENTS.map((sg) => `${f}_${sg}`)))
+  .concat(["hq_w", "hq_x", "hq_y", "hq_z", "fq_w", "fq_x", "fq_y", "fq_z",
+           "tq_w", "tq_x", "tq_y", "tq_z", "blend", "act",
+           "px", "py", "pz", "pq_w", "pq_x", "pq_y", "pq_z",
+           "thumb_abd", "thumb_mcp", "thumb_ip",
+           "ihx", "ihy", "ihz", "ifx", "ify", "ifz", "i_conf",
+           "b_ex", "b_ey", "b_ez", "b_wx", "b_wy", "b_wz",
+           "b_fq_w", "b_fq_x", "b_fq_y", "b_fq_z", "b_hq_w", "b_hq_x", "b_hq_y", "b_hq_z", "b_cal"]);
+
+/** Synthetic replay rows at 50 Hz. The first ~60 % carries VISION columns
+ *  (px..pq_z, as if the headset saw the wrist under a desk-side anchor), the
+ *  rest is "occluded" (px null, body columns only) - so a replay exercises
+ *  both placement paths and the handover between them. */
+export function makeMockTakeData(meta) {
+  const n = Math.max(20, Math.round(meta.duration_s * 50));
+  const anchor = new BodyAnchor();
+  anchor.setDefaultNeutralAt([0.13, 0.88, -0.22]);          // the desktop rest point
+  const SPLAY = [9, 2.5, -4, -10];
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const ts = i / 50;
+    const b = mockBody(ts * 1.6 + 3, { calibrated: true });
+    const curl = 0.5 - 0.5 * Math.cos((ts / 2.4) * 2 * Math.PI);
+    const row = [Math.round(ts * 1000)];
+    FINGERS.forEach((f, fi) => {
+      const pr = curlToJoints(curl * (1 - fi * 0.04));
+      row.push(r4(SPLAY[fi] * (1 - 0.75 * curl)), r4(pr.mcpDeg), r4(pr.pipDeg));
+    });
+    row.push(...b.hand_quat, ...b.forearm_quat, null, null, null, null, 0.35, r4(curl * 0.6));
+    if (i < n * 0.6) {
+      const p = anchor.point(b.wrist_m);
+      const q = qmul(anchor.quat(b.hand_quat), Q_SEG_TO_WRIST);
+      row.push(...p.map(r4), ...q.map(r4));
+    } else row.push(null, null, null, null, null, null, null);
+    row.push(null, null, null, null, null, null, null, null, null, null);
+    row.push(...b.elbow_m, ...b.wrist_m, ...b.forearm_quat, ...b.hand_quat, 2);
+    rows.push(row);
+  }
+  return { kind: "take_data", id: meta.id, cols: MOCK_COLS.slice(), rows,
+           joint_source: "sim", simulated: true };
+}
+
+// =============================================================================
 // factory
 // =============================================================================
-export function makeTelemetry(opts = {}) {
-  const params = new URLSearchParams(typeof location !== "undefined" ? location.search : "");
-  const url = opts.url || params.get("ws") || null;
-  // ?mock is a VALUE, not a bare presence flag: ?mock=0 / ?mock=false mean
-  // "definitely not the simulator" (matching ?grip=0), and they used to do the
-  // exact opposite. An explicit ?ws= bridge URL also outranks a bare ?mock,
-  // so the URL in the address bar can never be silently discarded.
+const WS_KEY = "takto.ar.ws";
+function _lsGet(k) { try { return globalThis.localStorage ? globalThis.localStorage.getItem(k) : null; } catch (_) { return null; } }
+function _lsSet(k, v) {
+  try {
+    if (!globalThis.localStorage) return;
+    if (v === null) globalThis.localStorage.removeItem(k); else globalThis.localStorage.setItem(k, v);
+  } catch (_) { /* private mode: the URL param still works for this load */ }
+}
+
+/** Resolve the transport from the URL + the remembered bridge. Pure except for
+ *  the localStorage write of a new ?ws=. Returns {kind:"mock"|"ws", url, reason}. */
+export function chooseTransport(search, protocol, host, opts = {}) {
+  const params = new URLSearchParams(search || "");
+  let wsParam = params.has("ws") ? (params.get("ws") || "").trim() : null;
+  if (wsParam !== null && /^(off|clear|none|0)?$/i.test(wsParam)) { _lsSet(WS_KEY, null); wsParam = null; }
+  else if (wsParam) _lsSet(WS_KEY, wsParam);
+  const url = opts.url || wsParam || null;
+  // ?mock is a VALUE: ?mock=0/false/off means "definitely not the simulator".
+  // An explicit ?ws= in THIS url outranks ?mock=1 so it is never discarded.
   const mockParam = params.get("mock");
   const mockOff = mockParam === "0" || mockParam === "false" || mockParam === "off";
   const mockOn = mockParam !== null && !mockOff;
-  const forceMock = opts.mock === true || (mockOn && !url);
-  // ?mock=0 says "not the simulator", NOT "use ws://localhost". It must fall
-  // THROUGH to the transport default below, or the headset (https origin) gets
-  // a mixed-content-blocked ws:// socket to the wrong host and no fallback.
-  const forceWs = opts.mock === false || !!url;
-  if (forceMock) return new MockSource(opts);
-  if (forceWs) return new WebSocketSource(url || "ws://localhost:8765/ws");
-  // The HEADSET path (2026-07-20): the Quest page is served by serve_quest.py
-  // over https, and that SAME origin proxies /ws to the bridge. Defaulting to
-  // it means the owner opens https://<PC-IP>:8443/ with NO hand-typed params
-  // and captures reach the bridge. The old behavior (silent MockSource unless
-  // ?ws= was present) is the #1 reason no real room ever landed on disk:
-  // the mock drops env_save. ?ws= stays as an override; ?mock=1 still forces
-  // the simulator explicitly.
-  if (typeof location !== "undefined" && location.protocol === "https:") {
-    return new WebSocketSource("wss://" + location.host + "/ws");
+  if (opts.mock === true || (mockOn && !url)) return { kind: "mock", url: null, reason: "?mock=1" };
+  if (url) return { kind: "ws", url, reason: "?ws=" };
+  const remembered = _lsGet(WS_KEY);
+  if (remembered && opts.mock !== false) return { kind: "ws", url: remembered, reason: "remembered ?ws=" };
+  if (protocol === "https:") {
+    // serve_https.py tunnels /ws on the page's own origin to the bridge, so
+    // one certificate covers page + socket (README "Option C")
+    return { kind: "ws", url: "wss://" + host + "/ws", reason: "https default (same-origin /ws tunnel)" };
   }
-  // http desktop preview with ?mock=0: the simulator is refused, so talk to the
-  // local bridge rather than silently showing the mock anyway.
-  if (mockOff) return new WebSocketSource("ws://localhost:8765/ws");
-  return new MockSource(opts);   // http desktop preview: mock, no backend needed
+  if (mockOff || opts.mock === false) return { kind: "ws", url: "ws://localhost:8765/ws", reason: "?mock=0 default" };
+  return { kind: "mock", url: null, reason: "plain http, no ?ws= given" };
+}
+
+export function makeTelemetry(opts = {}) {
+  const loc = typeof location !== "undefined" ? location : { search: "", protocol: "http:", host: "localhost" };
+  const t = chooseTransport(loc.search, loc.protocol, loc.host, opts);
+  const src = t.kind === "mock" ? new MockSource(opts) : new WebSocketSource(t.url);
+  src.reason = t.reason;
+  return src;
 }
 
 export { TelemetrySource, MockSource, WebSocketSource, KT_NM_PER_A, I_GENTLE_MA };

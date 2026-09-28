@@ -9,7 +9,7 @@
   pipeline works (mock or real host) and lets you drive commands. Replace it
   with the real WebXR experience per ARCHITECTURE.md and the AESTHETIC bible.
   Default source is the in-browser mock (add ?mock=1, on by default here).
-  For the real host or python mock: index.html?ws=ws://localhost:8766/ws
+  For the real host: harness.html?ws=ws://localhost:8765/ws (remembered; ?ws=off forgets)
 -->
 <style>
   :root{
@@ -75,10 +75,11 @@
       <div class="k">mode / state</div><div class="v"><span id="mode">-</span> / <span id="state">-</span></div>
       <div class="k">device / motors</div><div class="v" id="link">-</div>
       <div class="k">joints valid</div><div class="v" id="joints">-</div>
-      <div class="k">index_mcp</div><div class="v" id="idx">-</div>
+      <div class="k">index MCP flex</div><div class="v" id="idx">-</div>
       <div class="k">actuator current</div><div class="v" id="cur">-</div>
       <div class="k">reps</div><div class="v" id="reps">-</div>
       <div class="k">session</div><div class="v" id="sess">-</div>
+      <div class="k">body model</div><div class="v" id="body">-</div>
     </div>
     <div style="margin-top:12px" class="k" >activation level / fatigue / quality</div>
     <div class="bar" style="margin-top:6px"><i id="act"></i></div>
@@ -92,9 +93,10 @@
 <script type="module">
 import { makeTelemetry } from "./src/telemetry.js";
 
-const tele = makeTelemetry();               // mock unless ?ws= is given
+const tele = makeTelemetry();               // same transport rules as the app (README.md)
 const $ = id => document.getElementById(id);
-if (new URLSearchParams(location.search).get("ws")) $("src").textContent = "websocket";
+window.tele = tele;                          // verification hook
+{ const d = tele.describe(); $("src").textContent = d.simulated ? "SIMULATED" : `websocket ${d.url}`; }
 
 let wall = null;
 const WALL_X = 20;
@@ -112,18 +114,36 @@ $("rec").onclick=()=>{ recording=!recording;
   tele.send({cmd:"record",action:recording?"start":"stop",profile:{name:"Harness"},session:"test-1"});
   $("rec").textContent = recording?"Record stop":"Record start"; $("rec").classList.toggle("on",recording); };
 
+// the transport now forwards EVERY typed message (takes, acks, envs...);
+// only snapshots feed these readouts. Every block is optional on the wire:
+// the real bridge sends actuators: [] with no motors, joints may be absent
+// before the first encoder frame - nothing here may throw on a missing field.
+const fmt = (v, d = 1) => (typeof v === "number" && isFinite(v) ? v.toFixed(d) : "-");
 tele.onSnapshot(s=>{
-  $("mode").textContent=s.mode; $("state").textContent=s.state;
-  $("link").textContent = `${s.link.device?"up":"down"} / ${s.link.motors?"up":"down"}`;
-  const ok=s.joints.filter(j=>j.ok).length; $("joints").textContent=`${ok}/${s.joints.length}`;
-  const idx=s.joints.find(j=>j.id==="index_mcp"); $("idx").textContent=`${idx.deg.toFixed(1)} deg ${idx.ok?"":"(drop)"}`;
-  const a=s.actuators[0]; $("cur").textContent=`${a.current_ma.toFixed(1)} mA (${a.feedback_mode})`;
-  $("reps").textContent=`${s.reps.done} / ${s.reps.goal}`;
-  $("sess").textContent = s.session.recording?`REC ${(s.session.elapsed_ms/1000).toFixed(1)}s`:"idle";
-  $("act").style.width = `${(s.activation.level*100).toFixed(0)}%`;
-  $("actq").textContent = `level ${s.activation.level.toFixed(2)}  fatigue ${s.activation.fatigue.toFixed(2)}  ${s.activation.quality}`;
+  if (!s || s.kind !== "snap") return;
+  $("mode").textContent = s.mode ?? "-"; $("state").textContent = s.state ?? "-";
+  const link = s.link || {};
+  $("link").textContent = `${link.device?"up":"down"} / ${link.motors?"up":"down"}`;
+  const joints = Array.isArray(s.joints) ? s.joints : [];
+  const ok = joints.filter(j=>j && j.ok).length; $("joints").textContent = `${ok}/${joints.length}`;
+  // index MCP FLEXION is the index_pip channel (wire convention: _mcp = abduction)
+  const idx = joints.find(j=>j && j.id==="index_pip");
+  $("idx").textContent = idx ? `${fmt(idx.deg)} deg ${idx.ok?"":"(drop)"}` : "no channel";
+  const a = Array.isArray(s.actuators) && s.actuators.length ? s.actuators[0] : null;
+  $("cur").textContent = a ? `${fmt(a.current_ma)} mA (${a.feedback_mode ?? "-"})` : "no actuators";
+  const reps = s.reps || {}; $("reps").textContent = `${reps.done ?? "-"} / ${reps.goal ?? "-"}`;
+  const sess = s.session || {};
+  $("sess").textContent = sess.recording ? `REC ${fmt((sess.elapsed_ms||0)/1000)}s` : "idle";
+  const act = s.activation || {};
+  const lvl = typeof act.level === "number" ? act.level : 0;
+  $("act").style.width = `${(lvl*100).toFixed(0)}%`;
+  $("actq").textContent = act.present === false ? "no activation module"
+    : `level ${fmt(lvl,2)}  fatigue ${fmt(act.fatigue,2)}  ${act.quality ?? "-"}`;
+  const b = s.body;
+  $("body").textContent = b ? `${b.calibrated?"calibrated":b.provisional?"PROVISIONAL":"no neutral"} · wrist ${Array.isArray(b.wrist_m)?b.wrist_m.map(v=>fmt(v,2)).join(", "):"-"} m`
+                            : "no body block";
   // finger vs wall (0..70 deg range)
-  $("ffill").style.width = `${Math.min(100, idx.deg/70*100)}%`;
+  $("ffill").style.width = `${idx ? Math.max(0, Math.min(100, idx.deg/70*100)) : 0}%`;
   const fw=$("fwall"); if(wall){ fw.style.display="block"; fw.style.left=`${WALL_X/70*100}%`; } else fw.style.display="none";
 });
 tele.start();

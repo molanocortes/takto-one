@@ -14,6 +14,9 @@ import { makeStageDisc, makeFlatRing, makeGlow, MoteField } from "../world/mater
 import { AQUA_DEEP } from "../design/palette.js";
 import { clamp, Breath, Damped } from "../design/motion.js";
 import { curlToJoints, seaJointRegime } from "../kinematics.js";
+import { qmul, qconj, qnorm, qFromAxisAngle } from "../world/poseFallback.js";
+
+const _finite4 = (q) => Array.isArray(q) && q.length === 4 && q.every(Number.isFinite);
 
 const ANCHOR = new THREE.Vector3(0, 0.75, -0.55);
 const SCALE = 1.0;   // presentation size lives in the rig's MODEL_SCALE
@@ -27,6 +30,7 @@ export class Twin extends Mode {
     this._quat = new THREE.Quaternion();
     this._quatT = new THREE.Quaternion();
     this._fq = new THREE.Quaternion();
+    this._q3 = new THREE.Quaternion();
     // zero_hand.glb frame (from the builder): y-up, fingers +Z. Present it
     // raised: fingers up, dorsal toward the viewer.
     this._qBase = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0))
@@ -128,10 +132,14 @@ export class Twin extends Mode {
 
   update(dt, snap, t) {
     const hand = this.ctx.hand;
-    // RIGHT HAND ONLY: the device twin may be puppeteered by the headset's
-    // hand tracking only when it is tracking the RIG hand (right). The left
+    // SOURCE PRIORITY (2026-09, thesis demo): the exoskeleton is the thing
+    // being demonstrated, so whenever the rig streams (or the controller test
+    // overlay stands in for it) ITS channels drive the twin's fingers - even
+    // while the headset also sees the hand. The headset's own hand tracking is
+    // the finger sensor only with no device at all. RIGHT HAND ONLY: the left
     // hand keeps working for UI gestures, but never drives the device.
-    const bare = hand.bareActive && hand.bareFlex !== null
+    const stream = hand.deviceLinked || hand.controllerDriven;
+    const bare = !stream && hand.bareActive && hand.bareFlex !== null
       && hand.bareHandedness === "right";
 
     // ---- drive the twin from the best source available -------------------
@@ -187,12 +195,27 @@ export class Twin extends Mode {
       // the rig's own stream (mock in the preview, real telemetry when worn):
       // every joints[] channel drives its hinge, exactly like the web console.
       // The controller overlay (input/controllers.js) SYNTHESIZES this same
-      // shape from the trigger and forces link.device true, so it must never be
-      // shown as "telemetry": it tags itself source:"controller" and the word
-      // on stage says so.
+      // shape from the trigger; it tags itself source:"controller" and the
+      // word on stage says so (never "device").
       this._setSource(snap && snap.source === "controller" ? "controller"
-        : snap && snap.link && snap.link.device ? "telemetry" : "waiting");
-      if (snap && snap.rel && snap.rel.quat) {
+        : snap && snap.link && snap.link.device ? (snap.source === "mock" ? "simulated" : "device")
+        : "waiting");
+      const body = snap && snap.source !== "controller" ? snap.body : null;
+      if (body && body.live !== false && _finite4(body.forearm_quat) && _finite4(body.hand_quat)) {
+        // MOTION_PIPELINE body model: the wrist is the hand RELATIVE to the
+        // forearm, both segment frames (= the twin model's axes), so the
+        // relative rotation is applied in the model's own frame under the
+        // presentation base: flexion bends about the twin's own knuckle axis.
+        const rel = qnorm(qmul(qconj(qnorm(body.forearm_quat)), qnorm(body.hand_quat)));
+        this._quatT.copy(this._qBase).multiply(this._q3.set(rel[1], rel[2], rel[3], rel[0]));
+        this._bodyWrist(body, dt);
+      } else if (body && body.wrist_deg && Number.isFinite(body.wrist_deg.flex)) {
+        const D = Math.PI / 180, wd = body.wrist_deg;
+        const rel = qmul(qFromAxisAngle([1, 0, 0], wd.flex * D), qFromAxisAngle([0, 1, 0], (wd.dev || 0) * D));
+        this._quatT.copy(this._qBase).multiply(this._q3.set(rel[1], rel[2], rel[3], rel[0]));
+        this._bodyWrist(body, dt);
+      } else if (snap && snap.rel && snap.rel.quat) {
+        this._bodyOff = null;
         // relative wrist pose: the forearm is the static reference, so the
         // twin shows the hand's articulation about the wrist, and the wrist
         // lever arm TRANSLATES it (bridge kinematics: rel.pos_mm - pos0)
@@ -221,7 +244,8 @@ export class Twin extends Mode {
     const br = this._breath.at(t);
     this._tmp.copy(this._pos);
     if (this._off) this._tmp.add(this._off);
-    if (this._relOff && !bare) this._tmp.add(this._relOff);   // wrist-lever travel
+    if (this._bodyOff && !bare) this._tmp.add(this._bodyOff);  // body-model arm travel
+    else if (this._relOff && !bare) this._tmp.add(this._relOff);   // wrist-lever travel
     this._tmp.y += br * 0.012;
     this._hand.pose(this._tmp, this._quat, this._joints, this._activation, dt,
                     snap && snap.thumb ? snap.thumb.rel_quat : null);
@@ -238,6 +262,23 @@ export class Twin extends Mode {
 
     // the desktop stand-in hand rests while its giant speaks
     if (!this.ctx.world.renderer.xr.isPresenting) this.ctx.hand.rest();
+  }
+
+  // the arm travels with the body model's wrist (MOTION_PIPELINE section 7:
+  // "the arm translates in space with wrist_m"): displacement from a slowly
+  // re-centring mean, x1.6 so the giant's travel reads, body axes (+X left,
+  // +Z forward) turned to face the viewer, clamped to the stage
+  _bodyWrist(body, dt) {
+    const w = body.wrist_m;
+    if (!Array.isArray(w) || !w.every(Number.isFinite)) { this._bodyOff = null; return; }
+    this._bodyMean = this._bodyMean || new THREE.Vector3(w[0], w[1], w[2]);
+    this._tmp2 = this._tmp2 || new THREE.Vector3();
+    this._tmp2.set(w[0], w[1], w[2]);
+    this._bodyMean.lerp(this._tmp2, 1 - Math.exp(-dt / 6));
+    this._bodyOff = this._bodyOff || new THREE.Vector3();
+    this._bodyOff.copy(this._tmp2).sub(this._bodyMean).multiplyScalar(1.6);
+    this._bodyOff.set(clamp(-this._bodyOff.x, -0.30, 0.30), clamp(this._bodyOff.y, -0.22, 0.28),
+                      clamp(-this._bodyOff.z, -0.25, 0.25));
   }
 
   // SEA readout: verbatim runner state, estimates marked "~", regime derived

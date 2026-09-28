@@ -155,9 +155,9 @@ export class ScanFeedback {
         body: "reaching the bridge - captures wait for this",
         detail: t.url || "" }, accent: WARN, coverage: null };
     }
-    return { rows: { head: "NOT CONNECTED", headColor: BAD,
-      body: "no bridge: rooms and takes CANNOT be saved",
-      detail: "open the page via https://<PC-IP>:8443/ (it auto-connects), or add ?ws=wss://<PC-IP>:8443/ws" },
+    return { rows: { head: "SIMULATED", headColor: WARN,
+      body: "no bridge: this is mock data - rooms and takes CANNOT be saved",
+      detail: "add ?ws=wss://<PC-IP>:8765/ws once (it is remembered), or serve with serve_https.py - see software/ar/README.md" },
       accent: BAD, coverage: null };
   }
 

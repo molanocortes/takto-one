@@ -14,8 +14,10 @@
 //   2. SCAN the MESH backbone: the scene-reconstruction mesh (mesh-detection,
 //      Space Setup) and the plane-detection fallback, harvested in chunks as
 //      before. The cloud is the primary product; the mesh is structure.
-//   3. POSE: while recording, stream the WRIST 6-DoF pose (right hand - the
-//      rig is worn there) at <= 30 Hz, tagged with the scanned env id, PLUS
+//   3. POSE: while recording OR whenever the rig is linked (the bridge's live
+//      world fusion needs the vision anchor), stream the WRIST 6-DoF pose
+//      (right hand - the rig is worn there) at <= 30 Hz, tagged with the
+//      scanned env id and expressed in that env's frame, PLUS
 //      the four fingers' [abduction, MCP, PIP] angles measured from the
 //      headset's own hand-tracking joints. The bridge decides precedence
 //      honestly (real encoders > Quest vision > sim) and labels the take.
@@ -50,7 +52,8 @@
 
 import { SceneObjectRegistry, harvestSceneObjects, resetSceneObjectIds }
   from "./sceneObjects.js";
-import { RoomAnchor, tagAnchorEnv, latestAnchor } from "./roomAnchor.js";
+import { RoomAnchor, tagAnchorEnv, latestEnvAnchor, invertRigid, applyToPoint,
+         quatFromMatrix, IDENTITY4 } from "./roomAnchor.js";
 
 const ENV_TRI_BUDGET = 90000;    // stay under the bridge's 120k cap with margin
 const POSE_PERIOD_MS = 33;       // ~30 Hz wrist stream
@@ -58,7 +61,10 @@ const VERTS_PER_FRAME = 9000;    // chunk cap: how many mesh verts we transform 
 const PLATEAU_MS = 2200;         // finish a scan when growth stops this long
 const SCAN_MAX_MS = 25000;       // hard cap on one scan (ms) - a slow room sweep
 const NOTHING_MAX_MS = 9000;     // give up early when NOTHING is arriving at all
-const UPLOAD_TIMEOUT_MS = 8000;  // give up waiting for the env_saved ack
+const UPLOAD_TIMEOUT_MS = 8000;  // base wait for the env_saved ack...
+const UPLOAD_MS_PER_MB = 4000;   // ...plus this per MB sent (the bridge parses + writes it)
+const UPLOAD_TIMEOUT_MAX_MS = 60000;
+const SERIAL_CHUNK = 24000;      // numbers serialized per slice before yielding
 
 // ---- point cloud (depth-sensing) -------------------------------------------
 const VOX_M = 0.025;             // voxel edge: 2.5 cm - fine enough for furniture
@@ -115,14 +121,26 @@ let _scan = freshScan();
 // object because the contact tracker reads the registry every frame, including
 // after a scan has finished uploading.
 const _objects = new SceneObjectRegistry();
-const _anchor = new RoomAnchor();
-let _anchorPending = false;       // one create() in flight at a time
+// TWO anchors, never one reused for both jobs (2026-09 fix):
+//   _anchor : dropped by THIS session's scan; a new one per scan, so a restored
+//             or failed anchor can never block a new scan from anchoring
+//   _reloc  : the LAST room's persisted anchor, restored at session start;
+//             its relocation matrix maps that env's frame into today's room
+let _anchor = new RoomAnchor();
+const _reloc = new RoomAnchor();
+// Which frame the wrist poses we stream are expressed in. Poses are tagged
+// with _envId, so they must live in THAT env's frame: identity for a room
+// scanned this session (null here), the inverse relocation for a restored
+// one. The bridge echoes our poses back in `world`, so worldToRoom() undoes it.
+let _envFromRoom = null;          // Float64Array(16) or null (= identity)
 
 /** The live registry of labelled room objects (world/sceneObjects.js). */
 export function sceneObjects() { return _objects; }
 
-/** The room anchor, for relocation and for the diag HUD. */
+/** The room anchor of the current scan (diag HUD). */
 export function roomAnchor() { return _anchor; }
+/** The restored anchor of the last room (relocation). */
+export function relocAnchor() { return _reloc; }
 
 export function resetEnvScan() {
   _envId = null; _envName = ""; _wasRecording = false;
@@ -130,23 +148,59 @@ export function resetEnvScan() {
   _lastPoseTx = 0;   // a fresh session's first pose goes out immediately
   _objects.clear();
   resetSceneObjectIds();
-  _anchor.reset();
-  _anchorPending = false;
+  _anchor = new RoomAnchor();
+  _reloc.reset();
+  _envFromRoom = null;
   _scan = freshScan();
 }
 
 /**
  * Session start: try to put the LAST scanned room back where it was, using its
- * persisted anchor. Returns the relocation matrix on success, else null with
- * `roomAnchor().reason` explaining exactly why (not granted / private mode /
- * cleared site data / never anchored). Never throws into the frame loop.
+ * persisted anchor. Frame-free: it restores the anchor object; the pose is read
+ * inside the following XR frames (updateEnvCapture -> _reloc.tick), and only
+ * once the anchor LOCALIZES does the old env become this session's env (with
+ * poses streamed in its frame). Resolves true when restoring started, false
+ * with `relocAnchor().reason` saying why. Never throws into the frame loop.
  */
-export async function relocateLastRoom(xrFrame, refSpace, session) {
-  const rec = latestAnchor();
-  if (!rec) { _anchor.state = "idle"; _anchor.reason = "no anchor stored yet"; return null; }
-  const m = await _anchor.restore(rec.handle, xrFrame, refSpace, session);
-  if (m && rec.envId) { _envId = rec.envId; _scan.envId = rec.envId; }
-  return m;
+export async function relocateLastRoom(session) {
+  const rec = latestEnvAnchor();
+  if (!rec) { _reloc.state = "idle"; _reloc.reason = "no anchored room stored yet"; return false; }
+  return _reloc.restore(rec.handle, session, _now());
+}
+
+/**
+ * Column-major 4x4 that maps an env's frame into TODAY's room (local-floor),
+ * or null when that env cannot be placed: identity for the env scanned this
+ * session, the live relocation for the restored last room.
+ */
+export function roomFromEnv(envId) {
+  if (!envId) return null;
+  if (envId === _envId && !_envFromRoom) return IDENTITY4;
+  if (envId === _reloc.envId && _reloc.state === "restored" && _reloc.relocated) return _reloc.relocated;
+  return null;
+}
+
+/** The bridge's `world` block in today's room frame (undoes the env frame our
+ *  poses were streamed in). Returns the same object when no transform applies. */
+export function worldToRoom(world) {
+  if (!world || !_reloc.relocated || !_envFromRoom || !Array.isArray(world.pos_m) || !Array.isArray(world.quat)) return world;
+  const m = _reloc.relocated;
+  const qm = quatFromMatrix(m), q = world.quat;
+  return Object.assign({}, world, {
+    pos_m: applyToPoint(m, world.pos_m),
+    quat: [
+      qm[0] * q[0] - qm[1] * q[1] - qm[2] * q[2] - qm[3] * q[3],
+      qm[0] * q[1] + qm[1] * q[0] + qm[2] * q[3] - qm[3] * q[2],
+      qm[0] * q[2] - qm[1] * q[3] + qm[2] * q[0] + qm[3] * q[1],
+      qm[0] * q[3] + qm[1] * q[2] - qm[2] * q[1] + qm[3] * q[0],
+    ],
+  });
+}
+
+/** ms since this page last streamed a wrist pose to the bridge (Infinity when
+ *  it never has this session). The world block is only trusted against it. */
+export function msSinceOwnPose() {
+  return _lastPoseTx > 0 ? _now() - _lastPoseTx : Infinity;
 }
 
 /** Begin an explicit room scan. The next updateEnvCapture frames accumulate the
@@ -165,6 +219,10 @@ export function beginScan() {
   // previous sweep would otherwise linger with stale poses
   _objects.clear();
   resetSceneObjectIds();
+  // every scan anchors itself: a fresh RoomAnchor, whatever state the last
+  // one ended in (live, error, unsupported). The restored last-room anchor is
+  // separate (_reloc) and keeps relocating until this scan's env replaces it.
+  _anchor = new RoomAnchor();
 }
 
 // the frozen honest explanation for an empty scan, from the real device state
@@ -273,6 +331,10 @@ export function envDiag() {
     anchorState: _anchor.state,
     anchorReason: _anchor.reason,
     anchorHandle: _anchor.handle ? _anchor.handle.slice(0, 8) + "..." : null,
+    relocState: _reloc.state,
+    relocReason: _reloc.reason,
+    relocEnv: _reloc.envId,
+    poseFrame: _envFromRoom ? "env (relocated)" : "room",
     depthFrames: _scan.depthFrames,
     depthReason: _depthReason,
     depthLanded: _depthLanded,
@@ -517,53 +579,110 @@ function _ensureAckHook(tele) {
     _lastAck = { event: m.event, id: m.id, error: m.error, tris: m.tris, pts: m.pts };
     if (m.event === "env_saved") {
       _envId = m.id; _envName = _scan.pendingName || _envName;
+      // this scan's geometry is in TODAY's frame: stream poses unrotated
+      _envFromRoom = null;
       _scan.envId = m.id; _scan.tris = m.tris != null ? m.tris : _scan.tris;
       if (m.pts != null) _scan.pts = m.pts;
       // bind the persisted anchor to the env the bridge just issued, so a later
       // session can restore the anchor AND know which room it belongs to
       if (_anchor.handle) tagAnchorEnv(_anchor.handle, m.id);
-      if (_scan.phase === "uploading") _scan.phase = "done";
+      // a LATE ack after the timeout flipped the scan to error still means the
+      // room was stored: recover instead of stranding a false failure
+      if (_scan.phase === "uploading" || (_scan.phase === "error" && _scan.awaitingAck)) {
+        _scan.phase = "done"; _scan.err = ""; _scan.awaitingAck = false;
+      }
     } else if (m.event === "error" && typeof m.error === "string" &&
                m.error.indexOf("env_save") === 0 && _scan.phase === "uploading") {
-      _scan.phase = "error"; _scan.err = m.error;
+      _scan.phase = "error"; _scan.err = m.error; _scan.awaitingAck = false;
     }
   });
 }
 
+// Serialize the upload in SLICES across event-loop turns. The old build did one
+// multi-MB JSON.stringify inside a render frame (a visible hitch on the Quest,
+// the same class of stall as the 2026-07-19 crash). Numbers are written with
+// String(v), which is byte-identical to JSON for finite values; non-finite
+// values become 0 (JSON would write null and the bridge's float() would throw).
+const _yield = () => new Promise((r) => setTimeout(r, 0));
+async function _pushNumbers(parts, n, get, scan) {
+  for (let i0 = 0; i0 < n; i0 += SERIAL_CHUNK) {
+    const i1 = Math.min(n, i0 + SERIAL_CHUNK);
+    let str = "";
+    for (let i = i0; i < i1; i++) {
+      const v = get(i);
+      str += (i ? "," : "") + (Number.isFinite(v) ? v : 0);
+    }
+    parts.push(str);
+    await _yield();
+    if (_scan !== scan) return false;            // superseded by a rescan
+  }
+  return true;
+}
+
+function _uploadTimeoutMs(bytes) {
+  return Math.min(UPLOAD_TIMEOUT_MAX_MS, UPLOAD_TIMEOUT_MS + (bytes / 1e6) * UPLOAD_MS_PER_MB);
+}
+
 function _sendEnv(tele) {
   _ensureAckHook(tele);
-  _scan.phase = "uploading";
-  _scan.uploadT = _now();
+  const scan = _scan;                // this upload's scan; a rescan replaces _scan
+  if (scan.serializing) return;
+  scan.phase = "uploading";
+  scan.serializing = true;
+  scan.uploadT = _now();
+  scan.awaitingAck = false;
   const d = new Date();
   const name = `Room ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-` +
                `${String(d.getDate()).padStart(2, "0")} ` +
                `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  _scan.pendingName = name;
+  scan.pendingName = name;
+  _serializeAndSend(tele, scan, name).catch((e) => {
+    if (_scan !== scan) return;
+    scan.serializing = false;
+    scan.phase = "error"; scan.err = "upload serialization failed: " + ((e && e.message) || e);
+  });
+}
+
+async function _serializeAndSend(tele, scan, name) {
   // HONESTY: the desktop sim path (simScanTick) fabricates its geometry; it
   // must never wear the "quest" label on disk. Only a scan fed by real XR
   // frames (updateEnvCapture) is source:"quest". This is how a real capture
   // is told apart from a fixture in ~/.sensoryhand_envs.json.
-  const msg = { cmd: "env_save", source: _scan.simFed ? "sim-desktop" : "quest", name,
-    positions: _scan.positions, indices: _scan.indices };
+  const parts = ['{"cmd":"env_save","source":', JSON.stringify(scan.simFed ? "sim-desktop" : "quest"),
+                 ',"name":', JSON.stringify(name)];
   // the labelled inventory and the anchor ride along with the geometry: same
   // sweep, same local-floor frame, so they can never drift apart on disk
-  if (_objects.count > 0) msg.objects = _objects.serialize();
+  if (_objects.count > 0) parts.push(',"objects":', JSON.stringify(_objects.serialize()));
   const anch = _anchor.serialize();
-  if (anch) msg.anchor = anch;
-  if (_scan.pts > 0) {
+  if (anch) parts.push(',"anchor":', JSON.stringify(anch));
+  const pos = scan.positions, idx = scan.indices;
+  parts.push(',"positions":[');
+  if (!await _pushNumbers(parts, pos.length, (i) => pos[i], scan)) return;
+  parts.push('],"indices":[');
+  if (!await _pushNumbers(parts, idx.length, (i) => idx[i], scan)) return;
+  parts.push(']');
+  if (scan.pts > 0) {
     // mm-quantized transport of the voxel-averaged cloud + observation counts
-    const pts = new Array(_scan.pts * 3);
-    const w = new Array(_scan.pts);
-    for (let i = 0; i < _scan.pts; i++) {
-      pts[i * 3] = _r3(_scan.cloudPos[i * 3]);
-      pts[i * 3 + 1] = _r3(_scan.cloudPos[i * 3 + 1]);
-      pts[i * 3 + 2] = _r3(_scan.cloudPos[i * 3 + 2]);
-      w[i] = _scan.cloudW[i];
-    }
-    msg.points = pts;
-    msg.weights = w;
+    const cp = scan.cloudPos, cw = scan.cloudW, np = scan.pts;
+    parts.push(',"points":[');
+    if (!await _pushNumbers(parts, np * 3, (i) => _r3(cp[i]), scan)) return;
+    parts.push('],"weights":[');
+    if (!await _pushNumbers(parts, np, (i) => cw[i], scan)) return;
+    parts.push(']');
   }
-  tele.send(msg);
+  parts.push('}');
+  const str = parts.join("");
+  if (_scan !== scan) return;
+  let ok;
+  if (typeof tele.sendRaw === "function") ok = tele.sendRaw(str);
+  else { tele.send(JSON.parse(str)); ok = true; }
+  scan.serializing = false;
+  scan.uploadBytes = str.length;
+  scan.uploadT = _now();             // the ack clock starts when it LEFT, not when packing began
+  if (!ok && scan.phase === "uploading") {
+    scan.phase = "error";
+    scan.err = "bridge socket not open: the room was NOT sent";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -727,6 +846,20 @@ export function updateEnvCapture(xrFrame, refSpace, session, tele, latest) {
   if (!xrFrame || !refSpace || !session) return;
   _ensureAckHook(tele);
 
+  // ---- last room's anchor: read its pose INSIDE this frame ----------------
+  _reloc.tick(xrFrame, refSpace, _now());
+  if (_reloc.state === "restored" && _reloc.relocated && _reloc.envId) {
+    // adopt the relocated room as this session's env, unless a scan this
+    // session already produced one (a fresh scan always wins)
+    if (!_envId || _envId === _reloc.envId) {
+      _envId = _reloc.envId; _scan.envId = _reloc.envId;
+      _envFromRoom = invertRigid(_reloc.relocated);   // refreshed as the anchor refines
+    }
+  } else if (_envFromRoom && _envId === _reloc.envId) {
+    // relocation lost (error / timeout): stop tagging poses with that env
+    _envFromRoom = null; _envId = null; _scan.envId = null;
+  }
+
   // ---- active scan: accumulate in chunks, auto-finish on plateau/budget -----
   if (_scan.phase === "scanning") {
     _harvestDepth(xrFrame, refSpace, session);   // the point cloud (primary)
@@ -735,9 +868,8 @@ export function updateEnvCapture(xrFrame, refSpace, session, tele, latest) {
     harvestSceneObjects(xrFrame, refSpace, _objects);   // the labelled inventory
     // drop the room's anchor once, on the first scanning frame. Fire-and-forget:
     // createAnchor is async and must never be awaited inside the frame loop.
-    if (!_anchorPending && _anchor.state === "idle") {
-      _anchorPending = true;
-      _anchor.create(xrFrame, refSpace, session).finally(() => { _anchorPending = false; });
+    if (!_anchor.pending && _anchor.state === "idle") {
+      _anchor.create(xrFrame, refSpace, session).catch(() => {});
     }
     _drainChunk();
     const now = _now();
@@ -763,11 +895,14 @@ export function updateEnvCapture(xrFrame, refSpace, session, tele, latest) {
       if (any) _sendEnv(tele);
       else { _scan.reason = _emptyReason(); _scan.phase = "empty"; }
     }
-  } else if (_scan.phase === "uploading" && (_now() - _scan.uploadT) > UPLOAD_TIMEOUT_MS) {
-    // the mesh was sent but no ack came back: treat as done if we ever had an
-    // env id, else surface the stall honestly
-    _scan.phase = _envId ? "done" : "error";
-    if (_scan.phase === "error") _scan.err = "no env_saved ack";
+  } else if (_scan.phase === "uploading" && !_scan.serializing &&
+             (_now() - _scan.uploadT) > _uploadTimeoutMs(_scan.uploadBytes || 0)) {
+    // sent, but no ack in time: say so honestly (an OLD env id proves nothing
+    // about THIS upload), and keep listening - a late env_saved recovers it
+    _scan.phase = "error";
+    _scan.awaitingAck = true;
+    _scan.err = `no env_saved ack after ${Math.round(_uploadTimeoutMs(_scan.uploadBytes || 0) / 1000)} s ` +
+                "(still listening; check the bridge log)";
   }
 
   if (!latest) return;
@@ -781,14 +916,30 @@ export function updateEnvCapture(xrFrame, refSpace, session, tele, latest) {
   }
   _wasRecording = rec;
 
-  // ---- wrist + finger stream while recording --------------------------------
-  if (rec) {
+  // ---- wrist + finger stream ------------------------------------------------
+  // While recording (the take's trajectory) AND whenever the rig is linked:
+  // the bridge's live world fusion needs a vision anchor to dead-reckon from,
+  // and it only ever got one during takes before (2026-09 fix).
+  const linked = !!(latest.link && latest.link.device);
+  if (rec || linked) {
     const now = _now();
     if (now - _lastPoseTx >= POSE_PERIOD_MS) {
       const wp = wristPose(xrFrame, refSpace, session);
       if (wp) {
         _lastPoseTx = now;
-        const msg = { cmd: "pose", pos: wp.pos, quat: wp.quat, hand: "right" };
+        let pos = wp.pos, quat = wp.quat;
+        if (_envFromRoom) {
+          // express the pose in the tagged env's frame (a relocated room)
+          const m = _envFromRoom, qm = quatFromMatrix(m), q = quat;
+          pos = applyToPoint(m, pos).map((v) => +v.toFixed(4));
+          quat = [
+            qm[0] * q[0] - qm[1] * q[1] - qm[2] * q[2] - qm[3] * q[3],
+            qm[0] * q[1] + qm[1] * q[0] + qm[2] * q[3] - qm[3] * q[2],
+            qm[0] * q[2] - qm[1] * q[3] + qm[2] * q[0] + qm[3] * q[1],
+            qm[0] * q[3] + qm[1] * q[2] - qm[2] * q[1] + qm[3] * q[0],
+          ].map((v) => +v.toFixed(4));
+        }
+        const msg = { cmd: "pose", pos, quat, hand: "right" };
         if (wp.joints) msg.joints = wp.joints;
         if (_envId) msg.env = _envId;
         tele.send(msg);

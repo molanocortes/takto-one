@@ -133,8 +133,13 @@ export class ControllerInput {
     return {
       ...base,
       kind: "snap",
+      // PROVENANCE: the overlay is a synthesized test input. It used to force
+      // link.device=true, which made every consumer (contacts, twin) label
+      // controller data as the physical device. The link now passes through
+      // untouched; consumers read source:"controller" (HandLight.deviceDriven
+      // still treats it as a joint stream for the modes).
       source: "controller",
-      link: { ...(base.link || {}), device: true },
+      link: { ...(base.link || {}) },
       hand: { quat: wire, ok: true },
       forearm: { quat: wire, ok: true },
       joints,

@@ -58,6 +58,16 @@
   }
   #xr.show { display:block; }
   #xr:hover { border-color:rgba(102,184,255,0.9); box-shadow:0 0 26px rgba(102,184,255,0.4); }
+  /* transport badge: SIMULATED data (in-page mock) or a bridge that is offline.
+     Never silent - mock data must not pass for the device (see README.md). */
+  #simbadge { position:fixed; left:50%; top:14px; transform:translateX(-50%); z-index:12;
+    display:none; max-width:calc(100% - 32px); box-sizing:border-box;
+    padding:6px 14px; border-radius:999px; pointer-events:none;
+    font:600 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:0.04em;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #simbadge.show { display:block; }
+  #simbadge.sim { color:#1a1206; background:rgba(231,180,90,0.94); }
+  #simbadge.off { color:#EAF4FF; background:rgba(244,119,106,0.88); }
   /* AR possible on this device class but blocked (insecure origin): amber, tappable for why */
   #xr.blocked { border-color:rgba(212,164,88,0.55); box-shadow:0 0 18px rgba(212,164,88,0.18);
     background:radial-gradient(circle at 50% 50%, rgba(212,164,88,0.16), rgba(6,10,16,0.1)); }
@@ -68,6 +78,7 @@
 <div id="flash"></div>
 <div id="veil"><div class="ring"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="18" width="4" height="10" rx="2" fill="#2F5B86"/><rect x="8" y="12" width="4" height="16" rx="2" fill="#2F5B86"/><rect x="14" y="4" width="4" height="24" rx="2" fill="#2F5B86"/><rect x="20" y="8" width="4" height="20" rx="2" fill="#66B8FF"/><rect x="26" y="20" width="4" height="8" rx="2" fill="#2F5B86"/></svg></div><div class="word">begin</div></div>
 <div id="xr" title="passthrough"></div>
+<div id="simbadge"></div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
