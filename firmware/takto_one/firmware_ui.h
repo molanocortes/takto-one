@@ -38,7 +38,10 @@ static const int      UI_DIFF_TILES = 8;    // retained diagnostic/documentation
 static const uint32_t UI_WRITE_BUDGET_US = 2500; // report slow panel writes; never abort them
 
 // ---------- input events ----------
-enum class Ev : uint8_t { NONE, CW, CCW, PRESS, LONG };
+// HOLD fires once when the button has been held for UI_HOLD_MS (after LONG):
+// the standby gesture.
+enum class Ev : uint8_t { NONE, CW, CCW, PRESS, LONG, HOLD };
+static const uint32_t UI_HOLD_MS = 3000;
 
 // ============================================================
 //                    CROWN + BUTTON + PIEZO
@@ -53,8 +56,13 @@ struct UiInput {
   uint32_t lastUs = 0;
   // button
   bool    btnState = false;         // debounced held
-  uint32_t btnEdgeMs = 0, btnDownMs = 0;
-  bool    longFired = false;
+  bool    btnRaw = false;           // last raw sample
+  uint32_t btnRawMs = 0;            // when the raw level last changed
+  uint32_t btnDownMs = 0;
+  bool    longFired = false, holdFired = false;
+  // The sketch's sound engine: while it plays a cue (or the device is in
+  // standby) the crown's detent clicks stay silent instead of chopping it.
+  bool    (*toneBusy)() = nullptr;
   bool    moved = false;            // crown moved since last consume (wake cue)
 
   void begin(uint8_t pot, uint8_t btn, uint8_t pz) {
@@ -68,7 +76,10 @@ struct UiInput {
     lastUs = micros();
   }
 
-  void tick(uint16_t freq, uint8_t ms) { tone(pzPin, freq, ms); }
+  void tick(uint16_t freq, uint8_t ms) {
+    if (toneBusy && toneBusy()) return;
+    tone(pzPin, freq, ms);
+  }
 
   // call every loop pass; returns one event or NONE
   Ev poll() {
@@ -98,13 +109,16 @@ struct UiInput {
       tick(3400 + slot * 180, 8);                      // the crown's click
     }
 
-    // ---- button: debounce + press/long, sampled like the browser twin ----
+    // ---- button: debounce + press/long/hold ----
+    // A new level is accepted only after the raw input has been STABLE for
+    // 25 ms. (The old lockout accepted the first differing sample at once, so a
+    // single electrical spike registered as a press and could pick a mode.)
     const bool rawBtn = (digitalRead(btnPin) == LOW);
     const uint32_t nowMs = millis();
-    if (rawBtn != btnState && nowMs - btnEdgeMs > 25) {
-      btnEdgeMs = nowMs;
-      btnState = rawBtn;
-      if (btnState) { btnDownMs = nowMs; longFired = false; }
+    if (rawBtn != btnRaw) { btnRaw = rawBtn; btnRawMs = nowMs; }
+    if (btnRaw != btnState && nowMs - btnRawMs >= 25) {
+      btnState = btnRaw;
+      if (btnState) { btnDownMs = nowMs; longFired = false; holdFired = false; }
       else if (!longFired && nowMs - btnDownMs < 600) {
         tick(2600, 14);
         return Ev::PRESS;                              // release < 600 ms
@@ -114,6 +128,10 @@ struct UiInput {
       longFired = true;
       tick(1800, 24);
       return Ev::LONG;                                 // fires while held
+    }
+    if (btnState && longFired && !holdFired && nowMs - btnDownMs >= UI_HOLD_MS) {
+      holdFired = true;
+      return Ev::HOLD;                                 // standby gesture
     }
     return ev;
   }

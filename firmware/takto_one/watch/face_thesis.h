@@ -62,16 +62,16 @@ public:
       // The connection field is now the one shared home screen. It reuses the
       // submitted Thesis geometry, with the panel-safe refined sweep; state
       // detail remains in the dedicated operator/calibration/capture screens.
-      case FS_IDLE:
-      case FS_STANDALONE: scConnecting(ms); break;
+      case FS_IDLE:       scConnecting(ms); break;
+      case FS_STANDALONE: scConnecting(ms); scHint(s.hint); break;
       case FS_FAULT:      scHome(ms, s.imuOk, s.encOk, s.emgOk, s.motOk, s.link); break;
       case FS_TELEOP:     scTransparent(s.emg); break;
       case FS_RECORDING:  scCapture(ms, s.capSec); break;
       case FS_LINKED:     scOperator(s.imuOk, s.encOk, s.motOk, s.link); break;
       case FS_SAVED:      scSaved(); break;
-      // Calibration is an operator action, not a separate user-facing watch
-      // page. Keep the display calm and consistent while it runs.
-      case FS_CALIB:      scConnecting(ms); break;
+      // Calibration asks something of the wearer (hold still / flex), so it
+      // gets its own page with real progress instead of the idle arc.
+      case FS_CALIB:      scCalibrate(s.calibProgress, s.calibKind); break;
       case FS_BATTERY:    scBattery(ms, s.battery, s.charging); break;
       default:            scSafe(ms); break;   // FS_STOP
     }
@@ -87,8 +87,8 @@ public:
       // 360-phase loop: the connection marker advances fractionally and must
       // never land on an old signature while visibly elsewhere on the ring.
       case FS_BOOT:      sig |= (ms / 60) & 0x03FFFFFFu; break;
-      case FS_IDLE:
-      case FS_STANDALONE:sig |= (ms / 60) & 0x03FFFFFFu; break;
+      case FS_IDLE:      sig |= (ms / 60) & 0x03FFFFFFu; break;
+      case FS_STANDALONE:sig |= ((ms / 60) & 0x00FFFFFFu) | ((uint32_t)(s.hint & 3) << 24); break;
       case FS_FAULT:     sig |= ((ms / 210) % 6)
                               | (uint32_t)s.imuOk << 4 | (uint32_t)s.encOk << 5
                               | (uint32_t)s.emgOk << 6 | (uint32_t)s.motOk << 7
@@ -98,8 +98,13 @@ public:
       case FS_STOP:      sig |= (ms / 500) % 2; break;
       case FS_BATTERY:   sig |= (uint32_t)(s.battery * 100.0f + 0.5f)
                               | ((uint32_t)s.charging << 8) | (((ms / 300) % 6) << 9); break;
-      case FS_CALIB:     sig |= (ms / 60) & 0x03FFFFFFu; break;
-      default: break;                        // LINKED / SAVED: static
+      case FS_CALIB:     sig |= (uint32_t)(s.calibProgress * 100.0f + 0.5f)
+                              | ((uint32_t)(s.calibKind & 1) << 8); break;
+      // the lamps are live values: without them a motor or link change on the
+      // CONNECTED page never repainted
+      case FS_LINKED:    sig |= (uint32_t)s.imuOk | (uint32_t)s.encOk << 1
+                              | (uint32_t)s.motOk << 2 | (uint32_t)s.link << 3; break;
+      default: break;                        // SAVED: static
     }
     return sig;
   }
@@ -153,7 +158,7 @@ private:
     }
   }
   void uiRingArc(float frac, uint16_t col, uint16_t dim, uint16_t hot, float hw) {
-    if (frac < 0.004f) frac = 0.004f;
+    if (!(frac >= 0.004f)) frac = 0.004f;           // NaN-safe
     if (frac > 1.0f) frac = 1.0f;
     wgfx::aaArc(98, hw, 0, 360, dim, 0);
     float sweep = frac * 360.0f;
@@ -223,11 +228,46 @@ private:
     wgfx::aaText(&FreeSansBold12pt7b, "%", wgfx::SCX + (eff >= 0.995f ? 52 : 40), wgfx::SCY + 12, P.acc);
   }
   void scCapture(uint32_t ms, long sec) {
+    if (sec < 0) sec = 0;                           // a bad host value never shows "00:-5"
     uiRingArc((sec % 60) / 60.0f, P.saph, P.saphDim, P.acc, 1.5f);
     uint8_t ph = (ms / 180) % 6;
     wgfx::aaDisc(wgfx::SCX - 62, wgfx::SCY, 8, P.acc, 7.0f + 2.0f * (ph < 3 ? ph : 6 - ph));
-    char buf[16]; snprintf(buf, sizeof buf, "%02ld:%02ld", sec/60, sec%60);
-    wgfx::aaText(&FreeSansBold24pt7b, buf, wgfx::SCX + 12, wgfx::SCY, P.text);
+    char buf[16];
+    if (sec < 6000) {                               // MM:SS up to 99:59 in the big face
+      snprintf(buf, sizeof buf, "%02ld:%02ld", sec/60, sec%60);
+      wgfx::aaText(&FreeSansBold24pt7b, buf, wgfx::SCX + 12, wgfx::SCY, P.text);
+    } else {                                        // long takes: H:MM:SS, smaller, same place
+      if (sec > 359999L) sec = 359999L;
+      snprintf(buf, sizeof buf, "%ld:%02ld:%02ld", sec/3600, (sec/60)%60, sec%60);
+      wgfx::aaText(&FreeSansBold12pt7b, buf, wgfx::SCX + 14, wgfx::SCY, P.text);
+    }
+  }
+  // standalone caption under the idle arc: what the wearer can do right now
+  void scHint(uint8_t hint) {
+    if (hint == 1) wgfx::aaText(&FreeSans9pt7b, "PRESS TO RECORD", wgfx::SCX, wgfx::SCY + 72, P.dim);
+    else if (hint == 2) wgfx::aaText(&FreeSans9pt7b, "NO SD CARD", wgfx::SCX, wgfx::SCY + 72, P.coral);
+  }
+  // kind 1: the neutral pose capture the IMU twin is calibrated from.
+  //   progress 0..0.6 = 3-2-1 countdown, 0.6..1 = the hold itself.
+  // kind 0: the finger range-of-motion sweep (progress = elapsed / 12 s).
+  void scCalibrate(float p, uint8_t kind) {
+    if (!(p >= 0.0f)) p = 0.0f;
+    if (p > 1.0f) p = 1.0f;
+    if (kind == 1) {
+      if (p < 0.6f) {
+        uiRingArc(p / 0.6f, P.gold, P.goldDim, P.gold, 1.5f);
+        char buf[4]; snprintf(buf, sizeof buf, "%d", 3 - (int)(p / 0.2f));
+        wgfx::aaText(&FreeSansBold24pt7b, buf, wgfx::SCX, wgfx::SCY - 6, P.text);
+      } else {
+        uiRingArc((p - 0.6f) / 0.4f, P.saph, P.saphDim, P.acc, 5.0f);
+        wgfx::aaText(&FreeSansBold12pt7b, "Hold still", wgfx::SCX, wgfx::SCY - 8, P.text);
+      }
+      wgfx::aaText(&FreeSans9pt7b, "palm down, wrist straight", wgfx::SCX, wgfx::SCY + 30, P.dim);
+    } else {
+      uiRingArc(p, P.gold, P.goldDim, P.gold, 5.0f);
+      wgfx::aaText(&FreeSansBold12pt7b, "Open", wgfx::SCX, wgfx::SCY - 12, P.text);
+      wgfx::aaText(&FreeSans9pt7b, "then close", wgfx::SCX, wgfx::SCY + 18, P.dim);
+    }
   }
   // The console and wrist screen share this single connection state: a clear
   // word for the wearer, plus four quiet lamps for the streams that make that
@@ -246,11 +286,6 @@ private:
     wgfx::aaLine(wgfx::SCX-14, wgfx::SCY-14, wgfx::SCX-3, wgfx::SCY-3, 2.2f, P.saph);
     wgfx::aaLine(wgfx::SCX-3, wgfx::SCY-3, wgfx::SCX+17, wgfx::SCY-27, 2.2f, P.saph);
     wgfx::aaText(&FreeSansBold12pt7b, "Done", wgfx::SCX, wgfx::SCY + 30, P.text);
-  }
-  void scCalib() {
-    uiRingArc(0.34f, P.gold, P.goldDim, P.gold, 5.0f);
-    wgfx::aaText(&FreeSansBold12pt7b, "Open", wgfx::SCX, wgfx::SCY - 12, P.text);
-    wgfx::aaText(&FreeSans9pt7b, "then close", wgfx::SCX, wgfx::SCY + 18, P.dim);
   }
   void scSafe(uint32_t ms) {
     bool on = (ms / 500) % 2 == 0;

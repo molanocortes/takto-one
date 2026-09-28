@@ -61,6 +61,22 @@
  *   27    crown pot (A13)                 | SDIO built-in SD
  *   No pin is claimed twice. SPI0 carries the panel only; SD is SDIO.
  *
+ * v16 (2026-09-29) - THE MOTION-CAPTURE RELEASE. See software/MOTION_PIPELINE.md,
+ * which is the contract every host follows. In short:
+ *   - frames at 100 Hz (was 50); the BNO085s also report their stability
+ *     classifier, and every linear-acceleration report is integrated on the
+ *     device, on the sensor's own clock, into a world-frame velocity increment
+ *     (dv) streamed per frame, so the host can estimate translation exactly;
+ *   - a per-boot random boot_id, so a host never reuses an IMU neutral from a
+ *     previous power-up (the game-vector heading changes on every boot);
+ *   - STANDALONE: with no host (a power bank) the device records by itself to
+ *     /TAKES/TKnnnnn.CSV, self-describing files with inline #E events, and a
+ *     host can list and download them later over USB ('F' lines);
+ *   - a neutral-pose capture ('N', or the crown carousel "calibrate") with a
+ *     3-2-1 countdown on the screen and the buzzer, validated as still;
+ *   - a sound for every key moment (sfx.h); a 3 s button hold = standby;
+ *   - an IMU that stops reporting is re-started by the device itself.
+ *
  * SERIAL MENU (115200 baud, send a single letter):
  *   s = re-scan the buses and print the wiring report
  *   A = full I2C scan (what actually ACKs, and where)
@@ -72,11 +88,14 @@
  *   j = live stream ON   k = live stream OFF
  *   R = quiet hot-plug rescan (the host bridge sends this)
  *   T = paint-cost + loop-rate report (the display's frame budget)
+ *   N = neutral-pose capture (countdown, 2 s still hold, E,neutral,... events)
+ *   Q = mute / unmute the buzzer
  *   ? = help
+ *   F,list | F,get,<path> | F,auto,<0|1>\n   SD take library (see MOTION_PIPELINE.md)
  *   D,<screen>,<elapsedSec>,<mot>\n   host-pushed device-screen state
  *   W,<face>,<colorway>\n             host-pushed watch-face selection
  *   M,...\n                           motor commands (see below)
- * Every one of D/W/M is buffered as a WHOLE LINE and dispatched on '\n', so
+ * Every one of D/W/M/F is buffered as a WHOLE LINE and dispatched on '\n', so
  * payload bytes can never alias the single-letter commands above and no
  * parseInt() can stall the servo tick.
  *
@@ -117,6 +136,8 @@
  *     <imu0live>,<imu1live>,<emg_env>,<emg_rms>,<emg_present>,<crown_0..1000>,
  *     <t_qw,t_qx,t_qy,t_qz>,<imu2live>,<mflags>,<m0_pos>,<m0_vel>,<m0_ma>,
  *     <m1_pos>,<m1_vel>,<m1_ma>,<crown_live>
+ *   v16 appends: <fw_flags>,<take>,<rows>,<boot_id>,<dv hand xyz>,<dv forearm xyz>,
+ *     <dv thumb xyz>,<stab h,f,t>,<n_lin h,f,t>  (MOTION_PIPELINE.md section 5)
  * (fields are append-only across firmware versions: v3 ended at crown, v4
  *  appends the thumb-tip quaternion + live flag, v5 DOCUMENTED servo telemetry,
  *  v6 actually EMITS it and appends crown_live, v7 the full IMU set, v9 the
@@ -149,6 +170,7 @@
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSans9pt7b.h>
 #include "firmware_ui.h"   // dirty-tile + DMA panel push, crown/button/piezo HMI
+#include "sfx.h"           // the buzzer's sound vocabulary (non-blocking)
 
 // ---- configuration ---------------------------------------------------------
 #define MUX_BUS      Wire          // encoders' mux main bus (pins 18/19)
@@ -180,12 +202,15 @@ const uint8_t  REG_ANGLE_HI= 0x0E;
 uint8_t        IMU_ADDR[3] = {0x4A, 0x4B, 0x4B};   // forearm default 0x4B on Wire2;
                                                    // runtime probe also accepts 0x4A
 const char*    IMU_NAME[3] = {"hand", "forearm", "thumb"};
-const float    SAMPLE_HZ   = 50.0f;
+const float    SAMPLE_HZ   = 100.0f;     // v16: 100 Hz frames (sensor, SD row, S-line)
 const uint8_t  EMG_PIN     = 14;       // MyoWare ENVELOPE output on A0; oversampled -> env + rms
 // [MERGE] v6: the S-line finally carries the servo telemetry v5 documented, plus
 // crown_live. Both are APPENDED, so every pre-existing field index is unchanged
 // and an old host simply does not look at them.
-const uint8_t  FW_VERSION  = 15;       // v15 adds the bounded mode-2 breakaway kick
+const uint8_t  FW_VERSION  = 16;       // v16: motion capture (100 Hz, dv, stability,
+                                       // boot_id), standalone SD takes + F protocol,
+                                       // neutral capture, sounds, IMU self-recovery
+                                       // v15 adds the bounded mode-2 breakaway kick
                                        // (M,K) so direction identification can exceed
                                        // the sustained cap briefly; the follow law cannot
                                        // v14 reports SEA readiness so the host cannot
@@ -260,7 +285,38 @@ bool     sdOK = false;
 File     recFile;
 bool     recording = false;
 uint32_t recStart = 0, recRows = 0;
-uint16_t recSeq = 0;                   // next REC file number (collision-free names)
+uint16_t recSeq = 1;                   // next TAKES/TKnnnnn number (collision-free names)
+uint16_t recTake = 0;                  // take number being written (0 = none)
+char     recPath[24] = "";             // its path on the card
+bool     recFromDevice = false;        // started on the device (standalone) vs by a host
+uint32_t savedUntil = 0;               // the "Done" page after a take closes
+// ---- v16 motion capture ----------------------------------------------------
+uint16_t bootId = 0;                   // random per power-up (host neutral keying)
+float    frameDv[3][3];                // world-frame velocity increment per IMU, this frame
+uint16_t frameDvN[3] = {0, 0, 0};      // linear-acceleration reports folded into it
+uint8_t  imuStab[3] = {255, 255, 255}; // BNO085 stability classifier per IMU
+uint32_t imuRetryMs[3] = {0, 0, 0};    // next self-recovery attempt for a dead IMU
+uint8_t  imuRetryN[3] = {0, 0, 0};     // attempts so far (exponential backoff)
+bool     imuEverLive[3] = {false, false, false};
+uint32_t lostCueMs = 0;                // rate limit for the sensor-lost sound
+// ---- host link, standalone, standby ----------------------------------------
+bool     hostLink = false;             // a program has the USB serial port open
+bool     standaloneStarted = false;    // the power-bank auto take has been decided
+const uint32_t STANDALONE_AFTER_MS = 6000;   // no host this long after boot = standalone
+bool     autoRecord = true;            // standalone auto-record (EEPROM, 'F,auto')
+bool     standby = false;              // 3 s button hold: screen dark, takes closed
+bool     standbyPainted = false;
+bool     pendingLinkCue = false, pendingLinkUp = false;
+// ---- neutral-pose capture --------------------------------------------------
+uint8_t  neutralPhase = 0;             // 0 idle, 1 countdown, 2 still hold
+uint32_t neutralT0 = 0, neutralHold0 = 0;
+uint8_t  neutralTicks = 0;
+float    neutralProg = 0.0f;
+float    neutralSum[3][4];             // sign-aligned quaternion sums over the hold
+uint16_t neutralCount = 0;
+bool     neutralHave = false;          // a neutral exists for this boot
+uint32_t neutralAtMs = 0;
+float    neutralQ[3][4];               // its averaged game quaternions (hand, forearm, thumb)
 uint32_t lastSample = 0;
 bool     streaming = false;            // live serial stream for the web-console bridge
 // EMG (MyoWare envelope on pin 14): oversampled ~1 kHz between 50 Hz frames, reduced
@@ -282,9 +338,9 @@ float    calibProg = 0.0f;
 // are each buffered whole and dispatched on '\n'. The old screen firmware read D
 // and W with Serial.parseInt(), which blocks up to the stream timeout - with a
 // servo loop running that is a stalled control tick, so it is gone.
-char     lnBuf[64];
+char     lnBuf[96];
 uint8_t  lnLen = 0;
-char     lnTag = 0;                    // 0 = not in a line; else 'D' | 'W' | 'M'
+char     lnTag = 0;                    // 0 = not in a line; else 'D' | 'W' | 'M' | 'F'
 bool     discardLine = false;          // swallowing an over-long line's tail
 
 // ---- on-device screen (GC9A01 240x240 round; CS=10 DC=9 RST=8) --------------
@@ -364,6 +420,8 @@ uint32_t      screenDeferredBusy = 0;              // due frames held for cohere
 // enough once a function is used above its definition inside another function.
 void motorService();
 void screenService();
+void recEvent(const char* fmt, ...);
+void neutralStart();
 
 // the frozen host screen numbers -> the engine's state model
 FaceState mapScreen(int s) {
@@ -1426,10 +1484,13 @@ void handleWatchLine(const char* line) {
                 watch::curFace, watch::curColorway[watch::curFace], ok ? 1 : 0);
 }
 
+void handleFileLine(const char* line);   // defined with the SD code below
+
 void handleHostLine(char tag, const char* line) {
   if      (tag == 'M') handleMotorLine(line);
   else if (tag == 'D') handleDeviceLine(line);
   else if (tag == 'W') handleWatchLine(line);
+  else if (tag == 'F') handleFileLine(line);
 }
 
 // ---- scan / report ---------------------------------------------------------
@@ -1576,7 +1637,39 @@ void imuBegin() {
   for (uint8_t i = 0; i < N_IMU; i++) {
     if (i == 1) resolveForearmAddress();
     imuLive[i] = bno[i].begin();
-    if (imuLive[i]) imuFreshMs[i] = millis();
+    if (imuLive[i]) { imuFreshMs[i] = millis(); imuEverLive[i] = true; }
+  }
+}
+
+// v16: a dead IMU is re-started by the DEVICE, with exponential backoff
+// (1 s, 2 s, 4 s ... 30 s). An absent chip costs one address probe per attempt;
+// a present one costs a begin() (~0.2-0.4 s), which is a short gap in a take
+// against a dead sensor for the rest of it. Never during a file transfer or a
+// neutral hold.
+void imuRecoverService() {
+  const uint32_t now = millis();
+  if (neutralPhase) return;
+  for (uint8_t i = 0; i < N_IMU; i++) {
+    if (imuLive[i] || (int32_t)(now - imuRetryMs[i]) < 0) continue;
+    const uint8_t k = imuRetryN[i] < 5 ? imuRetryN[i] : 5;
+    imuRetryN[i]++;
+    imuRetryMs[i] = now + min((uint32_t)30000, (uint32_t)1000 << k);
+    if (i == 1) resolveForearmAddress();
+    if (!bno[i].present()) {
+      // a previously-live sensor that no longer even ACKs may be holding SDA
+      // low: free the bus (a no-op on a healthy one) and look again next time
+      if (imuEverLive[i]) imuBusRecoverRuntime();
+      continue;
+    }
+    imuLive[i] = bno[i].begin();
+    motorService();
+    if (imuLive[i]) {
+      imuFreshMs[i] = millis(); imuEverLive[i] = true; imuRetryN[i] = 0;
+      Serial.printf("# imu %s recovered\n", IMU_NAME[i]);
+      recEvent("imu_back,%s", IMU_NAME[i]);
+      sfx::play(sfx::SENSOR_BACK);
+    }
+    return;                                   // at most one begin() per pass
   }
 }
 void imuService() {
@@ -1601,6 +1694,7 @@ void imuService() {
     // but are separate reports, so a quaternion-only batch must not stamp them
     // as new, and a vector-only batch must not count as orientation liveness
     // (the staleness watchdog below deliberately still watches the quaternion).
+    imuStab[i] = bno[i].stability;
     if (bno[i].freshVec) {
       bno[i].freshVec = false;
       imuLin[i][0] = bno[i].lx;    imuLin[i][1] = bno[i].ly;    imuLin[i][2] = bno[i].lz;
@@ -1623,10 +1717,14 @@ void imuService() {
     if (now - imuFreshMs[i] > IMU_STALE_MS) {
       // Silent freeze: the chip still ACKs address probes but stopped
       // reporting (brownout / internal reset). Report it honestly - the
-      // stream's live flag drops, the host bridge notices the drop and sends
-      // 'R', and detectAll() re-begins the sensor. Closes the loop where a
-      // frozen IMU streamed its last quaternion forever as "live".
+      // stream's live flag drops, and imuRecoverService() re-begins the sensor
+      // by itself (v16; it used to wait for the host bridge's 'R', so a
+      // standalone take recorded a dead IMU until the next power cycle).
       imuLive[i] = false;
+      imuRetryMs[i] = now + 1000; imuRetryN[i] = 0;
+      Serial.printf("# imu %s stopped reporting - restarting it\n", IMU_NAME[i]);
+      recEvent("imu_lost,%s", IMU_NAME[i]);
+      if (now - lostCueMs > 8000) { sfx::play(sfx::SENSOR_LOST); lostCueMs = now; }
     }
   }
 }
@@ -1669,102 +1767,403 @@ void calibrate() {
 }
 
 // ---- SD recording ----------------------------------------------------------
-// [MERGE] the old recWrite() made eight unchecked writes, counted rows
-// unconditionally and never flushed, so a full card or a brownout three minutes
-// into a capture produced a truncated file AND a "saved to SD" banner. Every row
-// is now checked, and the file is flushed every REC_FLUSH_ROWS so at most ~1.3 s
-// of data can be lost if the card is pulled.
-const uint16_t REC_FLUSH_ROWS = 64;
+// v16: one self-describing file per take in /TAKES (MOTION_PIPELINE.md s.6):
+//   # takto take v1
+//   # fw=16 boot=<id> take=<n> source=<host|device> rate_hz=100 start_ms=<ms>
+//   # neutral=<t_ms>,<hq w,x,y,z>,<fq ...>,<tq ...>     (if one exists this boot)
+//   <column header>
+//   <rows> ... #E,<t_ms>,<event>[,<args>] ... # end rows=<n> ms=<ms>
+// Every row is checked; the file is flushed every REC_FLUSH_ROWS (1 s), so a
+// pulled card or a brownout loses at most a second. A row is built in RAM and
+// written in one call (~1 kB at 100 Hz is ~100 kB/s, easy for the SDIO card).
+const uint16_t REC_FLUSH_ROWS = 100;
+static char rowBuf[2600];
+static size_t rowLen = 0;
 
-void recToggle() {
-  if (!recording) {
-    if (!sdOK) { Serial.println(F("No SD card - cannot record.")); return; }
-    // collision-free name: FILE_WRITE appends, so a reused name would bury a
-    // second header mid-file. Scan past anything already on the card, and
-    // distinguish exhaustion from success rather than falling through into
-    // whatever name the loop stopped on.
-    char name[24];
-    bool free_name = false;
-    while (recSeq < 60000) {
-      snprintf(name, sizeof(name), "REC%05u.CSV", recSeq++);
-      if (!SD.exists(name)) { free_name = true; break; }
-    }
-    if (!free_name) { Serial.println(F("# no free REC name - clear old REC*.CSV off the card")); return; }
-    recFile = SD.open(name, FILE_WRITE);
-    if (!recFile) { Serial.println(F("Could not open file.")); return; }
-    // header: time + 14 encoder angles + 3 quaternions + emg + crown + motors
-    //         + (v7) the full BNO085 report set per IMU
-    recFile.print("t_ms");
-    for (uint8_t ch = 0; ch < N_CHANNELS; ch++) recFile.printf(",enc%02u", ch);
-    recFile.print(",h_qw,h_qx,h_qy,h_qz,f_qw,f_qx,f_qy,f_qz,emg_env,emg_rms,crown"
-                  ",t_qw,t_qx,t_qy,t_qz,thumb_live"
-                  ",mflags,m0_pos,m0_vel,m0_ma,m1_pos,m1_vel,m1_ma,crown_live");
-    // generated rather than spelled out: a hand-written 69-column header is a
-    // guaranteed future mismatch with the row writer below
-    for (uint8_t i = 0; i < N_IMU; i++) {
-      const char *n = IMU_NAME[i];
-      recFile.printf(",%s_lax,%s_lay,%s_laz", n, n, n);
-      recFile.printf(",%s_ax,%s_ay,%s_az", n, n, n);
-      recFile.printf(",%s_gx,%s_gy,%s_gz", n, n, n);
-      recFile.printf(",%s_mx,%s_my,%s_mz", n, n, n);
-      recFile.printf(",%s_grx,%s_gry,%s_grz", n, n, n);
-      recFile.printf(",%s_gqw,%s_gqx,%s_gqy,%s_gqz", n, n, n, n);
-      recFile.printf(",%s_cal_a,%s_cal_g,%s_cal_m,%s_rotacc", n, n, n, n);
-    }
-    recFile.print('\n');
-    recording = true; recStart = millis(); recRows = 0;
-    Serial.printf(">>> RECORDING to %s (press 'r' again to stop)\n", name);
-  } else {
-    recFile.flush();
-    recFile.close(); recording = false;
-    Serial.printf(">>> STOPPED. %lu rows over %.1f s saved to SD.\n",
-                  (unsigned long)recRows, (millis() - recStart) / 1000.0f);
-  }
+static void ap(const char* fmt, ...) {
+  if (rowLen >= sizeof(rowBuf) - 1) return;
+  va_list va; va_start(va, fmt);
+  int n = vsnprintf(rowBuf + rowLen, sizeof(rowBuf) - rowLen, fmt, va);
+  va_end(va);
+  if (n > 0) rowLen += min((size_t)n, sizeof(rowBuf) - 1 - rowLen);
 }
-void recWrite(uint32_t t) {
-  recFile.printf("%lu", (unsigned long)t);
-  for (uint8_t ch = 0; ch < N_CHANNELS; ch++) {
-    recFile.printf(",%.2f", frameDeg[ch]);   // the frame's ONE acquisition
+
+bool sdEnsure() {
+  if (!sdOK) sdOK = SD.begin(BUILTIN_SDCARD);
+  if (sdOK && !SD.exists("TAKES")) SD.mkdir("TAKES");
+  return sdOK;
+}
+
+void recFail(const char* why) {
+  Serial.printf("E,rec,fail,%s\n", why);
+  sfx::play(sfx::REC_FAIL);
+}
+
+// Write one '#E' event line into the running take (no-op when not recording).
+void recEvent(const char* fmt, ...) {
+  if (!recording) return;
+  char b[160];
+  va_list va; va_start(va, fmt);
+  vsnprintf(b, sizeof(b), fmt, va);
+  va_end(va);
+  recFile.printf("#E,%lu,%s\n", (unsigned long)millis(), b);
+}
+
+static void recNeutralFields(char* out, size_t n) {
+  size_t k = snprintf(out, n, "%lu", (unsigned long)neutralAtMs);
+  for (uint8_t i = 0; i < N_IMU && k < n; i++)
+    for (uint8_t c = 0; c < 4 && k < n; c++)
+      k += snprintf(out + k, n - k, ",%.5f", neutralQ[i][c]);
+}
+
+void recStartTake(bool fromDevice) {
+  if (recording || standby) return;
+  if (!sdEnsure()) { Serial.println(F("No SD card - cannot record.")); recFail("nosd"); return; }
+  char name[24];
+  bool freeName = false;
+  while (recSeq < 65000) {
+    snprintf(name, sizeof(name), "TAKES/TK%05u.CSV", recSeq);
+    if (!SD.exists(name)) { freeName = true; break; }
+    recSeq++;
   }
-  for (uint8_t i = 0; i < 2; i++)
-    recFile.printf(",%.4f,%.4f,%.4f,%.4f", imuQ[i][0], imuQ[i][1], imuQ[i][2], imuQ[i][3]);
-  recFile.printf(",%.1f,%.1f", emgEnv, emgRms);
-  recFile.printf(",%d", (int)(crownFilt < 0.0f ? 0 : crownFilt));
-  recFile.printf(",%.4f,%.4f,%.4f,%.4f,%d",
-                 imuQ[2][0], imuQ[2][1], imuQ[2][2], imuQ[2][3], imuLive[2] ? 1 : 0);
-  recFile.printf(",%u,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%d",
-                 motorFlags(), mc.posDeg[0], mc.velDps[0], mc.iMeas[0],
-                 mc.posDeg[1], mc.velDps[1], mc.iMeas[1], crownPresent ? 1 : -1);
-  // v7: the full IMU set, same 23-field-per-sensor layout and order as the
-  // S-line. The card is the archival copy of a take - if the live stream carries
-  // acceleration and the SD row does not, an offline re-analysis can never
-  // recover the translation, which is the whole reason these reports exist.
+  if (!freeName) { Serial.println(F("# no free take name - clear old takes off the card")); recFail("full"); return; }
+  recFile = SD.open(name, FILE_WRITE);
+  if (!recFile) { Serial.println(F("Could not open file.")); recFail("open"); return; }
+  recTake = recSeq++;
+  strncpy(recPath, name, sizeof(recPath) - 1);
+  recFromDevice = fromDevice;
+  recStart = millis(); recRows = 0;
+  recFile.print("# takto take v1\n");
+  recFile.printf("# fw=%u boot=%u take=%u source=%s rate_hz=%u start_ms=%lu\n",
+                 FW_VERSION, bootId, recTake, fromDevice ? "device" : "host",
+                 (unsigned)SAMPLE_HZ, (unsigned long)recStart);
+  if (neutralHave) {
+    char nf[200]; recNeutralFields(nf, sizeof(nf));
+    recFile.printf("# neutral=%s\n", nf);
+  }
+  // column header: the v15 row, then the v16 additions. Generated, never
+  // hand-spelled: a 124-column header typed by hand is a guaranteed mismatch.
+  recFile.print("t_ms");
+  for (uint8_t ch = 0; ch < N_CHANNELS; ch++) recFile.printf(",enc%02u", ch);
+  recFile.print(",h_qw,h_qx,h_qy,h_qz,f_qw,f_qx,f_qy,f_qz,emg_env,emg_rms,crown"
+                ",t_qw,t_qx,t_qy,t_qz,thumb_live"
+                ",mflags,m0_pos,m0_vel,m0_ma,m1_pos,m1_vel,m1_ma,crown_live");
   for (uint8_t i = 0; i < N_IMU; i++) {
-    recFile.printf(",%.3f,%.3f,%.3f", imuLin[i][0], imuLin[i][1], imuLin[i][2]);
-    recFile.printf(",%.3f,%.3f,%.3f", imuAcc[i][0], imuAcc[i][1], imuAcc[i][2]);
-    recFile.printf(",%.4f,%.4f,%.4f", imuGyr[i][0], imuGyr[i][1], imuGyr[i][2]);
-    recFile.printf(",%.2f,%.2f,%.2f", imuMag[i][0], imuMag[i][1], imuMag[i][2]);
-    recFile.printf(",%.3f,%.3f,%.3f", imuGrv[i][0], imuGrv[i][1], imuGrv[i][2]);
-    recFile.printf(",%.4f,%.4f,%.4f,%.4f",
-                   imuGame[i][0], imuGame[i][1], imuGame[i][2], imuGame[i][3]);
-    recFile.printf(",%u,%u,%u,%.4f",
-                   imuAccu[i][0], imuAccu[i][1], imuAccu[i][2], imuRotAcc[i]);
+    const char *n = IMU_NAME[i];
+    recFile.printf(",%s_lax,%s_lay,%s_laz", n, n, n);
+    recFile.printf(",%s_ax,%s_ay,%s_az", n, n, n);
+    recFile.printf(",%s_gx,%s_gy,%s_gz", n, n, n);
+    recFile.printf(",%s_mx,%s_my,%s_mz", n, n, n);
+    recFile.printf(",%s_grx,%s_gry,%s_grz", n, n, n);
+    recFile.printf(",%s_gqw,%s_gqx,%s_gqy,%s_gqz", n, n, n, n);
+    recFile.printf(",%s_cal_a,%s_cal_g,%s_cal_m,%s_rotacc", n, n, n, n);
   }
-  recFile.print('\n');
-  // One check per row covers all of them: getWriteError latches. A card that
-  // stopped accepting data must stop the take loudly, not keep counting rows.
+  recFile.print(",h_live,f_live,t_live,emg_present"
+                ",h_dvx,h_dvy,h_dvz,f_dvx,f_dvy,f_dvz,t_dvx,t_dvy,t_dvz"
+                ",h_stab,f_stab,t_stab\n");
   if (recFile.getWriteError()) {
+    recFile.close(); recFail("write"); return;
+  }
+  recording = true;
+  Serial.printf(">>> RECORDING to %s\n", recPath);
+  Serial.printf("E,rec,start,%u,%s\n", recTake, fromDevice ? "device" : "host");
+  sfx::play(sfx::REC_START);
+  // A take started ON THE DEVICE carries its own neutral, so it can be turned
+  // into a calibrated twin later without anything else. (A host take is
+  // calibrated by the host, which also writes the prior neutral above.)
+  if (fromDevice) neutralStart();
+}
+
+void recStopTake() {
+  if (!recording) return;
+  const uint32_t ms = millis() - recStart;
+  recFile.printf("# end rows=%lu ms=%lu\n", (unsigned long)recRows, (unsigned long)ms);
+  recFile.flush();
+  recFile.close();
+  recording = false;
+  Serial.printf(">>> STOPPED. %lu rows over %.1f s saved to SD (%s).\n",
+                (unsigned long)recRows, ms / 1000.0f, recPath);
+  Serial.printf("E,rec,stop,%u,%lu,%lu\n", recTake, (unsigned long)recRows, (unsigned long)ms);
+  recTake = 0;
+  savedUntil = millis() + 2500;
+  sfx::play(sfx::REC_STOP);
+}
+
+void recToggle() { if (recording) recStopTake(); else recStartTake(false); }
+
+void recWrite(uint32_t t) {
+  rowLen = 0;
+  ap("%lu", (unsigned long)t);
+  for (uint8_t ch = 0; ch < N_CHANNELS; ch++) ap(",%.2f", frameDeg[ch]);   // the frame's ONE acquisition
+  for (uint8_t i = 0; i < 2; i++)
+    ap(",%.4f,%.4f,%.4f,%.4f", imuQ[i][0], imuQ[i][1], imuQ[i][2], imuQ[i][3]);
+  ap(",%.1f,%.1f", emgEnv, emgRms);
+  ap(",%d", (int)(crownFilt < 0.0f ? 0 : crownFilt));
+  ap(",%.4f,%.4f,%.4f,%.4f,%d", imuQ[2][0], imuQ[2][1], imuQ[2][2], imuQ[2][3], imuLive[2] ? 1 : 0);
+  ap(",%u,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%d",
+     motorFlags(), mc.posDeg[0], mc.velDps[0], mc.iMeas[0],
+     mc.posDeg[1], mc.velDps[1], mc.iMeas[1], crownPresent ? 1 : -1);
+  // the full IMU set, same 23-field-per-sensor layout and order as the S-line
+  for (uint8_t i = 0; i < N_IMU; i++) {
+    ap(",%.3f,%.3f,%.3f", imuLin[i][0], imuLin[i][1], imuLin[i][2]);
+    ap(",%.3f,%.3f,%.3f", imuAcc[i][0], imuAcc[i][1], imuAcc[i][2]);
+    ap(",%.4f,%.4f,%.4f", imuGyr[i][0], imuGyr[i][1], imuGyr[i][2]);
+    ap(",%.2f,%.2f,%.2f", imuMag[i][0], imuMag[i][1], imuMag[i][2]);
+    ap(",%.3f,%.3f,%.3f", imuGrv[i][0], imuGrv[i][1], imuGrv[i][2]);
+    ap(",%.4f,%.4f,%.4f,%.4f", imuGame[i][0], imuGame[i][1], imuGame[i][2], imuGame[i][3]);
+    ap(",%u,%u,%u,%.4f", imuAccu[i][0], imuAccu[i][1], imuAccu[i][2], imuRotAcc[i]);
+  }
+  // v16: liveness, EMG presence, the preintegrated dv and the stability class
+  ap(",%d,%d,%d,%d", imuLive[0] ? 1 : 0, imuLive[1] ? 1 : 0, imuLive[2] ? 1 : 0, emgHave ? 1 : 0);
+  for (uint8_t i = 0; i < N_IMU; i++)
+    ap(",%.5f,%.5f,%.5f", frameDv[i][0], frameDv[i][1], frameDv[i][2]);
+  ap(",%u,%u,%u\n", imuStab[0], imuStab[1], imuStab[2]);
+  const size_t wrote = recFile.write((const uint8_t*)rowBuf, rowLen);
+  // A card that stopped accepting data must stop the take loudly, not keep
+  // counting rows.
+  if (wrote != rowLen || recFile.getWriteError()) {
     recFile.clearWriteError();
     recFile.close();
-    recording = false;
+    recording = false; recTake = 0;
     Serial.printf("# SD WRITE FAILED after %lu rows - recording stopped\n", (unsigned long)recRows);
+    recFail("write");
     return;
   }
   recRows++;
   if (recRows % REC_FLUSH_ROWS == 0) {
-    recFile.flush();     // ~1.3 s of exposure at 50 Hz; a pulled card loses only that
+    recFile.flush();     // ~1 s of exposure; a pulled card loses only that
     motorService();      // flush() can stall for milliseconds: tick right after it
   }
+}
+
+// ---- SD take library over USB ('F' lines) ----------------------------------
+// F,list            -> F,item,<path>,<bytes> ... F,end,<count>
+// F,get,<path>      -> F,begin,<path>,<bytes> / F,d,<line> ... / F,done,<path>,<bytes>,<crc32>
+// F,auto[,<0|1>]    -> F,auto,<0|1>
+// A transfer blocks the loop (the S stream pauses; the host expects that). The
+// servo tick keeps running between lines, and the IMU staleness watch forgives
+// the gap (imuService's self-stall rule).
+static uint32_t crcTable[256];
+static void crcInit() {
+  for (uint32_t i = 0; i < 256; i++) {
+    uint32_t c = i;
+    for (int k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+    crcTable[i] = c;
+  }
+}
+static inline uint32_t crcAdd(uint32_t crc, uint8_t b) {
+  return crcTable[(crc ^ b) & 0xFF] ^ (crc >> 8);
+}
+
+static const int AUTO_EE_ADDR = 96;          // clear of the watch prefs at 64
+static const uint8_t AUTO_EE_MAGIC = 0xB3;
+void autoLoad() {
+  uint8_t m = EEPROM.read(AUTO_EE_ADDR), v = EEPROM.read(AUTO_EE_ADDR + 1);
+  autoRecord = (m == AUTO_EE_MAGIC && v <= 1) ? (v == 1) : true;
+}
+void autoSave() {
+  EEPROM.update(AUTO_EE_ADDR, AUTO_EE_MAGIC);
+  EEPROM.update(AUTO_EE_ADDR + 1, autoRecord ? 1 : 0);
+}
+
+static void fileListDir(const char* dir, const char* prefix, uint16_t &count) {
+  File d = SD.open(dir);
+  if (!d) return;
+  for (File f = d.openNextFile(); f; f = d.openNextFile()) {
+    const char* n = f.name();
+    const size_t L = strlen(n);
+    if (!f.isDirectory() && L > 4 && strcasecmp(n + L - 4, ".CSV") == 0 &&
+        (strncmp(n, "TK", 2) == 0 || strncmp(n, "REC", 3) == 0)) {
+      Serial.printf("F,item,%s%s,%lu\n", prefix, n, (unsigned long)f.size());
+      count++;
+    }
+    f.close();
+    motorService();
+  }
+  d.close();
+}
+
+static void fileGet(const char* path) {
+  if (!sdEnsure()) { Serial.println(F("F,err,nosd")); return; }
+  if (recording && strcmp(path, recPath) == 0) { Serial.println(F("F,err,busy")); return; }
+  File f = SD.open(path, FILE_READ);
+  if (!f || f.isDirectory()) { Serial.println(F("F,err,nofile")); if (f) f.close(); return; }
+  const uint32_t size = f.size();
+  Serial.printf("F,begin,%s,%lu\n", path, (unsigned long)size);
+  static char line[3072];
+  static uint8_t chunk[1024];
+  size_t ll = 0;
+  uint32_t crc = 0xFFFFFFFFu, total = 0, lines = 0;
+  for (;;) {
+    const int n = f.read(chunk, sizeof(chunk));
+    if (n <= 0) break;
+    for (int k = 0; k < n; k++) {
+      const uint8_t b = chunk[k];
+      crc = crcAdd(crc, b); total++;
+      if (b == '\n') {
+        Serial.write("F,d,", 4); Serial.write((const uint8_t*)line, ll); Serial.write('\n');
+        ll = 0;
+        if ((++lines & 63) == 0) { motorService(); sfx::service(); }
+      } else if (b != '\r') {
+        if (ll < sizeof(line)) line[ll++] = (char)b;   // an absurd line is truncated, the CRC still tells
+      }
+    }
+  }
+  if (ll) { Serial.write("F,d,", 4); Serial.write((const uint8_t*)line, ll); Serial.write('\n'); }
+  f.close();
+  Serial.printf("F,done,%s,%lu,%08lx\n", path, (unsigned long)total, (unsigned long)(crc ^ 0xFFFFFFFFu));
+}
+
+void handleFileLine(const char* line) {
+  if (strncmp(line, "F,list", 6) == 0) {
+    if (!sdEnsure()) { Serial.println(F("F,err,nosd")); return; }
+    uint16_t count = 0;
+    fileListDir("TAKES", "TAKES/", count);
+    fileListDir("/", "", count);                  // legacy REC*.CSV at the root
+    Serial.printf("F,end,%u\n", count);
+  } else if (strncmp(line, "F,get,", 6) == 0) {
+    fileGet(line + 6);
+  } else if (strncmp(line, "F,auto", 6) == 0) {
+    if (line[6] == ',') { autoRecord = (atoi(line + 7) != 0); autoSave(); }
+    Serial.printf("F,auto,%d\n", autoRecord ? 1 : 0);
+  } else {
+    Serial.println(F("F,err,unknown"));
+  }
+}
+
+// ---- neutral-pose capture -----------------------------------------------------
+// 3-2-1 countdown (a tick per second, on the screen as well), then a 2 s hold
+// that must actually be still: while either main IMU turns faster than
+// NEUTRAL_STILL_RAD_S the hold restarts; after 7 s without a still 2 s window
+// the capture is abandoned (E,neutral,abort) rather than calibrating a moving
+// arm. The averaged game quaternions of the hold are kept for this boot and
+// written into every take (header and #E event), so an SD take is calibratable
+// with no host at all.
+const float NEUTRAL_STILL_RAD_S = 0.35f;
+void neutralStart() {
+  if (standby) return;
+  neutralPhase = 1; neutralT0 = millis(); neutralTicks = 0; neutralProg = 0;
+  sfx::play(sfx::NEUTRAL_TICK);
+  Serial.println(F("E,neutral,start"));
+  recEvent("neutral,start");
+}
+void neutralAbort(const char* why) {
+  if (!neutralPhase) return;
+  neutralPhase = 0; neutralProg = 0;
+  Serial.printf("E,neutral,abort,%s\n", why);
+  recEvent("neutral,abort,%s", why);
+  sfx::play(sfx::REC_FAIL);
+}
+void neutralService() {
+  if (!neutralPhase) return;
+  const uint32_t now = millis();
+  if (neutralPhase == 1) {
+    const uint32_t e = now - neutralT0;
+    if (e >= (uint32_t)(neutralTicks + 1) * 1000 && neutralTicks < 2) {
+      neutralTicks++; sfx::play(sfx::NEUTRAL_TICK);
+    }
+    neutralProg = 0.6f * min(1.0f, e / 3000.0f);
+    if (e >= 3000) {
+      neutralPhase = 2; neutralHold0 = now; neutralCount = 0;
+      memset(neutralSum, 0, sizeof(neutralSum));
+      sfx::play(sfx::NEUTRAL_TICK);
+    }
+    return;
+  }
+  // phase 2: the still hold
+  if (!imuLive[0] || !imuLive[1]) { neutralAbort("imu"); return; }
+  bool moving = false;
+  for (uint8_t i = 0; i < 2; i++) {
+    const float g = sqrtf(imuGyr[i][0]*imuGyr[i][0] + imuGyr[i][1]*imuGyr[i][1] + imuGyr[i][2]*imuGyr[i][2]);
+    if (g > NEUTRAL_STILL_RAD_S) moving = true;
+  }
+  if (moving) {
+    if (now - neutralT0 > 3000 + 7000) { neutralAbort("moving"); return; }
+    neutralHold0 = now; neutralCount = 0; memset(neutralSum, 0, sizeof(neutralSum));
+  }
+  const uint32_t held = now - neutralHold0;
+  neutralProg = 0.6f + 0.4f * min(1.0f, held / 2000.0f);
+  if (held >= 2000 && neutralCount > 0) {
+    for (uint8_t i = 0; i < N_IMU; i++) {
+      float n = 0;
+      for (uint8_t c = 0; c < 4; c++) n += neutralSum[i][c] * neutralSum[i][c];
+      n = sqrtf(n);
+      for (uint8_t c = 0; c < 4; c++) neutralQ[i][c] = n > 1e-6f ? neutralSum[i][c] / n : (c == 0 ? 1.0f : 0.0f);
+    }
+    neutralHave = true; neutralAtMs = now; neutralPhase = 0; neutralProg = 0;
+    char nf[200]; recNeutralFields(nf, sizeof(nf));
+    Serial.printf("E,neutral,done,%s\n", nf);
+    recEvent("neutral,done,%s", nf + strcspn(nf, ",") + 1);
+    sfx::play(sfx::NEUTRAL_DONE);
+  }
+}
+// called once per 100 Hz frame during the hold: accumulate sign-aligned game
+// quaternions (q and -q are the same rotation; average on one hemisphere)
+void neutralAccumulate() {
+  if (neutralPhase != 2) return;
+  for (uint8_t i = 0; i < N_IMU; i++) {
+    const float* q = imuGame[i];
+    float d = 0;
+    for (uint8_t c = 0; c < 4; c++) d += q[c] * neutralSum[i][c];
+    const float sgn = (neutralCount == 0 || d >= 0) ? 1.0f : -1.0f;
+    for (uint8_t c = 0; c < 4; c++) neutralSum[i][c] += sgn * q[c];
+  }
+  neutralCount++;
+}
+
+// ---- standby, host link, sounds for the motor states --------------------------
+void standbySet(bool on) {
+  if (on == standby) return;
+  if (on) {
+    if (recording) recStopTake();
+    neutralPhase = 0; neutralProg = 0;
+    carouselUntil = 0; localScreen = -1;
+    standby = true; standbyPainted = false;
+    sfx::play(sfx::STANDBY);
+  } else {
+    standby = false;
+    scLastSig = 0xFFFFFFFF; screenForcePaint = true;
+    sfx::play(sfx::WAKE);
+  }
+  Serial.printf("E,standby,%d\n", on ? 1 : 0);
+}
+
+void linkService() {
+  const bool l = (bool)Serial;               // USB configured AND a program holds DTR
+  if (l != hostLink) {
+    hostLink = l;
+    pendingLinkCue = true; pendingLinkUp = l;
+    if (l) everLinked = true;
+    else streaming = false;                   // nobody is reading: stop the S stream
+  }
+  if (pendingLinkCue && !sfx::busy() && millis() > 1500) {
+    pendingLinkCue = false;
+    sfx::play(pendingLinkUp ? sfx::LINK_UP : sfx::LINK_DOWN);
+  }
+  // Power bank: no host within STANDALONE_AFTER_MS of boot -> the device is on
+  // its own. With auto-record on (and a card), it starts a take by itself; the
+  // take opens with a neutral capture so it is calibratable later.
+  if (!standaloneStarted && millis() - scBootT0 > STANDALONE_AFTER_MS) {
+    standaloneStarted = true;
+    if (!hostLink && autoRecord && !standby) {
+      if (sdEnsure()) recStartTake(true);
+      else recFail("nosd");
+    }
+  }
+}
+
+void motorCueService() {
+  static bool pTaken = false, pTorque = false, pFault = false;
+  if (mc.taken && !pTaken) sfx::play(sfx::MOTOR_CONNECT);
+  if (mc.torque && !pTorque) sfx::play(sfx::MOTOR_TORQUE_ON);
+  if (!mc.torque && pTorque && !mc.fault) sfx::play(sfx::MOTOR_TORQUE_OFF);
+  if (mc.fault && !pFault) sfx::play(sfx::ALARM);     // the motor safety path tripped
+  pTaken = mc.taken; pTorque = mc.torque; pFault = mc.fault;
+}
+
+uint8_t fwFlags() {
+  return (recording ? 1 : 0) | (sdOK ? 2 : 0) | (standby ? 4 : 0) | (hostLink ? 8 : 0)
+       | (autoRecord ? 16 : 0) | (neutralPhase ? 32 : 0);
 }
 
 // ---- live stream (for the web-console bridge) ------------------------------
@@ -1842,6 +2241,15 @@ void emitStream(uint32_t t) {
   // The host previously had to assume its arm sequence succeeded; a refused arm
   // was indistinguishable from an accepted one. A v13 bridge ignores this tail.
   Serial.print(','); Serial.print(seaStateBits());
+  // v16 (MOTION_PIPELINE.md s.5): device state, boot id, dv, stability, n_lin
+  Serial.print(','); Serial.print(fwFlags());
+  Serial.print(','); Serial.print(recording ? recTake : 0);
+  Serial.print(','); Serial.print(recording ? recRows : 0);
+  Serial.print(','); Serial.print(bootId);
+  for (uint8_t i = 0; i < N_IMU; i++)
+    for (uint8_t k = 0; k < 3; k++) { Serial.print(','); Serial.print(frameDv[i][k], 5); }
+  for (uint8_t i = 0; i < N_IMU; i++) { Serial.print(','); Serial.print(imuStab[i]); }
+  for (uint8_t i = 0; i < N_IMU; i++) { Serial.print(','); Serial.print(frameDvN[i]); }
   Serial.print('\n');
 }
 
@@ -1906,17 +2314,25 @@ void screenService() {
   for (int i = 0; i < N_CHANNELS; i++) if (chLive[i]) nenc++;
   bool sensorsOk = (nimu > 0 || nenc > 0);
   bool hostFresh = (hostScreen >= 0) && (now - hostRecvT < 1500);
+  // The carousel never covers STOP or a calibration: a sensor loss or a capture
+  // that starts while it is open closes it (it used to hide "Stop" for 6 s, and
+  // turning the crown kept extending that).
+  if (!sensorsOk || calibRunning || neutralPhase) carouselUntil = 0;
   bool carouselOn = now < carouselUntil;
   bool localFresh = (localScreen >= 0) && (now < localUntil);
   if (streaming) everLinked = true;
 
   int screen;
   if (!sensorsOk)       screen = UI_SAFE;          // total sensor loss
-  else if (calibRunning) screen = UI_CALIB;        // the 12 s sweep owns the screen
+  else if (calibRunning || neutralPhase) screen = UI_CALIB;   // sweep / neutral hold
   else if (carouselOn)  screen = UI_READY;         // carousel paints over home
+  else if (recording)   screen = UI_CAPTURE;       // the device's own take owns it
+  else if (now < savedUntil) screen = UI_SAVED;    // "Done" after a take closes
   else if (localFresh)  screen = localScreen;      // crown-selected, until host agrees
   else if (hostFresh)   screen = hostScreen;       // website/AR-driven mode
-  else if (!streaming)  screen = everLinked ? -2 : UI_CONNECTING;
+  else if (!hostLink)   screen = (everLinked || now - scBootT0 > STANDALONE_AFTER_MS)
+                                 ? -2 : UI_CONNECTING;   // on a power bank = standalone
+  else if (!streaming)  screen = UI_CONNECTING;    // port open, stream not asked for yet
   else                  screen = UI_READY;         // connected + idle
 
   FaceState st = mapScreen(screen);
@@ -1926,13 +2342,18 @@ void screenService() {
   const bool stateChanged = st != curState;
   if (stateChanged) { curState = st; stateEnterMs = now; }
 
+  const float* oq = imuQ[UI_ORIENTATION_IMU];
+  const float oqn = oq[0]*oq[0] + oq[1]*oq[1] + oq[2]*oq[2] + oq[3]*oq[3];
+  const float oPitch = asinf(constrain(2.0f*(oq[0]*oq[2] - oq[3]*oq[1]), -1.0f, 1.0f));
+  // roll is only meaningful with a real quaternion and the forearm not near vertical
+  const bool rollValid = imuLive[UI_ORIENTATION_IMU] && oqn > 0.25f && fabsf(oPitch) < 1.047f;
   const float forearmRoll = imuLive[UI_ORIENTATION_IMU]
       ? atan2f(2.0f*(imuQ[UI_ORIENTATION_IMU][0]*imuQ[UI_ORIENTATION_IMU][1]
                     + imuQ[UI_ORIENTATION_IMU][2]*imuQ[UI_ORIENTATION_IMU][3]),
                1.0f - 2.0f*(imuQ[UI_ORIENTATION_IMU][1]*imuQ[UI_ORIENTATION_IMU][1]
                             + imuQ[UI_ORIENTATION_IMU][2]*imuQ[UI_ORIENTATION_IMU][2]))
       : 0.0f;
-  screenOrientation.update(forearmRoll, imuLive[UI_ORIENTATION_IMU]);
+  screenOrientation.update(forearmRoll, rollValid, now);
   // Never rotate while a dirty tile frame is shipping. The subsequent forced
   // full repaint makes the new GC9A01 address orientation coherent in one pass.
   if (screenOrientationApplied != screenOrientation.turn && uiR.idle()) {
@@ -1948,8 +2369,11 @@ void screenService() {
   const bool forcePaint = screenForcePaint || stateChanged;
   // The small BOOT arc is cheap enough to move in 1-degree increments. Every
   // other screen keeps the calmer normal/carousel cadence.
-  const uint32_t presentationPeriod = (st == FS_BOOT) ? WATCH_PRESENT_CONNECT_MS
-      : (carouselOn ? WATCH_PRESENT_INTERACT_MS : WATCH_PRESENT_FRAME_MS);
+  // Every screen that shows the moving connection segment gets its fine cadence
+  // (it used to be BOOT only, so the shared home arc stuttered at 7.7 Hz).
+  const bool arcScreen = !carouselOn && (st == FS_BOOT || st == FS_IDLE || st == FS_STANDALONE);
+  const uint32_t presentationPeriod = arcScreen ? WATCH_PRESENT_CONNECT_MS
+      : ((carouselOn || st == FS_CALIB) ? WATCH_PRESENT_INTERACT_MS : WATCH_PRESENT_FRAME_MS);
   WatchPresentationCadence::Decision decision =
       screenCadence.decidePeriod(now, presentationPeriod, forcePaint, uiR.idle());
   if (decision == WatchPresentationCadence::WAIT_TIME) return;
@@ -2012,7 +2436,9 @@ void screenService() {
   dstate.link    = streaming;
   dstate.capSec  = recording ? (long)((now - recStart) / 1000)
                              : (hostFresh ? hostElapsed : 0);
-  dstate.calibProgress = calibRunning ? calibProg : 0.0f;
+  dstate.calibProgress = neutralPhase ? neutralProg : (calibRunning ? calibProg : 0.0f);
+  dstate.calibKind = neutralPhase ? 1 : 0;
+  dstate.hint = sdOK ? 1 : 2;                      // standalone caption
   dstate.battery = -1.0f;                          // no fuel gauge on this board
   dstate.charging = false;
   dstate.faultSev = sev;
@@ -2050,10 +2476,21 @@ void screenService() {
 // crown/button events -> local nav + host mirror ("E," lines -> device_command)
 void uiHandleEvent(Ev ev) {
   uint32_t now = millis();
+  // standby: only the button wakes the device; the crown is ignored
+  if (standby) {
+    if (ev == Ev::PRESS || ev == Ev::HOLD) standbySet(false);
+    return;
+  }
+  if (ev == Ev::HOLD) { standbySet(true); return; }  // 3 s hold: standby
+  // on its own (no host), a plain press starts / stops an SD take
+  if (ev == Ev::PRESS && !hostLink && now >= carouselUntil && !neutralPhase) {
+    if (recording) recStopTake(); else recStartTake(true);
+    return;
+  }
   switch (ev) {
     case Ev::CW:
     case Ev::CCW:
-      if (curState == FS_IDLE || now < carouselUntil) {
+      if (curState == FS_IDLE || curState == FS_STANDALONE || now < carouselUntil) {
         carouselUntil = now + 6000;                // open / keep the carousel
         Serial.println(ev == Ev::CW ? "E,nav,cw" : "E,nav,ccw");
       }
@@ -2062,12 +2499,17 @@ void uiHandleEvent(Ev ev) {
       if (now < carouselUntil) {                   // select the focused mode
         carouselUntil = 0;
         int sel = uiIn.focus();
+        uiIn.tick(4200, 20);                       // the confirm chirp
+        // "calibrate" is the neutral-pose capture, run on the device in both
+        // modes (the host listens to its E,neutral events). "capture" with no
+        // host toggles the device's own SD take.
+        if (sel == 3) { neutralStart(); break; }
+        if (sel == 1 && !hostLink) { if (recording) recStopTake(); else recStartTake(true); break; }
         localScreen = (sel == 0) ? UI_TRANSPARENT : (sel == 1) ? UI_CAPTURE
                     : (sel == 2) ? UI_OPERATOR    : UI_CALIB;
         localUntil = now + 4000;                   // host D takes over after echo
         Serial.print("E,screen,"); Serial.println(MODE_IDS[sel]);
-        uiIn.tick(4200, 20);                       // the confirm chirp
-      } else if (curState == FS_IDLE) {
+      } else if (curState == FS_IDLE || curState == FS_STANDALONE) {
         carouselUntil = now + 6000;                // press on home opens the picker
       } else {
         Serial.println("E,press");
@@ -2111,8 +2553,8 @@ void crownSample() {
 // ---- main ------------------------------------------------------------------
 void printHelp() {
   Serial.println(F("\nCommands: s=scan  A=full I2C scan  c=calibrate  r=record  b/e=rec start/stop"));
-  Serial.println(F("          j=stream  k=stop  v=version  R=rescan  T=paint cost  ?=help"));
-  Serial.println(F("          D,<screen>,<sec>,<mot>  W,<face>,<colorway>  M,<sub>,...  (whole lines)"));
+  Serial.println(F("          j=stream  k=stop  v=version  R=rescan  T=paint cost  N=neutral  Q=mute  ?=help"));
+  Serial.println(F("          D,<screen>,<sec>,<mot>  W,<face>,<colorway>  M,<sub>,...  F,list|get|auto  (whole lines)"));
 }
 
 void setup() {
@@ -2133,6 +2575,15 @@ void setup() {
     frameDeg[ch] = -1.0f; romLo[ch] = 1e9f; romHi[ch] = -1e9f;
   }
   sdOK = SD.begin(BUILTIN_SDCARD);
+  if (sdOK && !SD.exists("TAKES")) SD.mkdir("TAKES");
+  crcInit();
+  autoLoad();
+  sfx::begin(PZ_PIN);
+  // A boot id that differs on every power-up: the host keys the IMU neutral to
+  // it. ADC noise on the floating EMG/crown pins plus the boot time in micros.
+  randomSeed((uint32_t)analogRead(EMG_PIN) * 2654435761u ^ (uint32_t)analogRead(POT_PIN) ^ micros());
+  bootId = (uint16_t)random(1, 65536);
+  for (uint8_t i = 0; i < N_IMU; i++) for (uint8_t k = 0; k < 3; k++) frameDv[i][k] = 0.0f;
   Serial.println(F("\ntakto_one - TAKTO ONE device firmware, Teensy 4.1"));
   imuBegin();
   scanAll();
@@ -2142,6 +2593,7 @@ void setup() {
   tft.setRotation((TFT_ROTATION + UI_DEFAULT_TURNS) & 3);
   tft.fillScreen(0x0000);
   uiIn.begin(POT_PIN, BTN_PIN, PZ_PIN);           // crown pot / button / piezo
+  uiIn.toneBusy = []() { return sfx::busy() || standby; };   // clicks never chop a cue
   watchLoad();                                    // the face chosen last session
   FB = cv.getBuffer();
   memset(FB, 0, 240 * 240 * 2);
@@ -2151,7 +2603,11 @@ void setup() {
   statsT0 = millis();
   lastSample = millis();
   Serial.printf("E,watch,%d,%d,1\n", watch::curFace, watch::curColorway[watch::curFace]);
+  for (uint8_t i = 0; i < N_IMU; i++) imuEverLive[i] = imuLive[i];
   printHelp();
+  Serial.printf("# boot_id %u  auto-record %s  SD %s\n", bootId,
+                autoRecord ? "on" : "off", sdOK ? "present" : "missing");
+  sfx::play(sfx::BOOT);
 }
 
 void loop() {
@@ -2169,13 +2625,16 @@ void loop() {
       } else lnBuf[lnLen++] = c;
       continue;
     }
-    if (c == 'D' || c == 'W' || c == 'M') { lnTag = c; lnLen = 0; lnBuf[lnLen++] = c; }
+    if (c == 'D' || c == 'W' || c == 'M' || c == 'F') { lnTag = c; lnLen = 0; lnBuf[lnLen++] = c; }
     else if (c == 's') scanAll();
     else if (c == 'A') fullScan();
     else if (c == 'c') calibrate();
     else if (c == 'r') recToggle();                       // human toggle
-    else if (c == 'b') { if (!recording) recToggle(); }   // host: explicit start (idempotent)
-    else if (c == 'e') { if (recording)  recToggle(); }   // host: explicit stop  (idempotent)
+    else if (c == 'b') { if (!recording) recStartTake(false); }   // host: explicit start (idempotent)
+    else if (c == 'e') { if (recording)  recStopTake(); }         // host: explicit stop  (idempotent)
+    else if (c == 'N') neutralStart();                    // neutral-pose capture
+    else if (c == 'Q') { sfx::muted = !sfx::muted; if (sfx::muted) sfx::stop();
+                         Serial.printf("# sound %s\n", sfx::muted ? "muted" : "on"); }
     // The banner token stays "bringup_12ch": it IS the host handshake string the
     // bridge greps for (teensy_bridge.py "# ver"), so renaming it would silently
     // demote every console to legacy-firmware behaviour.
@@ -2213,9 +2672,21 @@ void loop() {
   motorService();   // keep the control tick alive after draining a serial backlog
   loopPasses++;
   imuService();
+  imuRecoverService();                    // v16: a dead IMU is restarted by the device
+  linkService();                          // host / standalone / auto take
+  neutralService();                       // countdown + still hold
+  motorCueService();                      // sounds for motor connect / torque / fault
+  sfx::service();                         // the buzzer's note sequencer
   Ev ev = uiIn.poll();                    // crown + button (detents tick the piezo)
   if (ev != Ev::NONE) uiHandleEvent(ev);
-  screenService();                        // presentation <=7.7 Hz (crown <=9.6 Hz)
+  if (standby) {                          // standby: one dark frame, then nothing
+    if (!standbyPainted && uiR.idle()) {
+      FB = cv.getBuffer(); memset(FB, 0, 240 * 240 * 2);
+      uiR.forceFullRepaint(); standbyPainted = true;
+    }
+  } else {
+    screenService();                      // presentation <=7.7 Hz (crown <=9.6 Hz)
+  }
   uiR.task();                             // ships <=1 coherent synchronous run per pass
   motorService();
   // oversample the MyoWare envelope (pin 14) at ~1 kHz between the 50 Hz frames
@@ -2248,7 +2719,13 @@ void loop() {
     // motion standing alone instead of only while a host is streaming.
     readAllChannels(frameDeg);
     noteChannelRange();
-    motorService();                 // the 50 Hz frame is the longest blocker
+    // v16: this frame's preintegrated velocity increment + stability class
+    for (uint8_t i = 0; i < N_IMU; i++) {
+      if (imuLive[i]) bno[i].takeDv(frameDv[i], frameDvN[i]);
+      else { frameDv[i][0] = frameDv[i][1] = frameDv[i][2] = 0.0f; frameDvN[i] = 0; imuStab[i] = 255; }
+    }
+    neutralAccumulate();
+    motorService();                 // the frame is the longest blocker
     if (recording) recWrite(now);
     if (streaming) emitStream(now);
     motorService();

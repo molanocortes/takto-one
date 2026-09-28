@@ -50,6 +50,9 @@ struct DeviceState {
   float battery;        // 0..1, or <0 = unknown (no fuel gauge on the device)
   bool  charging;
   uint8_t faultSev;     // FS_FAULT: 0 minor, 1 major
+  uint8_t calibKind;    // FS_CALIB: 0 finger range sweep, 1 neutral pose hold
+  uint8_t hint;         // FS_STANDALONE caption: 0 none, 1 press to record,
+                        // 2 no SD card
 };
 
 // crown carousel overlay (HMI chrome, engine-owned, face-independent)

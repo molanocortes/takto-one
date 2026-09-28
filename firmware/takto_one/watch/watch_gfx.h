@@ -110,6 +110,16 @@ static inline void aaArcSegment(float r, float hw, float a0, float span,
     if (y < miny) miny = y; if (y > maxy) maxy = y;
   };
   include(a0); include(a0 + span);
+  // the INNER edge of each end lies outside a box built from the outer radius
+  // alone (a flat-cut notch that changed shape as the segment moved)
+  auto includeInner = [&](float a) {
+    const float inner = r - hw - glow - 1.0f;
+    const float rad = (a - 90.0f) * S_DR;
+    const float x = SCX + inner * cosf(rad), y = SCY + inner * sinf(rad);
+    if (x < minx) minx = x; if (x > maxx) maxx = x;
+    if (y < miny) miny = y; if (y > maxy) maxy = y;
+  };
+  includeInner(a0); includeInner(a0 + span);
   for (int q = 0; q < 4; ++q) {
     const float a = q * 90.0f;
     if (arcContainsDeg(a0, span, a)) include(a);

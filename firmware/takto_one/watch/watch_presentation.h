@@ -40,27 +40,39 @@ struct WatchPresentationCadence {
 };
 
 // The round GC9A01 can rotate its address space in quarter turns with no
-// framebuffer resampling.  Track hand roll relative to the first valid pose;
-// 55-degree entry / 35-degree return hysteresis prevents chatter near a
-// boundary while the wearer holds a diagonal orientation.
+// framebuffer resampling.  Track forearm roll relative to the first valid pose;
+// 55-degree entry hysteresis prevents chatter near a boundary while the wearer
+// holds a diagonal orientation, and a new turn must be held for DWELL_MS before
+// it is committed (every turn is a full-panel repaint, so a wrist flick through
+// 55 degrees must not wipe the screen). Roll is meaningless with the forearm
+// near vertical, so the caller passes valid = false there and the display
+// keeps its current turn.
 struct WatchQuarterTurnTracker {
+  static const uint32_t DWELL_MS = 400;
   bool primed = false;
   float zeroRoll = 0;
   uint8_t turn = 0;                               // 0..3, relative to zeroRoll
+  int8_t  pending = -1;                           // candidate turn, -1 = none
+  uint32_t pendingSince = 0;
 
   static float wrap(float a) { return atan2f(sinf(a), cosf(a)); }
 
-  bool update(float handRoll, bool valid) {
-    if (!valid) return false;
+  bool update(float handRoll, bool valid, uint32_t nowMs) {
+    if (!valid) { pending = -1; return false; }
     if (!primed) { primed = true; zeroRoll = handRoll; turn = 0; return false; }
     const float quarter = 1.570796327f;
     const float enter = 0.959931089f;             // 55 degrees
     const float rel = wrap(handRoll - zeroRoll);
     const float displayed = (float)turn * quarter;
     const float err = wrap(rel - displayed);
-    if (err > enter) { turn = (uint8_t)((turn + 1) & 3); return true; }
-    if (err < -enter) { turn = (uint8_t)((turn + 3) & 3); return true; }
-    return false;
+    int8_t want = -1;
+    if (err > enter) want = (int8_t)((turn + 1) & 3);
+    else if (err < -enter) want = (int8_t)((turn + 3) & 3);
+    if (want < 0) { pending = -1; return false; }
+    if (want != pending) { pending = want; pendingSince = nowMs; return false; }
+    if ((uint32_t)(nowMs - pendingSince) < DWELL_MS) return false;
+    turn = (uint8_t)want; pending = -1;
+    return true;
   }
 };
 

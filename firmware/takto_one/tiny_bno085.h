@@ -15,6 +15,7 @@
 //   0x05 rotation vector      unit    Q14  (mag-fused, + accuracy Q12 rad)
 //   0x06 gravity              m/s^2   Q8
 //   0x08 game rotation vector unit    Q14  (mag-IMMUNE, no accuracy field)
+//   0x13 stability classifier         on table / stationary / stable / motion
 // - so the host can integrate translation, watch calibration quality, and pick
 // its orientation source per sensor without a reflash.
 //
@@ -47,6 +48,7 @@ struct TinyBNO085 {
   static const uint8_t RPT_ROTVEC     = 0x05;
   static const uint8_t RPT_GRAVITY    = 0x06;
   static const uint8_t RPT_GAMEROTVEC = 0x08;
+  static const uint8_t RPT_STABILITY  = 0x13;
 
   TwoWire *bus;
   uint8_t  addr;
@@ -80,6 +82,31 @@ struct TinyBNO085 {
   // per-family calibration accuracy (0 unreliable .. 3 high), straight from the
   // status byte. The host shows these; a drifting rig is usually a 0/1 here.
   uint8_t  accAccuracy = 0, gyroAccuracy = 0, magAccuracy = 0;
+
+  // ---- stability classifier (0x13): 0 unknown, 1 on table, 2 stationary,
+  // 3 stable, 4 motion; 255 = never reported. The host uses it for zero-velocity
+  // updates: the chip decides "still" from its own full-rate data, which is a
+  // better judge than thresholds on 100 Hz samples.
+  uint8_t  stability = 255;
+
+  // ---- preintegrated velocity increment (v16) -------------------------------
+  // Every linear-acceleration report is rotated into this sensor's own world
+  // frame (the game rotation vector's, Z up) and multiplied by the time since
+  // the previous one, measured on the SENSOR's clock (SH-2 timebase + per-report
+  // delay). The host takes the sum once per frame (takeDv), so translation is
+  // integrated at the IMU's own rate, exactly, however the frames are sampled.
+  float    dvx = 0.0f, dvy = 0.0f, dvz = 0.0f;   // m/s since the last takeDv()
+  uint16_t dvN = 0;                               // reports folded in
+  uint32_t readUs = 0;                            // micros() when the packet was read
+  uint32_t baseDeltaUs = 0;                       // from the 0xFB timebase report
+  uint32_t lastLinUs = 0;                         // sensor-clock time of the last lin report
+  bool     haveLinT = false;
+  uint32_t linIntervalUs = 10000;                 // requested report period (fallback dt)
+
+  void takeDv(float out[3], uint16_t &n) {
+    out[0] = dvx; out[1] = dvy; out[2] = dvz; n = dvN;
+    dvx = dvy = dvz = 0.0f; dvN = 0;
+  }
 
   bool     fresh = false;  // a quaternion arrived; the consumer CLEARS it after
                            // reading (read-and-clear), enabling staleness watch
@@ -144,11 +171,13 @@ struct TinyBNO085 {
   // quaternion was in fact streaming fine.
   bool enableAll(uint32_t rot_us = 10000, uint32_t vec_us = 10000) {
     const uint8_t alt = (rotReport == RPT_GAMEROTVEC) ? RPT_ROTVEC : RPT_GAMEROTVEC;
-    const uint8_t ids[7]  = { rotReport, alt, RPT_LINACC, RPT_ACCEL,
-                              RPT_GYRO, RPT_GRAVITY, RPT_MAG };
-    const uint32_t iv[7]  = { rot_us, rot_us, vec_us, vec_us, vec_us, vec_us, vec_us };
-    featuresOk = 0; featuresAsked = 7; lastFeatureFail = 0;
-    for (uint8_t i = 0; i < 7; i++) {
+    const uint8_t ids[8]  = { rotReport, alt, RPT_LINACC, RPT_ACCEL,
+                              RPT_GYRO, RPT_GRAVITY, RPT_MAG, RPT_STABILITY };
+    const uint32_t iv[8]  = { rot_us, rot_us, vec_us, vec_us, vec_us, vec_us, vec_us, 50000 };
+    linIntervalUs = vec_us;
+    haveLinT = false; stability = 255;
+    featuresOk = 0; featuresAsked = 8; lastFeatureFail = 0;
+    for (uint8_t i = 0; i < 8; i++) {
       bool got = false;
       for (uint8_t attempt = 0; attempt < 3 && !got; attempt++) {
         got = enableReport(ids[i], iv[i]);
@@ -180,6 +209,7 @@ struct TinyBNO085 {
     // with headroom; anything larger is boot chatter and gets discarded below.
     if (len <= 160) {
       if (bus->requestFrom((int)addr, (int)len) != (int)len) return false;
+      readUs = micros();
       uint8_t buf[160];
       for (uint16_t i = 0; i < len; i++) buf[i] = bus->read();
       if (chan == 3) parseInput(buf + 4, len - 4);      // skip the 4-byte header
@@ -214,8 +244,21 @@ struct TinyBNO085 {
       case RPT_ROTVEC:       return 14;   // 4-byte head + 4x int16 + accuracy
       case 0x09:             return 14;   // geomagnetic rotation vector
       case 0x07:             return 10;   // magnetic field uncalibrated (partial)
+      case RPT_STABILITY:    return 6;    // 4-byte head + classification + reserved
       default:               return 0;
     }
+  }
+
+  // v' = q v q*  (unit quaternion w,x,y,z)
+  static inline void rotate(float w, float x, float y, float z,
+                            float vx, float vy, float vz,
+                            float &ox, float &oy, float &oz) {
+    const float tx = 2.0f * (y * vz - z * vy);
+    const float ty = 2.0f * (z * vx - x * vz);
+    const float tz = 2.0f * (x * vy - y * vx);
+    ox = vx + w * tx + (y * tz - z * ty);
+    oy = vy + w * ty + (z * tx - x * tz);
+    oz = vz + w * tz + (x * ty - y * tx);
   }
 
   static inline int16_t rd16(const uint8_t *p) {
@@ -228,10 +271,19 @@ struct TinyBNO085 {
       const uint8_t id  = p[i];
       const uint8_t len = reportLen(id);
       if (len == 0 || i + len > n) break;      // unknown or truncated: stop here
-      if (id == 0xFB || id == 0xFA) { i += len; continue; }
+      if (id == 0xFB) {                        // timebase: 100 us ticks back to "now"
+        baseDeltaUs = ((uint32_t)p[i + 1] | ((uint32_t)p[i + 2] << 8) |
+                       ((uint32_t)p[i + 3] << 16) | ((uint32_t)p[i + 4] << 24)) * 100u;
+        i += len; continue;
+      }
+      if (id == 0xFA) { i += len; continue; }
 
       const uint8_t status = p[i + 2] & 0x03;  // calibration accuracy, 0..3
       const uint8_t *v = p + i + 4;            // first data byte of the report
+      // sample time on the host clock: packet read time, minus the timebase
+      // delta, plus this report's own 14-bit delay (status[7:2] | byte 3)
+      const uint32_t delayUs = ((((uint32_t)(p[i + 2] >> 2)) << 8) | p[i + 3]) * 100u;
+      const uint32_t tRepUs = readUs - baseDeltaUs + delayUs;
 
       switch (id) {
         case RPT_ACCEL: {                      // Q8, m/s^2
@@ -256,8 +308,22 @@ struct TinyBNO085 {
           const float s = 1.0f / 256.0f;
           lx = rd16(v) * s; ly = rd16(v + 2) * s; lz = rd16(v + 4) * s;
           freshVec = true;
+          // dt on the sensor clock; anything implausible (first report, a
+          // re-begin, a stalled read) falls back to the requested period
+          uint32_t dtUs = haveLinT ? (tRepUs - lastLinUs) : linIntervalUs;
+          if (dtUs < linIntervalUs / 4 || dtUs > linIntervalUs * 4) dtUs = linIntervalUs;
+          lastLinUs = tRepUs; haveLinT = true;
+          if (haveGame) {                      // rotate into the game-vector world (Z up)
+            float wx, wy, wz;
+            rotate(gw, gx, gy, gz, lx, ly, lz, wx, wy, wz);
+            const float dt = dtUs * 1e-6f;
+            dvx += wx * dt; dvy += wy * dt; dvz += wz * dt; dvN++;
+          }
           break;
         }
+        case RPT_STABILITY:
+          stability = v[0];
+          break;
         case RPT_GRAVITY: {                    // Q8, m/s^2
           const float s = 1.0f / 256.0f;
           grx = rd16(v) * s; gry = rd16(v + 2) * s; grz = rd16(v + 4) * s;
