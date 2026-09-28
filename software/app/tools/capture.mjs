@@ -15,8 +15,8 @@
 //   python3 -m http.server 8099 --directory /tmp/webdist
 //   NODE_PATH=/tmp/cap/node_modules node tools/capture.mjs http://localhost:8099 tools/out all [chromium-path]
 //
-// Then `node tools/gif.mjs tools/out/frames` turns the frames into
-// docs/media/app-live.gif: the three surfaces side by side, all on one clock.
+// Then `node tools/compose.mjs tools/out` writes docs/media/app-screens.png,
+// and `node tools/gif.mjs tools/out/frames` turns the frames into app-live.gif.
 import { mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 
@@ -36,37 +36,9 @@ const STILLS = [
   { name: 'logs', q: 'screen=logs&t=2.0', noTwin: true },
 ];
 
-/**
- * The loop: all three surfaces at once, running the same clock.
- *
- * One image does the whole job the docs used to split between a still sheet
- * and a single-screen clip. The three panels are pinned to the same t and
- * shot together, so what you see is one instant of the app across every
- * surface, not three screens photographed at three different moments.
- *
- * The window is ONE wave period, 20.6 to 22.6. The choreography's pulses sit
- * 2.0 s apart, so the pose at 22.6 is the pose at 20.6 to within 2.7 deg on
- * the worst joint: the loop closes on itself and there is no seam to hide.
- *
- * `part=hand` reframes Overview's hero twin for the loop only. The screen
- * ships the whole device, which is right for a product hero and wrong for
- * this: normalising the model to the forearm's length shrinks the fingers
- * until 50 deg of curl is a few pixels.
- *
- * Logs holds still by nature - it is a source, a session list and four rates
- * - and that is the honest picture of it. The motion in the frame is the
- * motion the app actually has.
- */
-const GIF = {
-  from: 20.6, to: 22.6, frames: 50, scale: 2,
-  panels: [
-    { screen: 'overview', params: 'part=hand&dist=1.5', twin: true },
-    { screen: 'analytics', params: '', twin: false },
-    { screen: 'logs', params: '', twin: false },
-  ],
-  // the contact-sheet language the still sheet used, at loop scale
-  panelW: 300, gap: 20, pad: 24, radius: 34, bg: '#E9E9E9',
-};
+/** the loop: the travelling wave, index to pinky, which is the clearest
+ *  demonstration that twelve joints are being driven independently */
+const GIF = { from: 18.4, to: 25.2, frames: 44, scale: 1.5, screen: 'overview' };
 
 async function open(ctx, url, needsTwin = true, scroll = 0) {
   const page = await ctx.newPage();
@@ -106,65 +78,21 @@ if (MODE !== 'gif') {
   await ctx.close();
 }
 
-// Three pages held open for the whole sequence: the clock is stepped in place,
-// so each model uploads once and every frame is the same instant on all three
-// surfaces. A fourth page lays the panels out, so the frame the encoder sees
-// is already the finished picture.
+// One page for the whole sequence: the clock is stepped in place, so the model
+// uploads once and every frame is the same scene at a different time.
 if (MODE !== 'stills') {
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: GIF.scale });
-  const pages = [];
-  for (const p of GIF.panels) {
-    const q = `screen=${p.screen}&t=${GIF.from}${p.params ? `&${p.params}` : ''}`;
-    pages.push(await open(ctx, `${BASE}/?${q}`, p.twin));
-  }
-
-  // Warm-up, discarded. Every trace on these screens is a rolling buffer, and
-  // a screen seeds its buffer once from simFrame at its own resting cadence -
-  // a quarter-second a sample. The capture steps 0.04 s a frame, so without
-  // this the seeded past scrolls out during the clip and the traces visibly
-  // change time-scale: the transition from seeded data to captured data,
-  // happening inside the loop. Running one full period first flushes every
-  // buffer and refills it at the capture's own cadence, so frame 0 already
-  // holds a period of history and the traces scroll continuously through the
-  // wrap like everything else.
-  for (let i = -GIF.frames; i < 0; i++) {
-    const t = GIF.from + (GIF.to - GIF.from) * (i / GIF.frames);
-    for (const page of pages) {
-      await page.evaluate((tt) => window.__taktoSession.pin(tt), t);
-      await page.evaluate(() => new Promise((r) =>
-        requestAnimationFrame(() => requestAnimationFrame(r))));
-    }
-  }
-  console.log('warm-up done, buffers filled at capture cadence');
-
-  const panelH = Math.round(GIF.panelW * (H / W));
-  const sheetW = GIF.panelW * pages.length + GIF.gap * (pages.length - 1) + GIF.pad * 2;
-  const sheet = await ctx.newPage();
-  await sheet.setViewportSize({ width: sheetW, height: panelH + GIF.pad * 2 });
-
+  const page = await open(ctx, `${BASE}/?screen=${GIF.screen}&t=${GIF.from}`);
   for (let i = 0; i < GIF.frames; i++) {
     const t = GIF.from + (GIF.to - GIF.from) * (i / GIF.frames);
-    const shots = [];
-    for (const page of pages) {
-      await page.evaluate((tt) => window.__taktoSession.pin(tt), t);
-      // two animation frames: one to apply the pose, one to draw it
-      await page.evaluate(() => new Promise((r) =>
-        requestAnimationFrame(() => requestAnimationFrame(r))));
-      shots.push((await page.screenshot({ timeout: 180000 })).toString('base64'));
-    }
-    await sheet.setContent(
-      `<!doctype html><body style="margin:0;background:${GIF.bg}">` +
-      `<div style="display:flex;gap:${GIF.gap}px;padding:${GIF.pad}px;align-items:flex-start">` +
-      shots.map((b64) => `<img src="data:image/png;base64,${b64}" style="width:${GIF.panelW}px;` +
-        `height:${panelH}px;border-radius:${GIF.radius}px;` +
-        `box-shadow:0 14px 34px rgba(0,0,0,.18), 0 0 0 1px rgba(0,0,0,.06)">`).join('') +
-      `</div></body>`);
-    await sheet.screenshot({ path: `${OUT}/frames/f${String(i).padStart(4, '0')}.png`, timeout: 180000 });
+    await page.evaluate((tt) => window.__taktoSession.pin(tt), t);
+    // two animation frames: one to apply the pose, one to draw it
+    await page.evaluate(() => new Promise((r) =>
+      requestAnimationFrame(() => requestAnimationFrame(r))));
+    await page.screenshot({ path: `${OUT}/frames/f${String(i).padStart(4, '0')}.png`, timeout: 180000 });
     if (i % 10 === 0) console.log('frame', i, 'of', GIF.frames);
   }
-
-  await sheet.close();
-  for (const page of pages) await page.close();
+  await page.close();
   await ctx.close();
 }
 

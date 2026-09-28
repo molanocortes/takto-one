@@ -1,10 +1,7 @@
 // gif.mjs - encode the loop frames capture.mjs wrote into docs/media/app-live.gif.
 //
 //   npm --prefix /tmp/cap install gifenc pngjs
-//   NODE_PATH=/tmp/cap/node_modules node tools/gif.mjs tools/out/frames ../../docs/media/app-live.gif [width]
-//
-// capture.mjs already laid the three panels out, so a frame here is the
-// finished picture and this only quantises and times it.
+//   NODE_PATH=/tmp/cap/node_modules node tools/gif.mjs tools/out/frames ../../docs/media/app-live.gif
 //
 // Pure JS on purpose: the Playwright ffmpeg build has no image demuxer and a
 // full ffmpeg is not a dependency this app wants to carry.
@@ -18,8 +15,8 @@ const { PNG } = require('pngjs');
 
 const DIR = process.argv[2] ?? 'tools/out/frames';
 const OUT = process.argv[3] ?? '../../docs/media/app-live.gif';
-const WIDTH = Number(process.argv[4] ?? 960);  // target width; frames box-filter down to it
-const DELAY = 40;                        // ms, twenty-five frames a second
+const WIDTH = 390;                       // one CSS pixel per device point
+const DELAY = 100;                       // ms, ten frames a second
 
 const files = readdirSync(DIR).filter((f) => f.endsWith('.png')).sort();
 const gif = GIFEncoder();

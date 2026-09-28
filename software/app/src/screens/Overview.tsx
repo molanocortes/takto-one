@@ -1,9 +1,10 @@
 // Overview.tsx - the device at a glance: the twin, the health number, the
 // four housekeeping channels, the battery and the mode.
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useSyncExternalStore } from 'react';
 import { View, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Twin } from '../twin/Twin';
+import { twinStatus } from '../twin/loadHand';
 import { TopRow, Title, SectionHead, Tiles, type TileIcon } from '../ui/Chrome';
 import { M, T, Num, Hairline, Trace, Ring } from '../ui/primitives';
 import { C, S, R } from '../ui/tokens';
@@ -28,12 +29,13 @@ const ROWS: Row[] = [
 
 const HIST = 40;
 
-export function Overview() {
+export function Overview({ onMenu }: { onMenu?: () => void }) {
   const session = useSession();
   const frame = session.frame;
   const tel = frame.telemetry;
   const [side, setSide] = useState<Side>('active');
   const { width } = useWindowDimensions();
+  const twin = useSyncExternalStore(twinStatus.subscribe, twinStatus.get, twinStatus.get);
   const hist = useRef<Record<string, number[]>>({}).current;
   const lastT = useRef(NaN);
 
@@ -68,14 +70,23 @@ export function Overview() {
   return (
     <View style={{ flex: 1, backgroundColor: C.page }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: S.gutter }} showsVerticalScrollIndicator={false}>
-        <TopRow live={session.link.live || session.link.kind === 'sim'} label={session.link.live ? 'Live' : session.link.kind === 'sim' ? 'Live' : 'Idle'} />
+        <TopRow live={session.link.live || session.link.kind !== 'bridge'} label={session.link.live ? 'Live' : session.link.kind === 'sim' ? 'Live' : session.link.kind === 'take' ? 'Replay' : 'Idle'} onMenu={onMenu} />
 
         {/* the hero: words on the left, the machine on the right */}
         <View style={{ height: 292 }}>
           <View style={[StyleSheet.absoluteFill, { left: 118, top: 78 }]} pointerEvents="box-none">
             <Twin style={{ width: twinW - 92, height: 220 }} stage="light" part="device" />
+            {twin.state !== 'ready' && (
+              // the twin is never silently absent: while it loads, or if it
+              // cannot, the page says so in the twin's own place
+              <View style={{ position: 'absolute', left: 0, right: 0, top: 96, alignItems: 'center' }} pointerEvents="none">
+                <M size={8.5} color={twin.state === 'error' ? C.orange : C.ink3}>
+                  {twin.state === 'error' ? `Twin failed: ${twin.detail}` : twin.state === 'idle' ? '' : `Twin ${twin.detail}…`}
+                </M>
+              </View>
+            )}
           </View>
-          <Title status={session.link.live ? 'Connected' : 'Syncing'} spinning={!session.link.live}>Digital twin</Title>
+          <Title status={session.link.live ? 'Connected' : session.link.kind === 'take' ? 'Replay' : 'Syncing'} spinning={!session.link.live && session.link.kind !== 'take'}>Digital twin</Title>
           <View style={{ marginTop: 40 }} pointerEvents="none">
             <M size={9.5} color={C.ink2}>System status</M>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 6 }}>
@@ -92,7 +103,7 @@ export function Overview() {
           <Tiles items={SIDES} value={side} onChange={setSide} />
         </View>
 
-        <SectionHead label="Telemetry" right="Real-time" style={{ marginTop: 22 }} />
+        <SectionHead label="Telemetry" right={session.isPaused() ? 'Paused' : 'Real-time'} onRight={() => (session.isPaused() ? session.resume() : session.pause())} style={{ marginTop: 22 }} />
         <View style={{ marginTop: 8 }}>
           {ROWS.map((r, i) => {
             const v = tel ? (tel[r.key] as number) : null;

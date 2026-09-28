@@ -12,7 +12,6 @@ import { Canvas, useFrame, useThree } from './canvas';
 import { Hand } from './Hand';
 import { STUDIO, keyDirection, LOOKS, type Look } from './materials';
 import { C } from '../ui/tokens';
-import { session } from '../data/session';
 
 /** on the light page the machine is seen from high and to the front-right, fingers toward the viewer's left */
 // on the light page the device LIES on the table, as in the still: the inner
@@ -77,11 +76,7 @@ function Rig({ orbit, colourway, scale = 1, look, part }: { orbit: React.Mutable
     // Motion is information, so the idle is a slow sway, not a carousel: it
     // says the twin is live without asking to be watched. A full turn is for
     // the capture harness, not for someone reading numbers.
-    // The sway runs on wall-clock time, which is right for a live screen and
-    // wrong for a capture: it would turn the machine slowly through a clip
-    // whose clock is pinned, so a loop could never close on itself. A pinned
-    // clock parks the turntable and the articulation is the only motion left.
-    const idle = o.drifting && !session.pinned ? Math.sin(o.t * 0.24) * 0.13 : 0;
+    const idle = o.drifting ? Math.sin(o.t * 0.24) * 0.13 : 0;
     g.rotation.y = V.yaw0 + o.yaw + idle;
     g.rotation.x = o.pitch;
   });
@@ -125,12 +120,12 @@ function Lights({ shadow, dark }: { shadow: boolean; dark: boolean }) {
           picks up a real highlight the way the product stills do. */}
       <directionalLight
         position={key}
-        intensity={3.0}
+        intensity={2.6}
         color="#FFFDF8"
         castShadow={shadow}
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
-        shadow-radius={4}
+        shadow-radius={6}
         shadow-bias={-0.0012}
         shadow-camera-near={0.5}
         shadow-camera-far={14}
@@ -139,13 +134,9 @@ function Lights({ shadow, dark }: { shadow: boolean; dark: boolean }) {
         shadow-camera-top={1.05}
         shadow-camera-bottom={-1.05}
       />
-      {/* Fill only: it lifts the shadow side off black without casting.
-          Kept LOW on purpose. A white machine on a light page disappears when
-          the fill is generous - every face returns the same value as the page
-          behind it and the silhouette goes with it. Starving the fill is what
-          gives the shell its dark side, and the dark side is the edge. */}
-      <hemisphereLight args={['#FFFFFF', '#D0CEC8', 0.5]} />
-      <ambientLight intensity={0.16} />
+      {/* Fill only: it lifts the shadow side off black without casting. */}
+      <hemisphereLight args={['#FFFFFF', '#D0CEC8', 0.9]} />
+      <ambientLight intensity={0.32} />
     </>
   );
 }
@@ -161,18 +152,12 @@ function urlLook(): Look {
 }
 /** The app shows the hand alone; ?part=device on web brings the housing back. */
 export const DEFAULT_PART: 'device' | 'hand' = 'hand';
-/**
- * An explicit ?part= outranks the prop, so the capture harness can reframe a
- * screen's twin without editing the screen. This is the same affordance ?look=
- * and ?az=/?el=/?dist= already carry: the shipped design is the default, the
- * URL is the darkroom. Absent the parameter, the screen's own prop decides.
- */
-function urlPart(): 'device' | 'hand' | null {
+function urlPart(): 'device' | 'hand' {
   if (Platform.OS === 'web' && typeof location !== 'undefined') {
     const p = new URLSearchParams(location.search).get('part');
     if (p === 'hand' || p === 'device') return p;
   }
-  return null;
+  return DEFAULT_PART;
 }
 
 export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, part }: {
@@ -181,7 +166,7 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
 }) {
   const dark = stage === 'dark';
   const theLook = look ?? urlLook();
-  const thePart = urlPart() ?? part ?? DEFAULT_PART;
+  const thePart = part ?? urlPart();
   const exposure = ({ studio: 0.92, graphite: 1.15, clay: 1.05, ceramic: 0.85, ink: 1.2, xray: 1.0, midnight: 1.3, slate: 1.15, frost: 0.9 } as Partial<Record<Look, number>>)[theLook] ?? 1.05;
   const orbit = useRef<Orbit>({ yaw: 0, pitch: 0, drifting: true, t: 0 });
   const start = useRef({ yaw: 0, pitch: 0 });
@@ -217,28 +202,34 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
           // Standard view transform, no look. A filmic transform flattens a
           // white page to grey, which is the one thing this stage cannot do.
           gl.outputColorSpace = THREE.SRGBColorSpace;
-          gl.shadowMap.type = THREE.PCFSoftShadowMap;
+          // soft shadows are a 3x3 tap per pixel; a phone gets the plain
+          // filtered map, which at this size looks the same and costs a third
+          gl.shadowMap.type = Platform.OS === 'web' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
           scene.background = null;
-          if (!dark) {
-            // a soft neutral room, so the satin clearcoat has something to
-            // catch: the highlight along the ridge in the product stills.
-            gl.toneMapping = THREE.NoToneMapping;
-            const pmrem = new THREE.PMREMGenerator(gl);
-            scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.06).texture;
-            scene.environmentIntensity = 0.3;
-            pmrem.dispose();
-          }
+          // transparent over the page; if a GL surface cannot be transparent
+          // it shows the page colour rather than black
+          gl.setClearColor(new THREE.Color(C.page), 0);
           if (dark) {
             // A filmic transform and a neutral room environment: the graphite
             // shell needs something to reflect, or it reads as flat plastic.
             gl.toneMapping = THREE.ACESFilmicToneMapping;
             gl.toneMappingExposure = exposure;
-            const pmrem = new THREE.PMREMGenerator(gl);
-            scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-            scene.environmentIntensity = 0.45;
-            pmrem.dispose();
           } else {
+            // Standard view transform, no look. A filmic transform flattens a
+            // white page to grey, which is the one thing this stage cannot do.
             gl.toneMapping = THREE.NoToneMapping;
+          }
+          // a soft neutral room, so the satin clearcoat has something to
+          // catch: the highlight along the ridge in the product stills. It
+          // is rendered through float targets a GL surface may lack, so it is
+          // allowed to fail: lit without a room beats not drawn at all.
+          try {
+            const pmrem = new THREE.PMREMGenerator(gl);
+            scene.environment = pmrem.fromScene(new RoomEnvironment(), dark ? 0.04 : 0.06).texture;
+            scene.environmentIntensity = dark ? 0.45 : 0.5;
+            pmrem.dispose();
+          } catch (e) {
+            console.warn('[twin] no room environment on this GL surface:', e);
           }
         }}
       >
@@ -248,9 +239,7 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
         {!dark && (
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, urlNum('floor', -0.16), 0]} receiveShadow>
             <planeGeometry args={[7, 7]} />
-            {/* The one thing that seats a white object on a light page. At
-                0.075 it was a rumour; the hand floated and read as a decal. */}
-            <shadowMaterial opacity={0.24} />
+            <shadowMaterial opacity={0.075} />
           </mesh>
         )}
       </Canvas>

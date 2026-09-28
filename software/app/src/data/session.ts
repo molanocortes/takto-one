@@ -8,10 +8,31 @@
 // at UI_HZ. That split is why the twin stays smooth while twelve numbers,
 // four bars and a meter re-render alongside it.
 import { useSyncExternalStore } from 'react';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 import { emptyFrame, type Frame, type Link, type SourceKind } from './types';
 import { simFrame } from './sim';
 import { sampleTake, type Take } from './takes';
-import { connectBridge } from './bridge';
+import { connectBridge, normalizeBridgeUrl } from './bridge';
+
+/** the last bridge address that was tried, kept across launches */
+const SAVED_KEY = 'takto.bridgeUrl';
+const SAVED_FILE = 'bridge-url.txt';
+async function readSavedUrl(): Promise<string | null> {
+  try {
+    if (Platform.OS === 'web') return typeof localStorage !== 'undefined' ? localStorage.getItem(SAVED_KEY) : null;
+    const FS: any = await import('expo-file-system/legacy');
+    const info = await FS.getInfoAsync(FS.documentDirectory + SAVED_FILE);
+    if (!info.exists) return null;
+    return await FS.readAsStringAsync(FS.documentDirectory + SAVED_FILE);
+  } catch { return null; }
+}
+async function writeSavedUrl(url: string) {
+  try {
+    if (Platform.OS === 'web') { if (typeof localStorage !== 'undefined') localStorage.setItem(SAVED_KEY, url); return; }
+    const FS: any = await import('expo-file-system/legacy');
+    await FS.writeAsStringAsync(FS.documentDirectory + SAVED_FILE, url);
+  } catch { /* a forgotten address is an inconvenience, not an error */ }
+}
 
 const UI_HZ = 12;
 
@@ -22,6 +43,10 @@ class Session {
   frame: Frame = emptyFrame();
   link: Link = { kind: 'sim', live: false, label: 'SIMULATED', detail: 'no device attached' };
   play: Play | null = null;
+  /** the address the Logs screen opens with; '' until one was ever tried */
+  savedUrl = '';
+  /** the address of the bridge being used or retried, null when none */
+  bridgeUrl: string | null = null;
 
   private version = 0;
   private listeners = new Set<() => void>();
@@ -29,6 +54,7 @@ class Session {
   private uiTimer: any = null;
   private started = 0;
   private disconnect: (() => void) | null = null;
+  private appState: { remove: () => void } | null = null;
   private lastTick = 0;
   /**
    * Media capture. With the clock pinned, the synthetic feed is a pure
@@ -38,12 +64,16 @@ class Session {
    */
   private pinnedT: number | null = null;
   pin(t: number | null) { this.pinnedT = t; this.bump(); }
-  /**
-   * True while the capture harness owns the clock. Anything that animates off
-   * wall-clock time rather than off the feed must hold still when this is set,
-   * or the render stops being a pure function of t and a loop cannot close.
-   */
-  get pinned() { return this.pinnedT !== null; }
+  isPaused() { return this.pinnedT !== null; }
+  /** Freeze the read-outs at the current instant; resume continues from it. */
+  pause() { this.pinnedT = this.play ? this.play.t : (Date.now() - this.started) / 1000; this.bump(); }
+  resume() {
+    if (this.pinnedT === null) return;
+    if (this.play) this.play.t = this.pinnedT; else this.started = Date.now() - this.pinnedT * 1000;
+    this.lastTick = Date.now();
+    this.pinnedT = null;
+    this.bump();
+  }
 
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -54,6 +84,15 @@ class Session {
 
   start() {
     if (this.raf) return;
+    readSavedUrl().then((u) => { if (u && !this.savedUrl) { this.savedUrl = u; this.bump(); } });
+    // a phone that sleeps loses the socket; drop it cleanly and take it back
+    // up on wake instead of waiting for the watchdog to notice
+    if (!this.appState) {
+      this.appState = AppState.addEventListener('change', (s: AppStateStatus) => {
+        if (s === 'active') { if (this.bridgeUrl && !this.disconnect) this.openBridge(this.bridgeUrl); }
+        else if (this.disconnect) { this.disconnect(); this.disconnect = null; this.link = { kind: 'bridge', live: false, label: 'PAUSED', detail: 'app in background' }; this.bump(); }
+      });
+    }
     this.started = Date.now();
     this.lastTick = this.started;
     const loop = () => {
@@ -105,9 +144,27 @@ class Session {
     if (kind === 'take') this.link = { kind, live: false, label: 'REPLAY', detail: 'recorded session' };
   }
 
-  /** Attach to a real teensy_bridge.py. Falls back to the simulator on loss. */
-  connect(url: string) {
+  /**
+   * Attach to a real teensy_bridge.py. What was typed is completed to a full
+   * address ("192.168.1.20" becomes ws://192.168.1.20:8765/ws), remembered,
+   * and retried until it answers or the simulator is chosen instead.
+   */
+  connect(input: string) {
+    const url = normalizeBridgeUrl(input);
+    if (!url) {
+      this.link = { kind: 'bridge', live: false, label: 'NO ADDRESS', detail: 'enter the bridge address' };
+      this.bump();
+      return;
+    }
+    this.savedUrl = url;
+    writeSavedUrl(url);
+    this.play = null;
+    this.openBridge(url);
+  }
+
+  private openBridge(url: string) {
     this.disconnect?.();
+    this.bridgeUrl = url;
     this.link = { kind: 'bridge', live: false, label: 'CONNECTING', detail: url };
     this.bump();
     this.disconnect = connectBridge(url, {
@@ -125,6 +182,8 @@ class Session {
   useSimulator() {
     this.disconnect?.();
     this.disconnect = null;
+    this.bridgeUrl = null;
+    this.play = null;
     this.started = Date.now();
     this.setKind('sim');
     this.bump();

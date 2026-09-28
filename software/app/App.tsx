@@ -62,9 +62,9 @@ function Shell() {
   }, []);
   return (
     <View style={{ flex: 1, backgroundColor: C.page }}>
-      {tab === 'overview' && <Overview />}
-      {tab === 'analytics' && <Analytics />}
-      {tab === 'logs' && <Logs />}
+      {tab === 'overview' && <Overview onMenu={() => setTab('logs')} />}
+      {tab === 'analytics' && <Analytics onMenu={() => setTab('logs')} />}
+      {tab === 'logs' && <Logs onMenu={() => setTab('overview')} />}
       <TabBar items={TABS} value={tab} onChange={setTab} />
     </View>
   );

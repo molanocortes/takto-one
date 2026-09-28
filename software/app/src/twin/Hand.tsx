@@ -19,7 +19,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame } from './canvas';
-import { loadHand } from './loadHand';
+import { loadHand, twinStatus } from './loadHand';
 import { makeMaterials, makeLookMaterials, materialFor, type Materials, type Look } from './materials';
 import { fingerPose, spoolAngleDeg, SPOOL_STATIONS, type FingerPose } from '../data/kinematics';
 import { FINGERS, type Finger } from '../ui/tokens';
@@ -136,10 +136,13 @@ export function Hand({ onReady, colourway = 'white', look = 'studio', part = 'de
         setRig(built);
         onReady?.(built.size);
         // a flag the capture tool waits on, so a frame is never shot before
-        // the 154k-triangle model has actually been uploaded and rigged
+        // the model has actually been uploaded and rigged
         (globalThis as any).__taktoTwinReady = true;
       })
-      .catch((e) => console.warn('[twin] hand model failed to load:', e));
+      .catch((e) => {
+        console.warn('[twin] hand model failed to load:', e);
+        twinStatus.set({ state: 'error', detail: String(e?.message ?? e) });
+      });
     return () => { live = false; };
   }, [mats, part]);
 

@@ -1,0 +1,11 @@
+# The lab's Python stack. mediapipe is pinned to the 0.10 line: 1.0.x on macOS
+# aborts in its Metal helper ("Service is unavailable") before a single frame.
+numpy<2
+scipy>=1.11
+opencv-python>=4.9
+mediapipe==0.10.21
+fastapi>=0.110
+uvicorn[standard]>=0.29
+websockets>=12
+imageio-ffmpeg>=0.5
+pillow>=10
