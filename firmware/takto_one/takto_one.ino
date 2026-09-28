@@ -406,6 +406,8 @@ bool          everLinked = false;             // a host link has existed at leas
 // on the panel, so the firmware measures itself: 'T' prints them.
 uint32_t      paintLastUs = 0, paintMaxUs = 0, paintCount = 0, paintSumUs = 0;
 uint32_t      loopPasses = 0, statsT0 = 0;
+// where the loop's time goes (us per stats window), printed by 'T'
+uint32_t      perfImu = 0, perfScreen = 0, perfFrame = 0, perfUi = 0, perfPanel = 0, perfSvc = 0;
 uint32_t      scLastSig = 0xFFFFFFFF;
 WatchPresentationCadence screenCadence;
 WatchPresentationFilter  screenFilter;
@@ -1683,7 +1685,8 @@ void imuService() {
   imuSvcMs = now;
   for (uint8_t i = 0; i < N_IMU; i++) {
     if (!imuLive[i]) continue;
-    for (uint8_t k = 0; k < 4 && bno[i].poll(); k++) {}  // drain up to 4 packets
+    for (uint8_t k = 0; k < 4 && bno[i].poll(); k++) motorService();  // drain up to 4 packets;
+                                                    // each read blocks ~1 ms: keep the servo tick
     if (bno[i].fresh) {
       bno[i].fresh = false;          // read-and-clear: "new since last service"
       imuQ[i][0] = bno[i].qw; imuQ[i][1] = bno[i].qx;
@@ -1698,10 +1701,20 @@ void imuService() {
     if (bno[i].freshVec) {
       bno[i].freshVec = false;
       imuLin[i][0] = bno[i].lx;    imuLin[i][1] = bno[i].ly;    imuLin[i][2] = bno[i].lz;
-      imuAcc[i][0] = bno[i].ax;    imuAcc[i][1] = bno[i].ay;    imuAcc[i][2] = bno[i].az;
       imuGyr[i][0] = bno[i].gyroX; imuGyr[i][1] = bno[i].gyroY; imuGyr[i][2] = bno[i].gyroZ;
-      imuMag[i][0] = bno[i].mx;    imuMag[i][1] = bno[i].my;    imuMag[i][2] = bno[i].mz;
-      imuGrv[i][0] = bno[i].grx;   imuGrv[i][1] = bno[i].gry;   imuGrv[i][2] = bno[i].grz;
+      // v16: gravity and the raw accelerometer are no longer read over the bus
+      // (see enableAll); both follow exactly from the orientation: gravity in
+      // the sensor frame is q* (0,0,g) q, and accel = linear + gravity.
+      {
+        const float w = bno[i].gw, x = bno[i].gx, y = bno[i].gy, z = bno[i].gz, G = 9.80665f;
+        imuGrv[i][0] = 2.0f * (x*z - w*y) * G;
+        imuGrv[i][1] = 2.0f * (y*z + w*x) * G;
+        imuGrv[i][2] = (w*w - x*x - y*y + z*z) * G;
+      }
+      for (uint8_t k = 0; k < 3; k++) {
+        imuAcc[i][k] = imuLin[i][k] + imuGrv[i][k];
+        imuMag[i][k] = 0.0f;                     // not read: see enableAll
+      }
       imuAccu[i][0] = bno[i].accAccuracy;
       imuAccu[i][1] = bno[i].gyroAccuracy;
       imuAccu[i][2] = bno[i].magAccuracy;
@@ -2499,7 +2512,7 @@ void uiHandleEvent(Ev ev) {
       if (now < carouselUntil) {                   // select the focused mode
         carouselUntil = 0;
         int sel = uiIn.focus();
-        uiIn.tick(4200, 20);                       // the confirm chirp
+        uiIn.tick(3136, 20);                       // the confirm click
         // "calibrate" is the neutral-pose capture, run on the device in both
         // modes (the host listens to its E,neutral events). "capture" with no
         // host toggles the device's own SD take.
@@ -2594,6 +2607,7 @@ void setup() {
   tft.fillScreen(0x0000);
   uiIn.begin(POT_PIN, BTN_PIN, PZ_PIN);           // crown pot / button / piezo
   uiIn.toneBusy = []() { return sfx::busy() || standby; };   // clicks never chop a cue
+  uiIn.clickFn = sfx::click;                      // soft struck clicks, not square beeps
   watchLoad();                                    // the face chosen last session
   FB = cv.getBuffer();
   memset(FB, 0, 240 * 240 * 2);
@@ -2664,6 +2678,18 @@ void loop() {
                     (unsigned long)WATCH_PRESENT_INTERACT_MS,
                     (unsigned long)screenDeferredBusy, uiR.pending ? 1 : 0,
                     TFT_ROTATION);
+      Serial.printf("# time/window us: imu=%lu svc=%lu ui=%lu screen=%lu panel=%lu frame=%lu\n",
+                    (unsigned long)perfImu, (unsigned long)perfSvc, (unsigned long)perfUi,
+                    (unsigned long)perfScreen, (unsigned long)perfPanel, (unsigned long)perfFrame);
+      for (uint8_t i = 0; i < N_IMU; i++) {
+        if (!imuLive[i]) continue;
+        Serial.printf("# imu %s: polls=%lu packets=%lu bytes=%lu big=%lu us=%lu\n", IMU_NAME[i],
+                      (unsigned long)bno[i].stPolls, (unsigned long)bno[i].stPackets,
+                      (unsigned long)bno[i].stBytes, (unsigned long)bno[i].stBig,
+                      (unsigned long)bno[i].stUs);
+        bno[i].stPolls = bno[i].stPackets = bno[i].stBytes = bno[i].stBig = bno[i].stUs = 0;
+      }
+      perfImu = perfSvc = perfUi = perfScreen = perfPanel = perfFrame = 0;
       paintMaxUs = 0; paintCount = 0; paintSumUs = 0; loopPasses = 0;
       screenSamples = 0; screenDeferredBusy = 0;
       statsT0 = millis();
@@ -2671,14 +2697,18 @@ void loop() {
   }
   motorService();   // keep the control tick alive after draining a serial backlog
   loopPasses++;
+  uint32_t pt = micros();
   imuService();
   imuRecoverService();                    // v16: a dead IMU is restarted by the device
+  perfImu += micros() - pt; pt = micros();
   linkService();                          // host / standalone / auto take
   neutralService();                       // countdown + still hold
   motorCueService();                      // sounds for motor connect / torque / fault
   sfx::service();                         // the buzzer's note sequencer
+  perfSvc += micros() - pt; pt = micros();
   Ev ev = uiIn.poll();                    // crown + button (detents tick the piezo)
   if (ev != Ev::NONE) uiHandleEvent(ev);
+  perfUi += micros() - pt; pt = micros();
   if (standby) {                          // standby: one dark frame, then nothing
     if (!standbyPainted && uiR.idle()) {
       FB = cv.getBuffer(); memset(FB, 0, 240 * 240 * 2);
@@ -2687,7 +2717,9 @@ void loop() {
   } else {
     screenService();                      // presentation <=7.7 Hz (crown <=9.6 Hz)
   }
+  perfScreen += micros() - pt; pt = micros();
   uiR.task();                             // ships <=1 coherent synchronous run per pass
+  perfPanel += micros() - pt;
   motorService();
   // oversample the MyoWare envelope (pin 14) at ~1 kHz between the 50 Hz frames
   uint32_t nowU = micros();
@@ -2699,6 +2731,7 @@ void loop() {
   const uint32_t PERIOD_MS = (uint32_t)(1000.0f / SAMPLE_HZ);
   uint32_t now = millis();
   if (now - lastSample >= PERIOD_MS) {
+    const uint32_t pf = micros();
     // Advance by the period so the average rate is exactly SAMPLE_HZ (a plain
     // `lastSample = now` slips by the loop latency every frame). After a real
     // stall (SD flush, calibrate) resync instead of bursting catch-up frames:
@@ -2733,5 +2766,6 @@ void loop() {
     if (recording) recWrite(now);
     if (streaming) emitStream(now);
     motorService();
+    perfFrame += micros() - pf;
   }
 }

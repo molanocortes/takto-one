@@ -1,29 +1,34 @@
-// sfx.h - the device's sound vocabulary on the piezo (pin 2).
+// sfx.h - the device's sound: one clean, struck chime per key moment.
 //
-// One short, distinct cue per key moment, so the wearer knows what the device
-// just did without looking at the screen:
+// A piezo driven by tone() can only make a flat, full-volume square beep, and a
+// melody of those reads as a toy. Here the piezo is driven by hardware PWM at
+// the note's pitch, and the pulse WIDTH is shaped by a 2 kHz timer interrupt:
+// the fundamental's amplitude follows sin(pi * duty), so the width traces a
+// real envelope - a 3 ms attack, then an exponential decay, like a small bell
+// struck once. Each event is a single chime; events are told apart by pitch
+// (bright = something good happened, low = attention) and by how long they
+// ring. Only the motor-fault alarm repeats, because it must not be missed.
 //
-//   BOOT        rising arpeggio        powered on, sensors up
-//   STANDBY     falling arpeggio       going to standby (takes closed safely)
-//   WAKE        short rising pair      back from standby
-//   LINK_UP     soft rising pair       a host (console / app / AR bridge) connected
-//   LINK_DOWN   soft falling pair      the host went away; the device carries on alone
-//   REC_START   low -> high            recording to the SD card
-//   REC_STOP    high -> low            take closed and saved
-//   REC_FAIL    two low buzzes         no card / card full / write failed
-//   NEUTRAL_*   countdown + chime      hold-still pose capture for the IMU tare
-//   SENSOR_LOST falling warble         an IMU or encoder dropped out
-//   SENSOR_BACK rising warble          it came back
-//   MOTOR_*     motor bus / torque     connect, torque on, torque off
-//   ALARM       urgent two-tone        motor fault / emergency stop
+//   BOOT        C7, long ring            powered on
+//   STANDBY     G6, long ring            going to standby (takes closed safely)
+//   WAKE        C7, short                back from standby
+//   LINK_UP     E7, soft                 a computer opened the link
+//   LINK_DOWN   A6, soft                 the link closed; the device carries on
+//   REC_START   D7                       recording to the SD card
+//   REC_STOP    A6, longer               take closed and saved
+//   REC_FAIL    E6, low                  no card / card full / write failed
+//   NEUTRAL_*   E7 tick / G7 ring        countdown second / pose captured
+//   SENSOR_LOST F6, low                  an IMU stopped reporting
+//   SENSOR_BACK D7, short                it came back
+//   MOTOR_*     B6 / E7 / G6             bus connected / torque on / torque off
+//   ALARM       G7 struck 6x, 4 per s    motor fault: the safety path acted
 //
-// Non-blocking: play() queues a cue, service() (every loop pass) starts each
-// note on time with tone(pin, f, dur). A cue replaces whatever was playing,
-// except that nothing but another ALARM may interrupt an ALARM. The crown's
-// detent ticks ask busy() first, so they never chop a cue in half.
+// Timing lives in the interrupt, so a chime rings evenly however busy the
+// loop is (the I2C sensor reads block for milliseconds at a time).
 
 #pragma once
 #include <Arduino.h>
+#include <IntervalTimer.h>
 
 namespace sfx {
 
@@ -33,32 +38,29 @@ enum Cue : uint8_t {
   MOTOR_CONNECT, MOTOR_TORQUE_ON, MOTOR_TORQUE_OFF, ALARM, CUE_COUNT
 };
 
-struct Note { uint16_t f; uint16_t ms; };          // f = 0 is a rest
+// one strike: pitch (Hz), peak loudness (0..100 %), decay time constant (ms),
+// and how long until the next strike / the end (ms)
+struct Strike { uint16_t f; uint8_t peak; uint16_t tauMs; uint16_t durMs; };
 
-// note names used below (equal temperament, rounded)
-enum : uint16_t { E5_ = 659, A5_ = 880, C6_ = 1047, D6_ = 1175, E6_ = 1319,
-                  G6_ = 1568, A6_ = 1760, B6_ = 1976, C7_ = 2093, D7_ = 2349,
-                  LOW_ = 330 };
+const Strike S_BOOT[]      = {{2093, 70, 420, 1300}};
+const Strike S_STANDBY[]   = {{1568, 70, 480, 1400}};
+const Strike S_WAKE[]      = {{2093, 60, 160, 500}};
+const Strike S_LINK_UP[]   = {{2637, 40, 110, 350}};
+const Strike S_LINK_DOWN[] = {{1760, 40, 110, 350}};
+const Strike S_REC_START[] = {{2349, 75, 230, 700}};
+const Strike S_REC_STOP[]  = {{1760, 75, 330, 900}};
+const Strike S_REC_FAIL[]  = {{1319, 80, 380, 1000}};
+const Strike S_NTICK[]     = {{2637, 35, 45, 180}};
+const Strike S_NDONE[]     = {{3136, 70, 320, 900}};
+const Strike S_LOST[]      = {{1397, 70, 260, 750}};
+const Strike S_BACK[]      = {{2349, 55, 150, 450}};
+const Strike S_M_CONN[]    = {{1976, 65, 220, 650}};
+const Strike S_M_ON[]      = {{2637, 70, 160, 500}};
+const Strike S_M_OFF[]     = {{1568, 65, 180, 550}};
+const Strike S_ALARM[]     = {{3136, 90, 70, 250}, {3136, 90, 70, 250}, {3136, 90, 70, 250},
+                              {3136, 90, 70, 250}, {3136, 90, 70, 250}, {3136, 90, 70, 400}};
 
-const Note S_BOOT[]      = {{C6_,70},{0,15},{E6_,70},{0,15},{G6_,70},{0,15},{C7_,160}};
-const Note S_STANDBY[]   = {{C7_,90},{0,20},{G6_,90},{0,20},{E6_,90},{0,20},{C6_,220}};
-const Note S_WAKE[]      = {{E6_,60},{0,20},{C7_,90}};
-const Note S_LINK_UP[]   = {{G6_,40},{0,25},{D7_,60}};
-const Note S_LINK_DOWN[] = {{D7_,40},{0,25},{G6_,60}};
-const Note S_REC_START[] = {{E6_,80},{0,40},{B6_,180}};
-const Note S_REC_STOP[]  = {{B6_,80},{0,40},{E6_,180}};
-const Note S_REC_FAIL[]  = {{LOW_,220},{0,90},{LOW_,320}};
-const Note S_NTICK[]     = {{A5_,50}};
-const Note S_NDONE[]     = {{C7_,70},{0,30},{C7_,70},{0,30},{G6_,40},{C7_,140}};
-const Note S_LOST[]      = {{A6_,70},{E6_,70},{A6_,70},{E6_,110}};
-const Note S_BACK[]      = {{E6_,60},{A6_,90}};
-const Note S_M_CONN[]    = {{A5_,60},{0,15},{C6_,60},{0,15},{E6_,110}};
-const Note S_M_ON[]      = {{D6_,90},{0,50},{D6_,90}};
-const Note S_M_OFF[]     = {{D6_,70},{0,30},{A5_,140}};
-const Note S_ALARM[]     = {{2000,120},{1400,120},{2000,120},{1400,120},{2000,120},{1400,120},
-                            {2000,120},{1400,220}};
-
-struct Seq { const Note* n; uint8_t len; };
+struct Seq { const Strike* s; uint8_t len; };
 #define SFX_SEQ(a) { a, (uint8_t)(sizeof(a) / sizeof(a[0])) }
 const Seq SEQS[CUE_COUNT] = {
   SFX_SEQ(S_BOOT), SFX_SEQ(S_STANDBY), SFX_SEQ(S_WAKE), SFX_SEQ(S_LINK_UP),
@@ -68,33 +70,82 @@ const Seq SEQS[CUE_COUNT] = {
 };
 #undef SFX_SEQ
 
-uint8_t  pin = 2;
-bool     muted = false;                              // 'Q' toggles (quiet bench work)
-int8_t   cur = -1;                                   // cue playing, -1 = none
-uint8_t  idx = 0;
-uint32_t nextMs = 0;
+const uint32_t TICK_US   = 500;          // envelope rate: 2 kHz
+const uint32_t ATTACK_US = 3000;         // no click at the onset
+const uint16_t PWM_MAX   = 4095;         // 12-bit duty
 
-void begin(uint8_t p) { pin = p; pinMode(pin, OUTPUT); }
+uint8_t  pin = 2;
+bool     muted = false;                  // 'Q' toggles (quiet bench work)
+IntervalTimer timer;
+
+// state shared with the ISR
+volatile int8_t  cur = -1;               // cue playing (-1 none, CUE_COUNT = a UI click)
+volatile uint8_t idx = 0;
+volatile uint32_t tUs = 0;               // time since the current strike began
+Strike clickStrike = {0, 0, 1, 1};       // the one-off UI click
+
+static inline const Strike* strikeAt(int8_t c, uint8_t i) {
+  return (c == CUE_COUNT) ? &clickStrike : &SEQS[c].s[i];
+}
+static inline uint8_t seqLen(int8_t c) { return (c == CUE_COUNT) ? 1 : SEQS[c].len; }
+
+static void startStrike(const Strike* st) {
+  analogWriteFrequency(pin, st->f);
+  analogWrite(pin, 0);
+  tUs = 0;
+}
+
+static void isr() {
+  const int8_t c = cur;
+  if (c < 0) return;
+  const Strike* st = strikeAt(c, idx);
+  tUs += TICK_US;
+  if (tUs >= (uint32_t)st->durMs * 1000u) {
+    if (++idx >= seqLen(c)) { analogWrite(pin, 0); cur = -1; return; }
+    startStrike(strikeAt(c, idx));
+    return;
+  }
+  // envelope: linear attack, exponential decay
+  float a = (st->peak * 0.01f) * expf(-(float)tUs / (st->tauMs * 1000.0f));
+  if (tUs < ATTACK_US) a *= (float)tUs / ATTACK_US;
+  if (a < 0.004f) { analogWrite(pin, 0); return; }   // inaudible: keep the pin quiet
+  if (a > 1.0f) a = 1.0f;
+  // fundamental amplitude ~ sin(pi * duty)  =>  duty = asin(a) / pi (<= 50 %)
+  const float duty = asinf(a) * 0.318309886f;
+  analogWrite(pin, (uint16_t)(duty * (PWM_MAX + 1)));
+}
+
+void begin(uint8_t p) {
+  pin = p;
+  analogWriteResolution(12);             // nothing else on this board uses analogWrite
+  analogWrite(pin, 0);
+  timer.begin(isr, TICK_US);
+}
 
 bool busy() { return cur >= 0; }
 
+static void launch(int8_t c) {
+  noInterrupts();
+  cur = c; idx = 0;
+  startStrike(strikeAt(c, 0));
+  interrupts();
+}
+
 void play(Cue c) {
   if (muted || c >= CUE_COUNT) return;
-  if (cur == ALARM && c != ALARM) return;            // an alarm is never talked over
-  cur = (int8_t)c; idx = 0; nextMs = millis();
+  if (cur == ALARM && c != ALARM) return;          // an alarm is never talked over
+  launch((int8_t)c);
 }
 
-void stop() { cur = -1; noTone(pin); }
-
-void service() {
-  if (cur < 0) return;
-  const uint32_t now = millis();
-  if ((int32_t)(now - nextMs) < 0) return;
-  const Seq& s = SEQS[cur];
-  if (idx >= s.len) { cur = -1; return; }
-  const Note& n = s.n[idx++];
-  if (n.f) tone(pin, n.f, n.ms); else noTone(pin);
-  nextMs = now + n.ms;
+// A barely-there UI click (crown detent, button): a very short, soft strike.
+void click(uint16_t f, uint8_t ms) {
+  if (muted || cur >= 0) return;                   // never chop a cue
+  clickStrike = { f, 22, (uint16_t)max(4, ms / 2), (uint16_t)max(12, ms * 3) };
+  launch(CUE_COUNT);
 }
+
+void stop() { noInterrupts(); cur = -1; analogWrite(pin, 0); interrupts(); }
+
+void service() {}                                  // timing lives in the ISR
 
 }  // namespace sfx

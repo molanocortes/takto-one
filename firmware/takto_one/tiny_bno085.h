@@ -133,7 +133,16 @@ struct TinyBNO085 {
   }
 
   // Set Feature Command for one report id at `interval_us` per report.
-  bool enableReport(uint8_t reportId, uint32_t interval_us) {
+  // `batch_us` (SH-2 6.5.4 bytes 9..12) lets the hub hold a report up to that
+  // long so several reports travel in ONE packet. [BENCH 2026-09-29] Without
+  // it the hub sent every report as its own packet (~300 packets/s per sensor),
+  // and each blocking read costs a header transaction plus the payload at the
+  // chip's 400 kHz ceiling. Measured on this rig: the hub still sends about
+  // one packet per report with batching requested, so it bought nothing here;
+  // it is kept because it is harmless and other SH-2 firmware honours it. What
+  // DID fix the bus was sending fewer, smaller reports (see enableAll): the
+  // loop measured with 'T' is ~70 % I2C wait at 400 kHz, at 100 Hz frames.
+  bool enableReport(uint8_t reportId, uint32_t interval_us, uint32_t batch_us = 0) {
     uint8_t p[17] = {0};
     p[0] = 0xFD;                       // SET_FEATURE_COMMAND
     p[1] = reportId;
@@ -141,6 +150,10 @@ struct TinyBNO085 {
     p[6] = (uint8_t)((interval_us >> 8) & 0xFF);
     p[7] = (uint8_t)((interval_us >> 16) & 0xFF);
     p[8] = (uint8_t)((interval_us >> 24) & 0xFF);
+    p[9]  = (uint8_t)(batch_us & 0xFF);
+    p[10] = (uint8_t)((batch_us >> 8) & 0xFF);
+    p[11] = (uint8_t)((batch_us >> 16) & 0xFF);
+    p[12] = (uint8_t)((batch_us >> 24) & 0xFF);
     return sendPacket(2, p, sizeof(p)); // channel 2 = SH-2 control
   }
 
@@ -169,18 +182,33 @@ struct TinyBNO085 {
   // run - the gyroscope never arrived and, because this used to return false on
   // any single failure, begin() reported the whole sensor dead while its
   // quaternion was in fact streaming fine.
-  bool enableAll(uint32_t rot_us = 10000, uint32_t vec_us = 10000) {
+  //
+  // [BENCH 2026-09-29, v16] THE BUS BUDGET IS REAL. With all eight reports at
+  // 100 Hz a batch is ~91 B, i.e. ~2.3 ms of I2C per packet at the BNO085's
+  // 400 kHz ceiling, and both sensors always had one queued: imuService took
+  // 78 % of the loop, the loop fell to ~75 passes/s, the chips' FIFOs
+  // overflowed and the sensors went "stale" mid-take. The set is now what the
+  // motion pipeline actually consumes: the game rotation vector (orientation),
+  // linear acceleration (translation), the calibrated gyroscope (stillness,
+  // functional calibration) and the stability classifier. The accelerometer
+  // and gravity vectors are DERIVED exactly from these (see the sketch); the
+  // magnetometer and the mag-fused rotation vector are not read at all - next
+  // to twelve encoder magnets they measured the magnets, not the Earth.
+  // A batch is now ~41 B (~1 ms). enableAll(true) restores the full set for a
+  // bench investigation.
+  bool enableAll(uint32_t rot_us = 10000, uint32_t vec_us = 10000, bool fullSet = false) {
     const uint8_t alt = (rotReport == RPT_GAMEROTVEC) ? RPT_ROTVEC : RPT_GAMEROTVEC;
-    const uint8_t ids[8]  = { rotReport, alt, RPT_LINACC, RPT_ACCEL,
-                              RPT_GYRO, RPT_GRAVITY, RPT_MAG, RPT_STABILITY };
-    const uint32_t iv[8]  = { rot_us, rot_us, vec_us, vec_us, vec_us, vec_us, vec_us, 50000 };
+    const uint8_t ids[8]  = { rotReport, RPT_LINACC, RPT_GYRO, RPT_STABILITY,
+                              alt, RPT_ACCEL, RPT_GRAVITY, RPT_MAG };
+    const uint32_t iv[8]  = { rot_us, vec_us, vec_us, 50000, rot_us, vec_us, vec_us, vec_us };
+    const uint8_t count = fullSet ? 8 : 4;
     linIntervalUs = vec_us;
     haveLinT = false; stability = 255;
-    featuresOk = 0; featuresAsked = 8; lastFeatureFail = 0;
-    for (uint8_t i = 0; i < 8; i++) {
+    featuresOk = 0; featuresAsked = count; lastFeatureFail = 0;
+    for (uint8_t i = 0; i < count; i++) {
       bool got = false;
       for (uint8_t attempt = 0; attempt < 3 && !got; attempt++) {
-        got = enableReport(ids[i], iv[i]);
+        got = enableReport(ids[i], iv[i], rot_us);   // batch at the frame period
         if (!got) delay(4);                   // let the chip catch up, then retry
       }
       if (got) featuresOk++;
@@ -196,7 +224,19 @@ struct TinyBNO085 {
 
   // ---- SHTP read: one packet if available; parse every report in it -------
   // Returns true if it consumed a packet (of any kind).
+  // bus accounting for the 'T' report: header polls, packets, payload bytes,
+  // and microseconds spent inside poll()
+  uint32_t stPolls = 0, stPackets = 0, stBytes = 0, stUs = 0, stBig = 0;
+
   bool poll() {
+    const uint32_t t0 = micros();
+    const bool r = pollInner();
+    stUs += micros() - t0;
+    return r;
+  }
+
+  bool pollInner() {
+    stPolls++;
     // read the 4-byte header alone first to learn the packet length
     if (bus->requestFrom((int)addr, 4) != 4) return false;
     uint8_t h0 = bus->read(), h1 = bus->read();
@@ -207,6 +247,7 @@ struct TinyBNO085 {
     // A full batch is bigger than one rotation vector: timebase + seven reports
     // is ~90 B, and Teensy's Wire buffer takes it in one go. 160 covers the set
     // with headroom; anything larger is boot chatter and gets discarded below.
+    stPackets++; stBytes += len;
     if (len <= 160) {
       if (bus->requestFrom((int)addr, (int)len) != (int)len) return false;
       readUs = micros();
@@ -215,6 +256,7 @@ struct TinyBNO085 {
       if (chan == 3) parseInput(buf + 4, len - 4);      // skip the 4-byte header
       return true;
     }
+    stBig++;
     // oversized packet (boot advertisement ~272 B): discard in chunks.
     // Each chunked transaction re-sends a 4-byte continuation header.
     uint16_t consumed = 0;

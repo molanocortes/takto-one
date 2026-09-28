@@ -63,12 +63,13 @@ struct UiInput {
   // The sketch's sound engine: while it plays a cue (or the device is in
   // standby) the crown's detent clicks stay silent instead of chopping it.
   bool    (*toneBusy)() = nullptr;
+  // ...and the sketch's soft-strike click; without it, a plain tone()
+  void    (*clickFn)(uint16_t, uint8_t) = nullptr;
   bool    moved = false;            // crown moved since last consume (wake cue)
 
   void begin(uint8_t pot, uint8_t btn, uint8_t pz) {
     potPin = pot; btnPin = btn; pzPin = pz;
     pinMode(btnPin, INPUT_PULLUP);
-    pinMode(pzPin, OUTPUT);
     analogReadResolution(10);
     raw = analogRead(potPin) / 1023.0f;
     f = raw * (detents - 1);
@@ -78,7 +79,7 @@ struct UiInput {
 
   void tick(uint16_t freq, uint8_t ms) {
     if (toneBusy && toneBusy()) return;
-    tone(pzPin, freq, ms);
+    if (clickFn) clickFn(freq, ms); else tone(pzPin, freq, ms);
   }
 
   // call every loop pass; returns one event or NONE
@@ -106,7 +107,7 @@ struct UiInput {
     if (slot != lastDetent && fabsf(f - slot) < 0.32f) {
       ev = (slot > lastDetent) ? Ev::CW : Ev::CCW;
       lastDetent = slot;
-      tick(3400 + slot * 180, 8);                      // the crown's click
+      tick(2637, 8);                                   // the crown's click: one soft pitch
     }
 
     // ---- button: debounce + press/long/hold ----
@@ -120,13 +121,13 @@ struct UiInput {
       btnState = btnRaw;
       if (btnState) { btnDownMs = nowMs; longFired = false; holdFired = false; }
       else if (!longFired && nowMs - btnDownMs < 600) {
-        tick(2600, 14);
+        tick(2349, 14);
         return Ev::PRESS;                              // release < 600 ms
       }
     }
     if (btnState && !longFired && nowMs - btnDownMs >= 600) {
       longFired = true;
-      tick(1800, 24);
+      tick(1760, 24);
       return Ev::LONG;                                 // fires while held
     }
     if (btnState && longFired && !holdFired && nowMs - btnDownMs >= UI_HOLD_MS) {
