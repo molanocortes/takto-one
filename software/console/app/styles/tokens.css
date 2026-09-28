@@ -55,6 +55,12 @@
 
   /* glass */
   --glass: rgba(250, 248, 242, 0.82);
+
+  /* SIMULATED DATA: a true amber, deliberately outside the sapphire system so
+     simulated data can never be mistaken for a live state */
+  --sim:      #9A5B0C;
+  --sim-glow: rgba(176, 106, 18, 0.12);
+  --sim-line: rgba(176, 106, 18, 0.45);
 }
 
 /* NIGHT STUDIO — true neutral ink, layered like the enclosure itself.  Blue
@@ -90,4 +96,8 @@
   --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.42), 0 28px 72px rgba(0, 0, 0, 0.56);
 
   --glass: rgba(13, 20, 32, 0.84);
+
+  --sim:      #F0B45A;
+  --sim-glow: rgba(240, 180, 90, 0.13);
+  --sim-line: rgba(240, 180, 90, 0.45);
 }

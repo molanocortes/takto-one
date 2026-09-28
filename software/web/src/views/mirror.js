@@ -15,6 +15,7 @@
 import { el, clamp } from "../ui.js";
 import { store } from "../store.js";
 import { Twin } from "../twin.js";
+import { sourceBadges } from "../sim_badge.js";
 import { MCP_MAX_DEG, PIP_MAX_DEG } from "../kinematics.js";
 
 // The present wearable has two independently driven DOFs on the index finger.
@@ -153,24 +154,8 @@ export function mountMirror(rootHost) {
   // (the default when the page is opened without ?ws=) nothing receives them and
   // the twin is a local simulation, so say which of the two the therapist is
   // looking at instead of implying a device is following.
-  const mockBadge = el("button", { class: "mock-badge",
-    title: "No bridge: the twin is a local simulation and no device is receiving these targets. Click to connect to the live bridge (ws://localhost:8765/ws)." },
-    "MOCK · NO DEVICE");
-  mockBadge.addEventListener("click", () => {
-    const u = new URL(location.href);
-    u.searchParams.set("ws", "ws://localhost:8765/ws");
-    location.href = u.toString();
-  });
-  if (store.live) mockBadge.style.display = "none";
-  const linkBadge = el("button", { class: "mock-badge",
-    title: "The live bridge is not answering: mirror targets are being dropped. Reconnecting automatically; click to reload now." }, "LINK DOWN");
-  linkBadge.addEventListener("click", () => location.reload());
-  linkBadge.style.display = "none";
-  if (store.live) {
-    const updLink = (up) => { linkBadge.style.display = up ? "none" : ""; };
-    updLink(store.connected);
-    cleanups.push(store.onLink(updLink));
-  }
+  const [mockBadge, linkBadge] = sourceBadges(cleanups, {
+    linkTitle: "The live bridge is not answering: mirror targets are being dropped. Reconnecting automatically; click to reload now." });
 
   const hud = el("div", { class: "mir-hud" },
     el("div", { class: "mir-kicker" }, "Rehabilitation · Mirror therapy"),
@@ -302,8 +287,10 @@ export function mountMirror(rootHost) {
   // target. Quats are WIRE order [w,x,y,z] (store convention) - identity is
   // [1,0,0,0]; the old [0,0,0,1] was three.js (x,y,z,w) identity, which the
   // wire order reads as a 180 deg roll and rendered the device upside down.
+  // motors: {} - the twin's spool driver iterates it; without it, `id in
+  // sm.motors` threw every frame once any motor had ever been seen
   const sm = { joints: {}, curl: 0, fingers: {}, activation: { level: 0, fatigue: 0, direction: 0 },
-    handQuat: [1, 0, 0, 0], forearmQuat: [1, 0, 0, 0] };
+    handQuat: [1, 0, 0, 0], forearmQuat: [1, 0, 0, 0], motors: {}, jointOk: {}, body: null };
   // per-finger, per-JOINT normalized flexion: {m: MCP 0..1, p: PIP 0..1}.
   // Two independent channels because the device drives MCP and PIP flexion
   // independently (and has no DIP at all).

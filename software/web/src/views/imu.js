@@ -31,6 +31,9 @@ import { el, clamp } from "../ui.js";
 import { store } from "../store.js";
 import { StripChart } from "../charts.js";
 import { AttitudeGizmo, TraceGizmo, qMul, qConj, qAngleDeg } from "../imu_gizmo.js";
+import { sourceBadges } from "../sim_badge.js";
+import { buildCalibPrompt } from "../calib_prompt.js";
+import { forearmElevationDeg } from "../arm_model.js";
 
 const IMUS = [
   { key: "hand",    label: "Hand",    note: "flat on the dorsal plate - the reference frame" },
@@ -142,6 +145,16 @@ function styleOnce() {
   .imu-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--text-2);
     margin-top:6px; }
   .imu-legend i { display:inline-block; width:9px; height:2px; margin-right:5px; vertical-align:middle; }
+  .imu-head .mock-badge { font-size:10px; padding:4px 10px; }
+  .imu-calib { margin:0 0 14px; }
+  .imu-calib .cp-card { box-shadow:none; background:var(--card,#FBF9F5); }
+  .imu-body-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:4px 0 6px; }
+  @media (max-width:620px) { .imu-body-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  .imu-body-ang { display:flex; flex-direction:column; gap:3px; padding:8px 10px; border-radius:9px;
+    background:rgba(60,52,42,0.035); }
+  .imu-body-ang .imu-lbl { min-width:0; flex:none; }
+  .imu-conf { flex:1; min-width:80px; max-width:200px; height:5px; border-radius:3px; background:var(--line-soft,#eee); overflow:hidden; }
+  .imu-conf-fill { height:100%; width:100%; transform-origin:left; background:var(--accent,#2F76BF); transition:transform .3s ease; }
   `;
   document.head.append(s);
 }
@@ -161,7 +174,7 @@ export function mountImu(rootHost) {
   // snapshot subscribers, one visible.
   const root = rootHost;
 
-  const mockBadge = el("span", { class: "imu-badge mock" }, "Mock data");
+  const [mockBadge, linkBadge] = sourceBadges(cleanups);
   const fwBadge = el("span", { class: "imu-badge stale" }, "firmware ?");
   const head = el("div", { class: "imu" },
     el("div", { class: "imu-head" },
@@ -171,7 +184,7 @@ export function mountImu(rootHost) {
       el("a", { class: "imu-back", href: "#/operator", title: "Back to the console" },
         "← Console"),
       el("span", { class: "imu-kicker" }, "TAKTO · IMU bench"),
-      mockBadge, fwBadge),
+      mockBadge, linkBadge, fwBadge),
     el("h1", { class: "imu-h1" }, "Orientation and motion"),
     el("p", { class: "imu-sub" },
       "Everything the bridge does to an IMU signal, editable live and saved to disk. " +
@@ -188,7 +201,12 @@ export function mountImu(rootHost) {
     homeBtn.textContent = "Capturing…";
     setTimeout(() => { homeBtn.textContent = "Correct the twin"; }, 1200);
   });
-  head.append(el("div", { class: "imu-row", style: "margin:0 0 16px" }, homeBtn, homeNote));
+  // A bridge WITH the body model (firmware v16) calibrates through the neutral
+  // capture (MOTION_PIPELINE.md s.3); the instant tare stays for older ones.
+  const homeRow = el("div", { class: "imu-row", style: "margin:0 0 16px" }, homeBtn, homeNote);
+  const calib = buildCalibPrompt(cleanups, { variant: "card" });
+  head.append(homeRow, el("div", { class: "imu-calib" }, calib.node));
+  head.append(buildBodyCard());
   root.append(head);
 
   let cfg = null;             // the bridge's per-IMU mounting config
@@ -380,6 +398,80 @@ export function mountImu(rootHost) {
   }
   store.send({ cmd: "imu_cfg", action: "get" });
 
+  // ---- the body model (firmware v16 bridge): what the twin is drawn from ----
+  // Wrist angles in the contract's signs, the arm's positions, and how much to
+  // trust them: which sources the position came from, time since the last
+  // neutral, the inertial confidence, and whether the arm is still.
+  function buildBodyCard() {
+    const big = (label, unit) => {
+      const v = el("span", { class: "imu-big" }, "--");
+      return { v, node: el("div", { class: "imu-body-ang" }, el("span", { class: "imu-lbl" }, label), v,
+        el("span", { class: "imu-dim", style: "font-size:11px" }, unit)) };
+    };
+    const aFlex = big("Flexion", "° palm-ward +");
+    const aDev = big("Deviation", "° radial +");
+    const aPro = big("Pronation", "° thumb-down +");
+    const aElev = big("Forearm", "° above level");
+    const state = el("span", { class: "imu-badge stale" }, "--");
+    const src = el("span", { class: "imu-val" }, "--");
+    const since = el("span", { class: "imu-val" }, "--");
+    const confFill = el("div", { class: "imu-conf-fill" });
+    const confVal = el("span", { class: "imu-val imu-dim" }, "--");
+    const still = el("span", { class: "imu-badge stale" }, "--");
+    const pos = el("div", { class: "imu-vec" });
+    const cells = {};
+    for (const k of ["elbow", "wrist", "hand"]) {
+      cells[k] = [0, 1, 2].map(() => el("span", { class: "n" }, "--"));
+      pos.append(el("span", { class: "k" }, k), ...cells[k]);
+    }
+    const absent = el("p", { class: "imu-absent" },
+      "This bridge sends no body model (it predates firmware v16): the twin synthesises the arm from the two IMUs, with no shoulder motion.");
+    const content = el("div", {},
+      el("div", { class: "imu-body-grid" }, aFlex.node, aDev.node, aPro.node, aElev.node),
+      el("div", { class: "imu-row" }, el("span", { class: "imu-lbl" }, "Position"), src),
+      el("div", { class: "imu-row" }, el("span", { class: "imu-lbl" }, "Neutral"), since),
+      el("div", { class: "imu-row" }, el("span", { class: "imu-lbl" }, "Inertial"),
+        el("div", { class: "imu-conf" }, confFill), confVal, still),
+      el("p", { class: "imu-note", style: "margin:10px 0 2px" }, "positions in the body frame, cm (shoulder origin, +Y up, +Z forward, +X left)"),
+      pos);
+    const card = el("div", { class: "imu-card", style: "margin:0 0 14px" },
+      el("h3", {}, el("span", {}, "Body model"), state),
+      el("p", { class: "imu-note" }, "What the twin, the replay and the AR draw from. Signs as in MOTION_PIPELINE.md."),
+      absent, content);
+    const fmt = (v, d = 0) => (Number.isFinite(v) ? v.toFixed(d) : "--");
+    cleanups.push(store.onSnap((s) => {
+      const b = s.body;
+      homeRow.style.display = b ? "none" : "";
+      absent.style.display = b ? "none" : "";
+      content.style.display = b ? "" : "none";
+      if (!b) { state.textContent = "not sent"; state.className = "imu-badge stale"; return; }
+      state.textContent = b.calibrated ? "calibrated" : b.provisional ? "provisional" : "no neutral";
+      state.className = "imu-badge " + (b.calibrated ? "live" : "mock");
+      const w = b.wrist_deg || {};
+      aFlex.v.textContent = fmt(w.flex); aDev.v.textContent = fmt(w.dev); aPro.v.textContent = fmt(w.pro);
+      aElev.v.textContent = Array.isArray(b.forearm_quat) ? fmt(forearmElevationDeg(b.forearm_quat)) : "--";
+      src.textContent = (b.pos_source === "arm+inertial"
+        ? "arm model + inertial (shoulder motion from the accelerometers, bounded to the arm sphere)"
+        : "arm model only (rotations about the elbow; no shoulder motion)") + (b.live === false ? " · HELD, an IMU dropped" : "");
+      const q = b.quality || {};
+      const age = Number.isFinite(q.since_neutral_s)
+        ? (q.since_neutral_s < 120 ? fmt(q.since_neutral_s) + " s" : fmt(q.since_neutral_s / 60, 1) + " min") : null;
+      since.textContent = !age ? "none this power-up"
+        : b.provisional ? `provisional (auto, first stillness) ${age} ago · calibrate for an accurate twin`
+        : `captured ${age} ago` + (q.since_neutral_s > 900 ? " · heading drift builds up, recalibrate" : "");
+      const c = Number.isFinite(q.inertial_conf) ? q.inertial_conf : null;
+      confFill.style.transform = `scaleX(${c == null ? 0 : Math.max(0.02, c)})`;
+      confVal.textContent = c == null ? "--" : `conf ${c.toFixed(2)}`;
+      still.textContent = q.still ? "still" : "moving";
+      still.className = "imu-badge " + (q.still ? "live" : "stale");
+      for (const [k, key] of [["elbow", "elbow_m"], ["wrist", "wrist_m"], ["hand", "hand_m"]]) {
+        const p = b[key];
+        cells[k].forEach((cell, i) => { cell.textContent = Array.isArray(p) ? (p[i] * 100).toFixed(1) : "--"; });
+      }
+    }));
+    return card;
+  }
+
   // ---- motion: the full sensor set and the integrated relative position ----
   function buildMotion() {
     const wrap = el("div", { style: "margin-top:22px" });
@@ -546,7 +638,6 @@ export function mountImu(rootHost) {
   // measurement rather than a judgement about whether the twin "looks right".
   const relHist = [];
   cleanups.push(store.onSnap((s) => {
-    mockBadge.style.display = store.tele && store.tele.kind === "ws" ? "none" : "";
     const map = { hand: s.hand, forearm: s.forearm, thumb: s.thumb };
     const grav = s.imu_full || {};
     for (const { key } of IMUS) {

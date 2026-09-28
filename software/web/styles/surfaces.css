@@ -1556,3 +1556,185 @@ a.wordmark:hover { opacity: 0.72; }
 .door-preview .prev-chips { display:flex; flex-wrap:wrap; gap:5px; justify-content:center; align-content:center; padding:4px 6px; }
 .door-preview .prev-chip { border:1.5px solid var(--line); border-radius:999px; padding:2px 8px; font-size:0.72rem; font-weight:700; color:var(--ink); background:var(--card-hi); }
 .door-preview .prev-chip.on { border-color:var(--ok); color:var(--ok); }
+
+/* ================= SIMULATED DATA indicator ================= */
+/* One rule on every surface (sim_badge.js): whenever the in-browser mock is
+   the data source the page says so, in a true amber outside the sapphire
+   system. Surfaces with a top bar carry .sim-badge; the rest get the banner. */
+.sim-banner {
+  position: fixed; left: var(--s4); bottom: var(--s4); z-index: 190;
+  display: flex; align-items: center; gap: 10px;
+  max-width: calc(100vw - var(--s4) * 2);
+  padding: 7px 7px 7px 14px; border-radius: 999px;
+  background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--sim-line); box-shadow: var(--shadow-1);
+  font-size: 12px; color: var(--text-1);
+}
+.sim-banner[hidden] { display: none; }
+.sim-banner b { color: var(--sim); font-size: 11px; font-weight: 700; letter-spacing: 0.14em; white-space: nowrap; }
+.sim-sub { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sim-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--sim); box-shadow: 0 0 0 3px var(--sim-glow);
+  animation: simpulse 2s var(--ease) infinite;
+}
+@keyframes simpulse { 50% { box-shadow: 0 0 0 6px var(--sim-glow); } }
+.sim-try {
+  flex: none; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  font: 600 11px/1 var(--font-ui); color: var(--text-0);
+  background: var(--card); border: 1px solid var(--line);
+  transition: border-color var(--t-fast) var(--ease);
+}
+.sim-try:hover { border-color: var(--sim-line); }
+.sim-try:disabled { opacity: 0.55; cursor: progress; }
+.mock-badge.sim-badge {
+  color: var(--sim); background: var(--sim-glow); border-color: var(--sim-line);
+  animation-name: simbadgepulse;
+}
+@keyframes simbadgepulse { 50% { box-shadow: 0 0 0 4px var(--sim-glow); } }
+.mock-badge.sim-badge.pending {
+  color: var(--text-2); background: transparent; border-color: var(--line);
+  animation: none; cursor: default;
+}
+@media (max-width: 460px) {
+  .sim-sub { display: none; }
+}
+
+/* ================= twin stage: view toggle + arm note ================= */
+.stage-view { position: absolute; z-index: 3; top: var(--s3); right: var(--s3); }
+.seg.seg-sm.stage-view button { font-size: 11px; padding: 5px 11px; }
+.stage-note {
+  position: absolute; z-index: 2; top: calc(var(--s4) + 20px); left: var(--s4);
+  font-size: 10px; letter-spacing: 0.08em; color: var(--text-2); opacity: 0.8;
+  pointer-events: none;
+}
+
+/* ================= neutral calibration prompt (calib_prompt.js) ================= */
+.calib-prompt[hidden] { display: none; }
+.cp-card {
+  display: flex; gap: var(--s3); align-items: flex-start; position: relative;
+  padding: var(--s3) var(--s4); border-radius: var(--r2);
+  background: var(--glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--line); box-shadow: var(--shadow-2);
+}
+.cp-icon { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+  color: var(--accent); background: var(--accent-glow-12); }
+.cp-icon svg { width: 34px; height: 34px; }
+.cp-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.cp-title { font-size: 14px; font-weight: 650; color: var(--text-0); line-height: 1.25; padding-right: 18px; }
+.cp-instr { font-size: 12.5px; color: var(--text-1); line-height: 1.45; }
+.cp-status { font-size: 11px; color: var(--text-2); letter-spacing: 0.04em; }
+.cp-actions { display: flex; gap: var(--s2); flex-wrap: wrap; margin-top: 2px; }
+.cp-close { position: absolute; top: 8px; right: 10px; border: 0; background: none; cursor: pointer;
+  color: var(--text-2); font-size: 12px; padding: 4px; }
+.cp-close:hover { color: var(--text-0); }
+.cp-phase { display: flex; align-items: center; gap: var(--s3); margin-top: 2px; }
+.cp-count { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 22px; font-weight: 650; color: var(--accent); border: 1.5px solid var(--accent); }
+.cp-phase-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.cp-phase-text { font-size: 12.5px; color: var(--text-0); line-height: 1.35; }
+.cp-bar { height: 4px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
+.cp-bar-fill { height: 100%; width: 100%; transform-origin: left; transform: scaleX(0);
+  background: var(--accent); transition: transform 600ms var(--ease); }
+.calib-prompt[data-phase="hold"] .cp-count { animation: cphold 1s var(--ease) infinite; }
+@keyframes cphold { 50% { box-shadow: 0 0 0 7px var(--accent-glow-12); } }
+.calib-prompt[data-phase="done"] .cp-count,
+.calib-prompt[data-phase="wrist-done"] .cp-count { color: var(--ok); border-color: var(--ok); }
+.calib-prompt[data-phase="abort"] .cp-count,
+.calib-prompt[data-phase="wrist-failed"] .cp-count,
+.calib-prompt[data-phase="wrist-unconfirmed"] .cp-count { color: var(--stop); border-color: var(--stop); }
+/* needs calibration: unmistakable, one accent border that breathes */
+.calib-prompt.needs .cp-card { border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  animation: cpneed 2.4s var(--ease) infinite; }
+@keyframes cpneed { 50% { box-shadow: var(--shadow-2), 0 0 0 5px var(--accent-glow-12); } }
+.cp-chip {
+  display: none; align-items: center; gap: 8px; cursor: pointer;
+  padding: 6px 12px; border-radius: 999px; font: 600 11.5px/1 var(--font-ui);
+  color: var(--text-1); background: var(--glass); border: 1px solid var(--line);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.cp-chip:hover { color: var(--text-0); border-color: var(--accent); }
+.cp-chip.stale .dot { background: var(--warn); }
+.calib-prompt.collapsed .cp-card { display: none; }
+.calib-prompt.collapsed .cp-chip { display: inline-flex; }
+/* on the operator stage: a centred overlay near the bottom, over the twin */
+/* top of the stage, under the tag row: the operator stage can run taller than
+   the window (the right column sets the row height), so a bottom-anchored
+   prompt could sit below the fold exactly when it matters */
+.cp-v-stage { position: absolute; z-index: 4; left: 50%; top: 58px; transform: translateX(-50%);
+  width: min(460px, calc(100% - var(--s4) * 2)); display: flex; justify-content: center; }
+.cp-v-stage .cp-card { width: 100%; }
+.cp-v-stage.collapsed { left: auto; right: var(--s3); top: 52px; transform: none; width: auto; }
+@media (max-width: 460px) {
+  .cp-v-stage { top: 52px; width: calc(100% - var(--s3) * 2); }
+  .cp-icon { display: none; }
+  .stage-view { top: auto; bottom: var(--s3); right: var(--s3); }
+}
+
+/* ================= CAPTURE: device recording, SD library, export ================= */
+.cap-device, .cap-sd { padding: var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
+.cap-dev-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.dev-status { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-1); }
+.dev-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px var(--s4); font-size: 12.5px; }
+.dev-k { color: var(--text-2); text-transform: lowercase; }
+.dev-v { color: var(--text-0); font-size: 12px; text-align: right; }
+.dev-auto { display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  padding-top: var(--s3); border-top: 1px solid var(--line-soft); }
+.dev-auto-k { font-size: 13px; color: var(--text-0); }
+.dev-auto-sub { font-size: 11px; color: var(--text-2); line-height: 1.4; margin-top: 2px; }
+.switch { position: relative; flex: none; width: 40px; height: 24px; border-radius: 999px; cursor: pointer;
+  background: var(--line); border: 1px solid var(--line); transition: background var(--t-fast) var(--ease); }
+.switch-knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--card); box-shadow: var(--shadow-1); transition: transform var(--t-fast) var(--spring); }
+.switch.on { background: var(--accent); border-color: var(--accent); }
+.switch.on .switch-knob { transform: translateX(16px); }
+.switch.pending { opacity: 0.6; }
+.cap-sd { flex: none; max-height: 42%; min-height: 0; }
+.sd-note { margin: 0; font-size: 11.5px; color: var(--text-2); line-height: 1.45; }
+.sd-list { display: flex; flex-direction: column; gap: var(--s2); overflow-y: auto; min-height: 0; }
+.sd-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px var(--s3);
+  padding: 8px 10px; border-radius: var(--r1); background: var(--panel); }
+.sd-main { display: flex; align-items: baseline; gap: var(--s3); min-width: 0; flex-wrap: wrap; }
+.sd-name { font-size: 12px; color: var(--text-0); }
+.sd-size { font-size: 11px; color: var(--text-2); }
+.sd-tag { font-size: 10.5px; color: var(--text-2); letter-spacing: 0.04em; }
+.sd-tag.ok { color: var(--ok); }
+.sd-bar { grid-column: 1 / 2; height: 4px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
+.sd-bar-fill { height: 100%; width: 100%; transform-origin: left; background: var(--accent); transition: transform 200ms linear; }
+.sd-item .btn { grid-column: 2; grid-row: 1 / span 2; }
+.take { position: relative; }
+.take-flag { font-size: 10px; letter-spacing: 0.08em; padding: 1px 6px; border-radius: 4px;
+  border: 1px solid var(--line); color: var(--accent); text-transform: uppercase; }
+.exp-menu { position: absolute; right: var(--s4); top: calc(50% + 22px); z-index: 20; min-width: 230px;
+  display: flex; flex-direction: column; padding: 6px; border-radius: var(--r1);
+  background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow-2); }
+.exp-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  padding: 8px 10px; border-radius: 8px; font-size: 13px; color: var(--text-0); cursor: pointer; }
+.exp-item:hover:not(:disabled) { background: var(--panel); }
+.exp-item:disabled { opacity: 0.45; cursor: default; }
+.exp-sub { font-size: 10.5px; color: var(--text-2); }
+@media (max-width: 720px) {
+  .cap-sd { max-height: none; }
+}
+/* capture below tablet width: one column that scrolls as a page (the fixed
+   380 px left column used to force a horizontal scroll on phones) */
+@media (max-width: 820px) {
+  .cap-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; height: auto; min-height: 0; }
+  .cap-left { overflow: visible; }
+  .lib-list { overflow: visible; flex: none; }
+  .lib-head { flex-wrap: wrap; }
+  .lib-search { width: 100%; }
+  .take { padding: var(--s3) var(--s4); }
+  .take-meta { flex-wrap: wrap; gap: 6px var(--s3); }
+}
+/* top bars at phone width: the SIMULATED DATA badge must fit beside the state
+   pill without pushing the bar into a horizontal scroll */
+.surf-bar .mock-badge { white-space: nowrap; }
+@media (max-width: 460px) {
+  .surf-bar .surf-name { display: none; }
+  .surf-bar .mock-badge { padding: 4px 9px; font-size: 10px; letter-spacing: 0.08em; }
+  .surf-bar-right { gap: 6px; }
+}
+@media (max-width: 460px) {
+  .cap-storage-pill { display: none; }
+}

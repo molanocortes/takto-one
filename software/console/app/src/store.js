@@ -4,6 +4,7 @@
 
 import { makeTelemetry } from "./telemetry.js";
 import { clamp, lerp } from "./ui.js";
+import { qValid } from "./arm_model.js";
 
 const CURL_MIN = 0, CURL_MAX = 95;   // mean flexion over the true ROM (90 MCP / 110 PIP)
 
@@ -16,6 +17,15 @@ const CURL_MIN = 0, CURL_MAX = 95;   // mean flexion over the true ROM (90 MCP /
 // while staying step-free.
 const SMOOTH_MS = 22;        // joints, activation, motors
 const SMOOTH_QUAT_MS = 40;   // hand / forearm orientation
+const SMOOTH_POS_MS = 40;    // body-model positions (m), same feel as the quats
+
+// Where a DEAD encoder channel (the bridge publishes ok:false with a 0.0
+// zero-fill) is held: a relaxed open finger, not the 0 deg hyper-extension the
+// zero-fill would draw. The twin also ghosts that finger, so a held channel is
+// never mistaken for a measured one. Per channel role: {f}_mcp = abduction,
+// {f}_pip = MCP flexion, {f}_dip = PIP flexion.
+const DEAD_NEUTRAL_DEG = { mcp: 0, pip: 6, dip: 4 };
+const deadNeutral = (id) => DEAD_NEUTRAL_DEG[id.split("_")[1]] ?? 0;
 
 function nlerpQuat(a, b, t) {
   // normalized lerp: plenty for the small orientation deltas we stream
@@ -51,10 +61,10 @@ class Series {
 class Store {
   constructor() {
     this.tele = makeTelemetry();
-    this.live = this.tele.kind === "ws"; // true = real bridge, false = built-in mock
     // connected = frames are actually flowing. The mock is its own source, so
     // it always counts; a ws source reports its real socket state.
-    this.connected = !this.live;
+    this.connected = this.tele.kind === "mock";
+    this._sourceCbs = new Set();
     this.snap = null;                    // latest raw snapshot
     this.series = new Map();             // name -> Series
     this._frameCbs = new Set();
@@ -65,6 +75,7 @@ class Store {
     this._kindCbs = new Map();           // kind -> Set(cb): envs / env / take_data / ...
     this.lastTakes = [];                 // latest library pushes, render-ready caches
     this.lastEnvs = [];
+    this.lastSd = null;                  // latest sd_takes message (device SD library)
     this._raf = null;
     this._last = performance.now();
     this._force = {};                    // dev: id -> deg override (window.__setJoint), for hinge calibration
@@ -77,6 +88,10 @@ class Store {
       handQuat: [1, 0, 0, 0],
       forearmQuat: [1, 0, 0, 0],
       wristQuat: null,                    // constrained hand-in-forearm pose from rel.quat
+      jointOk: {},                       // id -> false while the channel is dead (held at neutral)
+      // body-frame arm (MOTION_PIPELINE.md section 7), smoothed; null when the
+      // bridge sends no body block (old bridge): the twin then synthesises one
+      body: null,
       thumbRel: null,                    // thumb-tip IMU in the hand frame (null = sensor absent)
       rel: null,                         // bridge hand-vs-forearm pose (quat/pos_mm/dist_mm/...)
       blend: null,                       // transparency crown 0..1 (null until the host reports one)
@@ -94,6 +109,7 @@ class Store {
       }
       if (s.kind !== "snap") {
         if (s.kind === "envs") this.lastEnvs = s.envs || [];
+        if (s.kind === "sd_takes") this.lastSd = s;
         const set = this._kindCbs.get(s.kind);
         if (set) for (const cb of set) safely(cb, s);
         return;
@@ -105,6 +121,14 @@ class Store {
     if (this.tele.onState) this.tele.onState((up) => {
       this.connected = up;
       for (const cb of this._linkCbs) safely(cb, up);
+    });
+    // AutoSource: the source itself can change (pending -> mock, mock -> ws).
+    // Caches from the old source are dropped; the new one pushes its own.
+    if (this.tele.onSource) this.tele.onSource((kind) => {
+      this.snap = null;
+      this.lastTakes = []; this.lastEnvs = []; this.lastSd = null;
+      this.series.clear();
+      for (const cb of this._sourceCbs) safely(cb, kind);
     });
     this.tele.start();
     this._tick = this._tick.bind(this);
@@ -157,6 +181,32 @@ class Store {
 
   getSeries(name) { return this.series.get(name) || null; }
 
+  // true = the real bridge is the source; false = the simulation, or still
+  // probing for the bridge. Read it at use time: with the default AutoSource
+  // it changes once the probe resolves (and again if a bridge starts later).
+  get live() { return this.tele.kind === "ws"; }
+  /** "ws" | "mock" | "pending" */
+  get sourceKind() { return this.tele.kind; }
+  get simulated() { return this.tele.kind === "mock"; }
+  onSource(cb) { this._sourceCbs.add(cb); return () => this._sourceCbs.delete(cb); }
+  /** Probe the bridge now (AutoSource only); resolves true when it answered. */
+  retryLive() { return this.tele.retryNow ? this.tele.retryNow() : Promise.resolve(this.live && this.connected); }
+
+  // Replay rows of one take, as a promise. The bridge answers take_data with
+  // the rows or an error ack; a missing answer times out instead of hanging.
+  requestTakeData(id, timeoutMs = 12000) {
+    return new Promise((resolve, reject) => {
+      let offTd = null, offErr = null, timer = null;
+      const done = () => { offTd && offTd(); offErr && offErr(); clearTimeout(timer); };
+      offTd = this.onKind("take_data", (m) => { if (m.id === id) { done(); resolve(m); } });
+      offErr = this.onAck((a) => {
+        if (a.event === "error" && a.id === id) { done(); reject(new Error(a.error || "no replay data")); }
+      });
+      timer = setTimeout(() => { done(); reject(new Error("the host did not answer")); }, timeoutMs);
+      if (!this.send({ cmd: "take_data", id })) { done(); reject(new Error("not connected")); }
+    });
+  }
+
   onFrame(cb) {
     this._frameCbs.add(cb);
     if (!this._raf) { this._last = performance.now(); this._raf = requestAnimationFrame(this._tick); }
@@ -181,6 +231,43 @@ class Store {
   send(cmd) { return this.tele.send(cmd) === true; }
   listTakes() { return this.tele.listTakes(); }
 
+  // Body-frame arm. Positions ease like the quaternions; a body block with
+  // live:false (an IMU dropped) HOLDS the last pose rather than snapping, and
+  // the flags (calibrated / provisional / pos_source / quality) always follow
+  // the newest snapshot so the calibration prompt never lags.
+  _smoothBody(b, kq, kp, k) {
+    const sm = this.smooth;
+    const fq = b && qValid(b.forearm_quat), hq = b && qValid(b.hand_quat);
+    if (!b || !fq || !hq || !Array.isArray(b.wrist_m)) { sm.body = null; return; }
+    let B = sm.body;
+    const fresh = !B;
+    if (fresh) {
+      B = sm.body = {
+        shoulder: (b.shoulder_m || [0, 0, 0]).slice(), elbow: (b.elbow_m || [0, -0.3, 0]).slice(),
+        wrist: b.wrist_m.slice(), hand: (b.hand_m || b.wrist_m).slice(),
+        forearmQuat: fq, handQuat: hq, upperarmQuat: qValid(b.upperarm_quat),
+        wristDeg: { flex: 0, dev: 0, pro: 0 },
+      };
+    }
+    if (b.live !== false || fresh) {
+      const lp = (dst, src) => { if (Array.isArray(src)) for (let i = 0; i < 3; i++) dst[i] = lerp(dst[i], src[i], kp); };
+      lp(B.shoulder, b.shoulder_m); lp(B.elbow, b.elbow_m); lp(B.wrist, b.wrist_m); lp(B.hand, b.hand_m);
+      B.forearmQuat = nlerpQuat(B.forearmQuat, fq, kq);
+      B.handQuat = nlerpQuat(B.handQuat, hq, kq);
+      const uq = qValid(b.upperarm_quat);
+      if (uq) B.upperarmQuat = B.upperarmQuat ? nlerpQuat(B.upperarmQuat, uq, kq) : uq;
+      if (b.wrist_deg) for (const key of ["flex", "dev", "pro"]) {
+        if (Number.isFinite(b.wrist_deg[key])) B.wristDeg[key] = lerp(B.wristDeg[key], b.wrist_deg[key], k);
+      }
+    }
+    B.calibrated = !!b.calibrated;
+    B.provisional = !!b.provisional;
+    B.live = b.live !== false;
+    B.posSource = b.pos_source || "arm";
+    B.quality = b.quality || null;
+    B.hasWristDeg = !!b.wrist_deg;
+  }
+
   _tick(now) {
     // only the RAF loop reschedules itself: when _raf is null the frame was
     // pumped by hand (window.__zeroStep), and rescheduling there would fork a
@@ -197,7 +284,11 @@ class Store {
         const per = {};
         let sum = 0, n = 0;
         for (const j of s.joints) {
-          sm.joints[j.id] = lerp(sm.joints[j.id] ?? j.deg, j.deg, k);
+          // a dead channel eases to a relaxed neutral instead of the bridge's
+          // 0.0 zero-fill (which drew the finger fully extended) and is flagged
+          const target = j.ok ? j.deg : deadNeutral(j.id);
+          sm.joints[j.id] = lerp(sm.joints[j.id] ?? target, target, k);
+          sm.jointOk[j.id] = !!j.ok;
           // curl summarises the LIVE FLEXION channels only; the *_mcp channel is
           // the MCP abduction encoder (signed, small) and would dilute it, and a
           // channel the bridge marked ok:false is published as 0.0 deg (no magnet
@@ -228,6 +319,7 @@ class Store {
       if (s.rel && s.rel.live !== false && s.rel.quat) {
         sm.wristQuat = sm.wristQuat ? nlerpQuat(sm.wristQuat, s.rel.quat, kq) : s.rel.quat.slice();
       } else if (!s.rel) sm.wristQuat = null;
+      this._smoothBody(s.body, kq, 1 - Math.exp(-dt / SMOOTH_POS_MS), k);
       if (s.thumb && s.thumb.rel_quat) {
         sm.thumbRel = sm.thumbRel ? nlerpQuat(sm.thumbRel, s.thumb.rel_quat, kq) : s.thumb.rel_quat.slice();
       } else sm.thumbRel = null;         // sensor gone -> pod honestly disappears

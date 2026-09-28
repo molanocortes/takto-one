@@ -22,8 +22,10 @@ import { mountJog } from "./views/jog.js";
 import { mountTendon } from "./views/tendon.js";
 import { initKonami } from "./konami.js";
 import "./store.js";   // start the telemetry connection immediately
+import { mountSimBanner } from "./sim_badge.js";
 
 initKonami();   // hidden easter egg: Konami code / type "doom" -> #/doom
+mountSimBanner();   // SIMULATED DATA, on every surface, whenever the mock is the source
 
 const app = document.getElementById("app");
 const routes = {

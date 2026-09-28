@@ -8,6 +8,9 @@ import { Twin } from "../twin.js";
 import { StripChart, drawSpark } from "../charts.js";
 import { unwrapCircularValues } from "../circular.js";
 import { DeviceScreen, MODES, MODE_LABEL } from "../device_screen.js";
+import { sourceBadges } from "../sim_badge.js";
+import { buildCalibPrompt } from "../calib_prompt.js";
+import { forearmElevationDeg, wristAnglesDeg, qValid } from "../arm_model.js";
 
 const FINGERS = ["index", "middle", "ring", "pinky"];
 const SEGS = ["mcp", "pip", "dip"];
@@ -243,26 +246,10 @@ export function mountOperator(rootHost) {
   // bench surfaces, so that one link survives here rather than stranding pages
   // that are reachable by typing a hash and no other way.
   const btnBench = el("a", { class: "btn ghost sm", href: "#/imu", title: "IMU bench: orientation, full sensor set, motion" }, "IMU bench");
-  // MOCK badge: the console silently defaults to simulated data when it is not
-  // pointed at the live bridge. Make that state loud, and one click connects live.
-  const mockBadge = el("button", { class: "mock-badge", title: "Showing simulated data. Click to connect to the live bridge (ws://localhost:8765/ws)." }, "MOCK DATA");
-  mockBadge.addEventListener("click", () => {
-    const u = new URL(location.href);
-    u.searchParams.set("ws", "ws://localhost:8765/ws");
-    location.href = u.toString();   // full reload into live mode (also remembered)
-  });
-  if (store.live) mockBadge.style.display = "none";
-  // LINK badge: live mode with the bridge unreachable is NOT the same as mock
-  // data; say so instead of silently holding the last frame.
-  const linkBadge = el("button", { class: "mock-badge",
-    title: "The live bridge is not answering. Reconnecting automatically; click to reload now." }, "LINK DOWN");
-  linkBadge.addEventListener("click", () => location.reload());
-  linkBadge.style.display = "none";
-  if (store.live) {
-    const updLink = (up) => { linkBadge.style.display = up ? "none" : ""; };
-    updLink(store.connected);
-    cleanups.push(store.onLink(updLink));
-  }
+  // SIMULATED DATA / LINK DOWN: the default source tries the live bridge and
+  // falls back to the simulation; the badge follows the source as it changes
+  // (sim_badge.js), so simulated data can never pass for a live device.
+  const [mockBadge, linkBadge] = sourceBadges(cleanups);
   const bar = el("header", { class: "surf-bar" },
     el("div", { class: "surf-bar-left" },
       el("a", { href: "#/", class: "surf-back", title: "Home" }, backGlyph()),
@@ -277,9 +264,16 @@ export function mountOperator(rootHost) {
   const dotMotors = el("span", { class: "dot ok" });
   const vDevice = el("span", { class: "num vital-v" }, "30 Hz");
   const vMotors = el("span", { class: "num vital-v" }, "2");
+  // v16 device block: the SD card and power state live next to the link
+  const dotSd = el("span", { class: "dot" });
+  const vSd = el("span", { class: "num vital-v" }, "—");
+  const rowSd = el("div", { class: "vital-row", title: "Device SD card (the archival copy of every take)" },
+    dotSd, el("span", { class: "vital-k" }, "sd card"), vSd);
+  rowSd.style.display = "none";
   const linkDots = el("div", { class: "vital-rows" },
     el("div", { class: "vital-row" }, dotDevice, el("span", { class: "vital-k" }, "device"), vDevice),
-    el("div", { class: "vital-row" }, dotMotors, el("span", { class: "vital-k" }, "motors"), vMotors));
+    el("div", { class: "vital-row" }, dotMotors, el("span", { class: "vital-k" }, "motors"), vMotors),
+    rowSd);
   const vLink = el("div", { class: "card vital" }, el("div", { class: "kicker" }, "Link"), linkDots);
 
   // transparency crown: the device pot sweeps fully transparent (zero force,
@@ -338,6 +332,12 @@ export function mountOperator(rootHost) {
   const framesRate = el("span", { class: "num frames-rate" }, "— Hz");
   const framesZero = el("button", { class: "frames-zero", title: "Set home: hold the straight pose, then click" }, "zero");
   framesZero.addEventListener("click", () => {
+    // a v16 bridge (body model) takes the real neutral capture; an older one
+    // keeps its instant IMU tare
+    if (store.snap && store.snap.body) {
+      if (store.send({ cmd: "calibrate", what: "neutral" })) toast("Neutral capture started: hold the pose", { tone: "live" });
+      return;
+    }
     store.send({ cmd: "calibrate", what: "imu" });
     toast("Home set to current pose", { tone: "ok" });
   });
@@ -415,6 +415,15 @@ export function mountOperator(rootHost) {
     }, 1200);
   });
   stage.append(stageTag, stageHint, stageFix, stageFixNote);
+  // Arm in space (body frame, translating, limb + floor grid) or the classic
+  // pinned hand (orientation only). The twin remembers the choice.
+  const viewArm = el("button", { type: "button", title: "The whole arm, moving through space (body model)" }, "Arm in space");
+  const viewHand = el("button", { type: "button", title: "The device pinned in place: orientation only" }, "Hand only");
+  const viewSeg = el("div", { class: "seg seg-sm stage-view" }, viewArm, viewHand);
+  const stageNote = el("div", { class: "stage-note mono" }, "");
+  stage.append(viewSeg, stageNote);
+  const calibPrompt = buildCalibPrompt(cleanups, { variant: "stage" });
+  stage.append(calibPrompt.node);
 
   // --- charts column ---
   const mkChart = (label, sub) => {
@@ -607,12 +616,21 @@ export function mountOperator(rootHost) {
 
   // ============ life ============
   const COCKPIT_FRAMING = {
-    orbit: true, idle: true, autoFrame: true,
+    orbit: true, idle: true, autoFrame: true, armView: true,
     yaw: -0.75, pitch: 0.34, dist: 6.4, targetY: -0.1, targetZ: 0.1,
     autoFrameMinDist: 4.8, autoFrameMaxDist: 9.2, autoFrameMargin: 1.18,
   };
   const twin = Twin.acquire(stage, COCKPIT_FRAMING);
   cleanups.push(() => twin.dispose());
+  const paintView = () => {
+    const v = twin.view;
+    viewArm.classList.toggle("on", v === "arm");
+    viewHand.classList.toggle("on", v === "hand");
+    stage.classList.toggle("arm-view", v === "arm");
+  };
+  viewArm.addEventListener("click", () => { twin.setView("arm"); paintView(); });
+  viewHand.addEventListener("click", () => { twin.setView("hand"); paintView(); });
+  paintView();
 
   let motorRows = {};
   const frameKin = { prevT: null, prevHand: null, prevFore: null, rate: 0,
@@ -629,6 +647,21 @@ export function mountOperator(rootHost) {
     const linkH = (s.health || []).find((x) => x.stream === "link");
     if (linkH) vDevice.textContent = `${linkH.rate_hz} Hz`;
     vMotors.textContent = String((s.motors || []).length);
+    const dev = s.device;
+    rowSd.style.display = dev ? "" : "none";
+    if (dev) {
+      if (dev.standby) { dotSd.className = "dot warn"; vSd.textContent = "standby"; }
+      else if (!dev.sd_present) { dotSd.className = "dot stop"; vSd.textContent = "no card"; }
+      else if (dev.sd_recording) {
+        dotSd.className = "dot rec";
+        vSd.textContent = `REC TK${String(dev.sd_take || 0).padStart(5, "0")} · ${(dev.sd_rows || 0).toLocaleString()}`;
+      } else { dotSd.className = "dot ok"; vSd.textContent = dev.standalone_auto_record ? "ready · auto" : "ready"; }
+    }
+    // a v16 bridge calibrates through the neutral prompt on the stage; the
+    // old instant tare button stays for bridges without a body model
+    const hasBody = !!s.body;
+    stageFix.style.display = hasBody ? "none" : "";
+    stageFixNote.style.display = hasBody ? "none" : "";
 
     // motors: which are online + working
     const motorsArr = s.motors || [];
@@ -747,8 +780,30 @@ export function mountOperator(rootHost) {
     frameNo++;
     const draw2d = (frameNo & 1) === 0;
     if (tab === "live" && !demo.isOpen() && draw2d) {
-      fHand.needle.style.transform = `rotate(${(sm.handQuat[3] * 180)}deg)`;
-      fFore.needle.style.transform = `rotate(${(sm.forearmQuat[3] * 180)}deg)`;
+      // Needles are ANGLES now (they used to rotate by quat.z * 180, which is
+      // not an angle of anything): forearm = elevation above horizontal,
+      // hand = wrist flexion (+ palm-ward tips the needle down). Body model
+      // values when the bridge sends them, else derived from the segment quats.
+      {
+        const b = sm.body;
+        const qf = (b && b.forearmQuat) || qValid(sm.forearmQuat) || [1, 0, 0, 0];
+        const qh = (b && b.handQuat) || qValid(sm.handQuat) || [1, 0, 0, 0];
+        const elev = forearmElevationDeg(qf);
+        const flex = b && b.hasWristDeg ? b.wristDeg.flex : wristAnglesDeg(qf, qh).flex;
+        fFore.needle.style.transform = `rotate(${(-elev).toFixed(1)}deg)`;
+        fHand.needle.style.transform = `rotate(${flex.toFixed(1)}deg)`;
+        fFore.needle.parentElement.title = `forearm elevation ${elev.toFixed(0)}°`;
+        fHand.needle.parentElement.title = `wrist flexion ${flex.toFixed(0)}°`;
+      }
+      {
+        const info = twin.armInfo();
+        const txt = twin.view === "hand" ? "pinned · orientation only"
+          : !info ? ""
+          : info.synthetic ? "arm synthesised · no body model from the bridge"
+          : sm.body && !sm.body.live ? "arm held · an IMU dropped out"
+          : `arm · ${info.posSource === "arm+inertial" ? "arm model + inertial" : "arm model"}`;
+        if (stageNote.textContent !== txt) stageNote.textContent = txt;
+      }
       const calm = presentEffort(sm.activation.level, performance.now());
       effortGauge.set(calm.value);
       if (calm.paint) effortVal.textContent = `${calm.pct} %`;
@@ -1208,7 +1263,21 @@ export function mountOperator(rootHost) {
         result.textContent = a.error || "Capture failed; hold the pose and retry.";
         return;
       }
-      if (a.event === "calibrated") {
+      // a v16 bridge runs the neutral as a device capture with phases; show
+      // them, and treat "done" as this step's confirmation
+      if (a.event === "neutral") {
+        if (a.phase === "countdown") { actionBtn.textContent = `Hold the pose in ${a.t ?? ""}…`; return; }
+        if (a.phase === "hold") { actionBtn.textContent = "Hold still…"; return; }
+        if (a.phase === "abort") {
+          waiting = false;
+          actionBtn.disabled = false;
+          actionBtn.textContent = STEPS[step].btn;
+          result.textContent = "Capture aborted" + (a.why ? ` (${a.why})` : "") + "; hold the pose and retry.";
+          return;
+        }
+        if (a.phase !== "done") return;
+      }
+      if (a.event === "calibrated" || (a.event === "neutral" && a.phase === "done")) {
         waiting = false;
         const t = a.travel, parts = [];
         if (t && t["8"] != null) parts.push("MCP " + Math.round(t["8"]) + "°");
@@ -1268,7 +1337,7 @@ export function mountOperator(rootHost) {
         open = true; t0 = performance.now();
         node.classList.add("open");
         document.addEventListener("keydown", esc);
-        Twin.acquire(stageD, { orbit: true, idle: true, idleSpin: true, yaw: -0.8, pitch: 0.3, dist: 7.6, targetY: -0.2, targetZ: 0.3 });
+        Twin.acquire(stageD, { orbit: true, idle: true, idleSpin: true, armView: true, yaw: -0.8, pitch: 0.3, dist: 7.6, targetY: -0.2, targetZ: 0.3 });
       },
       close() {
         open = false;
