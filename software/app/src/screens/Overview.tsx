@@ -1,71 +1,114 @@
-// Overview.tsx - the device at a glance: the twin, the health number, the
-// four housekeeping channels, the battery and the mode.
-import React, { useRef, useState, useSyncExternalStore } from 'react';
+// Overview.tsx - the device at a glance: the twin, how much of the sensing is
+// live, four measured motion channels, the recording and the calibration.
+//
+// Every number on this page is MEASURED (or derived from a measurement) by the
+// device. The earlier page showed temperature, battery, "position accuracy"
+// and response time: the device has no sensor for any of them, so live they
+// were dashes and in the simulator they were invented. What the rig does
+// measure is motion, so that is what the home page reports.
+import React, { useRef } from 'react';
 import { View, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useSyncExternalStore } from 'react';
 import { Twin } from '../twin/Twin';
 import { twinStatus } from '../twin/loadHand';
-import { TopRow, Title, SectionHead, Tiles, type TileIcon } from '../ui/Chrome';
+import { TopRow, Title, SectionHead } from '../ui/Chrome';
 import { M, T, Num, Hairline, Trace, Ring } from '../ui/primitives';
-import { C, S, R } from '../ui/tokens';
+import { C, S } from '../ui/tokens';
 import { useSession } from '../data/session';
-import { simFrame } from '../data/sim';
-import type { Telemetry } from '../data/types';
+import { qrot } from '../data/quat';
+import type { Frame, Vec3 } from '../data/types';
 
-type Side = 'left' | 'active' | 'right';
-const SIDES: { key: Side; label: string; icon: TileIcon }[] = [
-  { key: 'left', label: 'Left', icon: { set: 'mci', name: 'hand-back-left-outline' } },
-  { key: 'active', label: 'Active', icon: { set: 'bars' } },
-  { key: 'right', label: 'Right', icon: { set: 'mci', name: 'hand-back-right-outline' } },
+const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
+const HIST = 60;
+
+type Metric = { key: string; icon: keyof typeof Feather.glyphMap; label: string; unit: string; color: string;
+                read: (f: Frame, speed: number | null) => number | null; digits: number };
+
+const forearmElevation = (f: Frame): number | null => {
+  if (!f.body || !f.body.live) return null;
+  const d = qrot(f.body.forearmQuat, [0, 0, 1]);            // distal axis in the body frame
+  return (Math.asin(Math.max(-1, Math.min(1, d[1]))) * 180) / Math.PI;
+};
+
+const METRICS: Metric[] = [
+  { key: 'flex', icon: 'corner-right-down', label: 'Wrist flexion', unit: '°', color: C.blue, digits: 0,
+    read: (f) => (f.body && f.body.live && f.body.wristDeg ? f.body.wristDeg.flex : null) },
+  { key: 'dev', icon: 'corner-up-right', label: 'Wrist deviation', unit: '°', color: C.blue, digits: 0,
+    read: (f) => (f.body && f.body.live && f.body.wristDeg ? f.body.wristDeg.dev : null) },
+  { key: 'elev', icon: 'trending-up', label: 'Forearm elevation', unit: '°', color: C.green, digits: 0,
+    read: (f) => forearmElevation(f) },
+  { key: 'speed', icon: 'wind', label: 'Hand speed', unit: 'cm/s', color: C.orange, digits: 0,
+    read: (_f, speed) => speed },
 ];
 
-type Row = { key: keyof Telemetry; icon: keyof typeof Feather.glyphMap; label: string; unit: string; color: string; fmt: (v: number) => string };
-const ROWS: Row[] = [
-  { key: 'tempC', icon: 'thermometer', label: 'Temperature', unit: '°C', color: C.blue, fmt: (v) => v.toFixed(1) },
-  { key: 'load', icon: 'zap', label: 'Motor load', unit: '%', color: C.blue, fmt: (v) => (v * 100).toFixed(0) },
-  { key: 'accuracyMm', icon: 'crosshair', label: 'Position accuracy', unit: 'mm', color: C.green, fmt: (v) => v.toFixed(2) },
-  { key: 'responseMs', icon: 'clock', label: 'Response time', unit: 'ms', color: C.orange, fmt: (v) => v.toFixed(0) },
-];
+/** fraction of the expected sensing that is live: 2 main IMUs + 12 finger channels */
+function coverage(f: Frame): { live: number; total: number } {
+  let live = f.body && f.body.live ? 2 : 0;
+  for (const k of FINGERS) {
+    const ok = f.ok[k];
+    live += (ok.ab ? 1 : 0) + (ok.mcp ? 1 : 0) + (ok.pip ? 1 : 0);
+  }
+  return { live, total: 14 };
+}
 
-const HIST = 40;
+const mmss = (ms: number) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
 
 export function Overview({ onMenu, onStatus }: { onMenu?: () => void; onStatus?: () => void }) {
   const session = useSession();
   const frame = session.frame;
-  const tel = frame.telemetry;
-  const [side, setSide] = useState<Side>('active');
   const { width } = useWindowDimensions();
   const twin = useSyncExternalStore(twinStatus.subscribe, twinStatus.get, twinStatus.get);
   const hist = useRef<Record<string, number[]>>({}).current;
-  const lastT = useRef(NaN);
+  const last = useRef<{ t: number; hand: Vec3 | null; speed: number | null }>({ t: NaN, hand: null, speed: null }).current;
 
-  const push = (k: string, v: number) => {
+  const push = (k: string, v: number | null) => {
+    if (v === null || !Number.isFinite(v)) return;
     const a = (hist[k] ??= []);
     a.push(v); if (a.length > HIST) a.shift();
   };
-  // one sample per frame time: a pinned clock re-renders without advancing,
-  // and must not flood the history with the same value
-  if (tel && frame.t !== lastT.current) {
-    lastT.current = frame.t;
-    if (!hist.health) {
-      // the first frame seeds the past from the feed's own function of time,
-      // so a trace never starts as a flat line
-      for (let i = HIST - 1; i > 0; i--) {
-        const past = simFrame(frame.t - i * 0.5).telemetry!;
-        push('health', past.health);
-        for (const r of ROWS) push(r.key, past[r.key] as number);
-      }
+
+  // one sample per frame time (a paused clock re-renders without advancing)
+  if (frame.t !== last.t) {
+    const dt = frame.t - last.t;
+    const hand = frame.body && frame.body.live ? frame.body.hand : null;
+    if (hand && last.hand && dt > 0 && dt < 0.5) {
+      const d = Math.hypot(hand[0] - last.hand[0], hand[1] - last.hand[1], hand[2] - last.hand[2]);
+      const v = (d / dt) * 100;                               // cm/s
+      last.speed = last.speed === null ? v : last.speed + (v - last.speed) * 0.25;
+    } else if (!hand) {
+      last.speed = null;
     }
-    push('health', tel.health);
-    for (const r of ROWS) push(r.key, tel[r.key] as number);
+    last.t = frame.t; last.hand = hand;
+    const cov = coverage(frame);
+    push('cov', (cov.live / cov.total) * 100);
+    for (const m of METRICS) push(m.key, m.read(frame, last.speed));
   }
 
-  const health = tel ? Math.round(tel.health * 100) : null;
-  const battery = tel ? Math.round(tel.battery * 100) : null;
-  const left = tel ? `${Math.floor(tel.minutesLeft / 60)}h ${Math.round(tel.minutesLeft % 60)}m remaining` : '–';
-  const blend = Math.max(0, Math.min(1, frame.blend));
-  const mode = blend < 0.15 ? 'Transparent' : blend > 0.85 ? 'Full Assist' : 'Adaptive Grip';
+  const cov = coverage(frame);
+  const covPct = Math.round((cov.live / cov.total) * 100);
+  const body = frame.body;
+  const rec = frame.rec;
+  const dev = frame.device;
   const twinW = width - S.gutter * 2;
+  const statusWord = session.status.kind === 'live' ? 'Live device' : session.status.kind === 'replay' ? 'Replay'
+                   : session.status.kind === 'sim' ? 'Simulated' : 'No data';
+
+  const calWord = !body ? 'No IMU pose' : body.cal === 'calibrated' ? 'Calibrated'
+                : body.cal === 'provisional' ? 'Provisional' : 'Not calibrated';
+  const calColor = body && body.cal === 'calibrated' ? C.green : C.orange;
+  const calDetail = body && body.cal === 'calibrated' && body.sinceNeutralS !== null
+    ? `neutral ${Math.max(0, Math.round(body.sinceNeutralS / 60))} min ago`
+    : 'hold your hand flat, then calibrate';
+
+  const recording = !!(rec && rec.recording);
+  const recDetail = recording
+    ? `${rec!.samples} samples`
+    : dev ? (dev.sdRecording ? `card take ${dev.sdTake}` : dev.sdPresent ? 'SD card ready' : 'no SD card')
+    : 'not recording';
 
   return (
     <View style={{ flex: 1, backgroundColor: C.page }}>
@@ -77,8 +120,6 @@ export function Overview({ onMenu, onStatus }: { onMenu?: () => void; onStatus?:
           <View style={[StyleSheet.absoluteFill, { left: 118, top: 78 }]} pointerEvents="box-none">
             <Twin style={{ width: twinW - 92, height: 220 }} stage="light" part="device" />
             {twin.state !== 'ready' && (
-              // the twin is never silently absent: while it loads, or if it
-              // cannot, the page says so in the twin's own place
               <View style={{ position: 'absolute', left: 0, right: 0, top: 96, alignItems: 'center' }} pointerEvents="none">
                 <M size={8.5} color={twin.state === 'error' ? C.orange : C.ink3}>
                   {twin.state === 'error' ? `Twin failed: ${twin.detail}` : twin.state === 'idle' ? '' : `Twin ${twin.detail}…`}
@@ -86,63 +127,67 @@ export function Overview({ onMenu, onStatus }: { onMenu?: () => void; onStatus?:
               </View>
             )}
           </View>
-          <Title status={session.status.kind === 'live' ? 'Live device' : session.status.kind === 'replay' ? 'Replay' : session.status.kind === 'sim' ? 'Simulated' : 'No data'} spinning={session.status.kind !== 'live' && session.status.kind !== 'replay'}>Digital twin</Title>
+          <Title status={statusWord} spinning={session.status.kind !== 'live' && session.status.kind !== 'replay'}>Digital twin</Title>
           <View style={{ marginTop: 40 }} pointerEvents="none">
-            <M size={9.5} color={C.ink2}>System status</M>
+            <M size={9.5} color={C.ink2}>Sensors live</M>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 6 }}>
-              <Num size={54} weight="300" color={C.ink} tracking={-1}>{health ?? '–'}</Num>
+              <Num size={54} weight="300" color={C.ink} tracking={-1}>{covPct}</Num>
               <T size={15} weight="400" color={C.ink} style={{ marginLeft: 5 }}>%</T>
             </View>
-            <View style={{ marginTop: 8 }}>
-              <Trace values={hist.health ?? []} width={98} height={20} color={C.green} stroke={1.1} />
+            <M size={8} color={C.ink3} upper={false} style={{ marginTop: 2 }}>{`${cov.live} of ${cov.total} channels`}</M>
+            <View style={{ marginTop: 6 }}>
+              <Trace values={hist.cov ?? []} width={98} height={20} color={C.green} stroke={1.1} />
             </View>
           </View>
         </View>
 
-        <View style={{ marginTop: 6 }}>
-          <Tiles items={SIDES} value={side} onChange={setSide} />
-        </View>
-
-        <SectionHead label="Telemetry" right={session.isPaused() ? 'Paused' : 'Real-time'} onRight={() => (session.isPaused() ? session.resume() : session.pause())} style={{ marginTop: 22 }} />
+        <SectionHead label="Motion" right={session.isPaused() ? 'Paused' : 'Real-time'} onRight={() => (session.isPaused() ? session.resume() : session.pause())} style={{ marginTop: 18 }} />
         <View style={{ marginTop: 8 }}>
-          {ROWS.map((r, i) => {
-            const v = tel ? (tel[r.key] as number) : null;
+          {METRICS.map((m, i) => {
+            const v = m.read(frame, last.speed);
             return (
-              <View key={r.key}>
+              <View key={m.key}>
                 {i > 0 && <Hairline />}
                 <View style={st.row}>
-                  <Feather name={r.icon} size={15} color={C.ink2} style={{ width: 26, marginLeft: 6 }} />
-                  <M size={9} color={C.ink2} style={{ width: 118, marginLeft: 8 }}>{r.label}</M>
+                  <Feather name={m.icon} size={15} color={C.ink2} style={{ width: 26, marginLeft: 6 }} />
+                  <M size={9} color={C.ink2} style={{ width: 118, marginLeft: 8 }}>{m.label}</M>
                   <View style={{ flexDirection: 'row', alignItems: 'baseline', width: 76 }}>
-                    <Num size={15.5} color={C.ink}>{v === null ? '–' : r.fmt(v)}</Num>
-                    <M size={8} color={C.ink2} upper={false} style={{ marginLeft: 5 }}>{r.unit}</M>
+                    <Num size={15.5} color={C.ink}>{v === null ? '–' : (Math.abs(v) < 0.5 * 10 ** -m.digits ? 0 : v).toFixed(m.digits)}</Num>
+                    <M size={8} color={C.ink2} upper={false} style={{ marginLeft: 5 }}>{m.unit}</M>
                   </View>
                   <View style={{ flex: 1, alignItems: 'flex-end', flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
-                    <Trace values={hist[r.key] ?? []} width={90} height={16} color={r.color} dashed stroke={1} />
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: r.color }} />
+                    <Trace values={hist[m.key] ?? []} width={90} height={16} color={m.color} dashed stroke={1} />
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: m.color }} />
                   </View>
                 </View>
               </View>
             );
           })}
         </View>
+        {body && (
+          <M size={7.5} color={C.ink3} upper={false} style={{ marginTop: 6 }}>
+            {`Position from the ${body.posSource === 'arm+inertial' ? 'jointed-arm model with inertial shoulder motion' : 'jointed-arm model'}: the IMUs measure orientation, not position.`}
+          </M>
+        )}
 
-        <Hairline style={{ marginTop: 10, marginHorizontal: -S.gutter }} />
+        <Hairline style={{ marginTop: 12, marginHorizontal: -S.gutter }} />
         <View style={st.twoCol}>
           <View style={st.col}>
-            <M size={9.5} color={C.ink}>Battery</M>
+            <M size={9.5} color={C.ink}>Recording</M>
             <View style={{ alignItems: 'center', marginTop: 8 }}>
-              <Ring value={tel ? tel.battery : 0} size={66} stroke={3.5}>
-                <Num size={16} weight="300" color={C.ink}>{battery ?? '–'}<T size={9.5} weight="300" color={C.ink}>%</T></Num>
+              <Ring value={recording ? ((rec!.elapsedMs / 1000) % 60) / 60 : 0} size={66} stroke={3.5}>
+                <Num size={14} weight="300" color={C.ink}>{recording ? mmss(rec!.elapsedMs) : '–'}</Num>
               </Ring>
-              <T size={11.5} color={C.ink2} style={{ marginTop: 8 }}>{left}</T>
+              <T size={11.5} color={C.ink2} style={{ marginTop: 8 }}>{recDetail}</T>
             </View>
           </View>
           <View style={st.colLine} />
           <View style={[st.col, { paddingLeft: 24 }]}>
-            <M size={9.5} color={C.ink}>Mode</M>
-            <T size={18} weight="400" color={C.ink} style={{ marginTop: 16 }}>{mode}</T>
-            <View style={st.autoPill}><M size={9} color={C.green} tracking={1}>Auto</M></View>
+            <M size={9.5} color={C.ink}>Calibration</M>
+            <T size={18} weight="400" color={C.ink} style={{ marginTop: 16 }}>{calWord}</T>
+            <View style={[st.pill, { backgroundColor: body && body.cal === 'calibrated' ? C.greenSoft : 'rgba(240,140,60,0.12)' }]}>
+              <M size={8.5} color={calColor} upper={false}>{calDetail}</M>
+            </View>
           </View>
         </View>
         <Hairline style={{ marginHorizontal: -S.gutter }} />
@@ -157,8 +202,5 @@ const st = StyleSheet.create({
   twoCol: { flexDirection: 'row', paddingVertical: 16, minHeight: 120 },
   col: { flex: 1 },
   colLine: { width: 1, backgroundColor: C.line, marginVertical: -20, marginHorizontal: 0 },
-  autoPill: {
-    alignSelf: 'flex-start', backgroundColor: C.greenSoft, borderRadius: 4,
-    paddingHorizontal: 8, paddingVertical: 3, marginTop: 10,
-  },
+  pill: { alignSelf: 'flex-start', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3, marginTop: 10 },
 });
