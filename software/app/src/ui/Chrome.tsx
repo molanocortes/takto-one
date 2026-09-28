@@ -6,19 +6,46 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { M, T } from './primitives';
 import { C, S, R } from './tokens';
+import { useSession, type StatusKind } from '../data/session';
 
 export const NAV_H = 47;
 
-/** "● LIVE" and the menu, at the top of every screen. */
-export function TopRow({ live, label, onMenu }: { live: boolean; label: string; onMenu?: () => void }) {
+/** one colour per kind of source, used by every status mark in the app */
+export const STATUS_COLOR: Record<StatusKind, string> = {
+  live: C.green, sim: C.orange, replay: C.blue, offline: C.red,
+};
+
+/**
+ * The source label and the menu, at the top of every screen. It reads the
+ * session itself, so no screen can word it differently: LIVE is a real
+ * device through a delivering bridge, SIMULATED is synthetic (in-app or a
+ * bridge on --sim), REPLAY is a take, and anything else says what is wrong.
+ */
+export function TopRow({ onMenu, onStatus }: { onMenu?: () => void; onStatus?: () => void }) {
   const inset = useSafeAreaInsets();
+  const s = useSession().status;
   return (
     <View style={[st.top, { marginTop: Math.max(inset.top, 47) + 18 }]}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <View style={[st.dot, { backgroundColor: live ? C.ink : C.ink3 }]} />
-        <M size={9.5} color={C.ink2}>{label}</M>
-      </View>
+      <Pressable onPress={onStatus} hitSlop={10} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}
+        accessibilityRole="button" accessibilityLabel={`Source: ${s.label}, ${s.detail}`}>
+        <View style={[st.dot, { backgroundColor: STATUS_COLOR[s.kind] }]} />
+        <M size={9.5} color={C.ink} weight="500">{s.label}</M>
+        <M size={8.5} color={C.ink3} upper={false} style={{ flexShrink: 1 }}>{s.detail}</M>
+      </Pressable>
       <Pressable onPress={onMenu} hitSlop={10}><Feather name="menu" size={18} color={C.ink} /></Pressable>
+    </View>
+  );
+}
+
+/** The session's last notice (an ack, a refusal), for a few seconds. */
+export function NoticeBar() {
+  const session = useSession();
+  const n = session.notice;
+  if (!n || Date.now() - n.at > 4500) return null;
+  return (
+    <View pointerEvents="none" style={[st.notice, { borderColor: n.tone === 'error' ? C.red : C.tileLine }]}>
+      <Feather name={n.tone === 'error' ? 'alert-circle' : 'check-circle'} size={13} color={n.tone === 'error' ? C.red : C.green} />
+      <T size={12.5} color={C.ink} style={{ flex: 1 }}>{n.text}</T>
     </View>
   );
 }
@@ -48,7 +75,7 @@ export function SectionHead({ label, right, onRight, style }: {
       {right && (
         <Pressable onPress={onRight} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} hitSlop={8}>
           <M size={8.5} color={C.ink2}>{right}</M>
-          <Feather name="chevron-down" size={11} color={C.ink2} />
+          {onRight ? <Feather name="chevron-down" size={11} color={C.ink2} /> : null}
         </Pressable>
       )}
     </View>
@@ -108,7 +135,12 @@ export function TabBar<K extends string>({ items, value, onChange }: {
 
 const st = StyleSheet.create({
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 20 },
-  dot: { width: 5, height: 5, borderRadius: 2.5 },
+  dot: { width: 7, height: 7, borderRadius: 3.5 },
+  notice: {
+    position: 'absolute', left: S.gutter - 10, right: S.gutter - 10, bottom: 104, flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.white, borderRadius: R.r2, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10,
+    shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3,
+  },
   sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 20 },
   tile: {
     flex: 1, backgroundColor: C.tile, borderRadius: R.r2, alignItems: 'center', justifyContent: 'center',

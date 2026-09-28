@@ -12,6 +12,98 @@ import { Canvas, useFrame, useThree } from './canvas';
 import { Hand } from './Hand';
 import { STUDIO, keyDirection, LOOKS, type Look } from './materials';
 import { C } from '../ui/tokens';
+import { session } from '../data/session';
+import { armBody } from '../data/arm';
+import { QI } from '../data/quat';
+
+/**
+ * The arm-in-space view: the body frame as MOTION_PIPELINE.md defines it
+ * (+Y up, +Z forward, +X left, origin at the right shoulder), metres, seen
+ * from the wearer's front-right. The target is the middle of the neutral
+ * pose (upper arm hanging, forearm forward).
+ */
+const ARM_VIEW = { azimuth: -58, elevation: 14, distance: 1.58, target: [0.02, -0.24, 0.2] as [number, number, number], floorY: -0.62 };
+const NEUTRAL_ARM = armBody(QI, QI, { origin: 'body', cal: 'none', live: false });
+
+/** A faint limb: upper arm and forearm as capsules, the torso as a flat slab, so
+ *  shoulder motion reads even where the device hides the forearm. */
+function Limbs() {
+  const upper = useRef<THREE.Mesh>(null);
+  const fore = useRef<THREE.Mesh>(null);
+  const elbow = useRef<THREE.Mesh>(null);
+  const tmp = useMemo(() => ({ a: new THREE.Vector3(), b: new THREE.Vector3(), d: new THREE.Vector3(), y: new THREE.Vector3(0, 1, 0) }), []);
+  const mat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#C4C4C4', roughness: 0.95 }), []);
+  const bodyMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#E7E7E7' }), []);
+  // Opaque on purpose: the canvas is alpha-composited over the page with
+  // premultiplied alpha, and a lit translucent surface there turns into a
+  // bright white block instead of a faint one. The torso is a flat
+  // silhouette a shade off the page colour, which reads as "a body" and no more.
+  const place = (m: THREE.Mesh | null, a: number[], b: number[]) => {
+    if (!m) return;
+    tmp.a.set(a[0], a[1], a[2]); tmp.b.set(b[0], b[1], b[2]);
+    tmp.d.subVectors(tmp.b, tmp.a);
+    const len = tmp.d.length();
+    m.position.addVectors(tmp.a, tmp.b).multiplyScalar(0.5);
+    m.scale.set(1, Math.max(1e-3, len), 1);
+    if (len > 1e-6) m.quaternion.setFromUnitVectors(tmp.y, tmp.d.multiplyScalar(1 / len));
+  };
+  useFrame(() => {
+    const b = session.frame.body ?? NEUTRAL_ARM;
+    place(upper.current, b.shoulder, b.elbow);
+    place(fore.current, b.elbow, b.wrist);
+    elbow.current?.position.set(b.elbow[0], b.elbow[1], b.elbow[2]);
+  });
+  return (
+    <group>
+      <mesh ref={upper} material={mat}><cylinderGeometry args={[0.034, 0.03, 1, 20]} /></mesh>
+      <mesh ref={fore} material={mat}><cylinderGeometry args={[0.028, 0.024, 1, 20]} /></mesh>
+      <mesh ref={elbow} material={mat}><sphereGeometry args={[0.034, 20, 14]} /></mesh>
+      <mesh position={[0, 0, 0]} material={mat}><sphereGeometry args={[0.042, 20, 14]} /></mesh>
+      {/* the torso to the wearer's left of the right shoulder (+X), for scale */}
+      <mesh position={[0.2, -0.24, -0.02]} material={bodyMat}><boxGeometry args={[0.3, 0.5, 0.17]} /></mesh>
+    </group>
+  );
+}
+
+function ArmRig({ orbit, colourway, look }: { orbit: React.MutableRefObject<Orbit>; colourway: 'white' | 'graphite'; look: Look }) {
+  const turn = useRef<THREE.Group>(null);
+  const { camera } = useThree();
+  const T = ARM_VIEW.target;
+  useMemo(() => {
+    const az = (ARM_VIEW.azimuth * Math.PI) / 180;
+    const el = (ARM_VIEW.elevation * Math.PI) / 180;
+    camera.position.set(
+      T[0] + ARM_VIEW.distance * Math.cos(el) * Math.sin(az),
+      T[1] + ARM_VIEW.distance * Math.sin(el),
+      T[2] + ARM_VIEW.distance * Math.cos(el) * Math.cos(az),
+    );
+    camera.up.set(0, 1, 0);
+    camera.lookAt(T[0], T[1], T[2]);
+  }, [camera]);
+  useFrame((_: any, dt: number) => {
+    const g = turn.current;
+    if (!g) return;
+    const o = orbit.current;
+    o.t += dt;
+    g.rotation.y = o.yaw + (o.drifting ? Math.sin(o.t * 0.2) * 0.08 : 0);
+    g.rotation.x = o.pitch * 0.6;
+  });
+  // turn about the vertical through the target, not the shoulder
+  return (
+    <group position={T}>
+      <group ref={turn}>
+        <group position={[-T[0], -T[1], -T[2]]}>
+          <Limbs />
+          <Hand colourway={colourway} look={look} part="device" view="arm" />
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0.05, ARM_VIEW.floorY, 0.1]} receiveShadow>
+            <circleGeometry args={[0.9, 48]} />
+            <shadowMaterial opacity={0.07} />
+          </mesh>
+        </group>
+      </group>
+    </group>
+  );
+}
 
 /** on the light page the machine is seen from high and to the front-right, fingers toward the viewer's left */
 // on the light page the device LIES on the table, as in the still: the inner
@@ -160,9 +252,12 @@ function urlPart(): 'device' | 'hand' {
   return DEFAULT_PART;
 }
 
-export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, part }: {
+export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, part, view = 'hand' }: {
   style?: StyleProp<ViewStyle>; shadow?: boolean; stage?: 'dark' | 'light'; scale?: number; look?: Look;
   part?: 'device' | 'hand';
+  /** 'hand': the device alone, forearm still, the wrist articulated;
+   *  'arm': the whole arm in the body frame, moving through space */
+  view?: 'hand' | 'arm';
 }) {
   const dark = stage === 'dark';
   const theLook = look ?? urlLook();
@@ -194,7 +289,7 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
     <View style={[styles.wrap, style]} {...pan.panHandlers}>
       {/* the dark stage is one tone of black: the machine is the only thing lit */}
       <Canvas
-        shadows={shadow}
+        shadows={shadow ? 'percentage' : false}
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: true }}
         camera={{ fov: VIEW.fovDeg, near: 0.1, far: 40 }}
@@ -204,7 +299,7 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
           gl.outputColorSpace = THREE.SRGBColorSpace;
           // soft shadows are a 3x3 tap per pixel; a phone gets the plain
           // filtered map, which at this size looks the same and costs a third
-          gl.shadowMap.type = Platform.OS === 'web' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+          gl.shadowMap.type = THREE.PCFShadowMap;   // three r18x folded PCFSoft into PCF
           scene.background = null;
           // transparent over the page; if a GL surface cannot be transparent
           // it shows the page colour rather than black
@@ -234,9 +329,11 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
         }}
       >
         <Lights shadow={shadow} dark={dark} />
-        <Rig orbit={orbit} colourway={dark ? 'graphite' : 'white'} scale={scale} look={theLook} part={thePart} />
+        {view === 'arm'
+          ? <ArmRig key="arm" orbit={orbit} colourway={dark ? 'graphite' : 'white'} look={theLook} />
+          : <Rig key="hand" orbit={orbit} colourway={dark ? 'graphite' : 'white'} scale={scale} look={theLook} part={thePart} />}
         {/* the ground exists only to catch the one shadow; on black there is none to catch */}
-        {!dark && (
+        {!dark && view !== 'arm' && (
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, urlNum('floor', -0.16), 0]} receiveShadow>
             <planeGeometry args={[7, 7]} />
             <shadowMaterial opacity={0.075} />

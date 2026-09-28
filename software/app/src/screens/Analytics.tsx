@@ -14,7 +14,7 @@ const JOINTS = [
 ];
 const HIST = 48;
 
-export function Analytics({ onMenu }: { onMenu?: () => void }) {
+export function Analytics({ onMenu, onStatus }: { onMenu?: () => void; onStatus?: () => void }) {
   const session = useSession();
   const frame = session.frame;
   const hist = useRef<Record<string, number[]>>({}).current;
@@ -22,9 +22,9 @@ export function Analytics({ onMenu }: { onMenu?: () => void }) {
   const [chan, setChan] = useState<'emg' | 'assist'>('emg');
   const push = (k: string, v: number) => { const a = (hist[k] ??= []); a.push(v); if (a.length > HIST) a.shift(); };
   // the very first frame is the empty one before the feed delivers; skip it
-  if (frame.t !== lastT.current && (frame.telemetry || session.link.kind !== 'sim')) {
+  if (frame.t !== lastT.current && (frame.telemetry || session.status.kind !== 'sim')) {
     lastT.current = frame.t;
-    if (!hist.emg && session.link.kind === 'sim') {
+    if (!hist.emg && session.source === 'sim' && !session.play) {
       // seed the past from the feed's own function of time, so no trace starts flat
       for (let i = HIST - 1; i > 0; i--) {
         const past = simFrame(frame.t - i * 0.25);
@@ -45,8 +45,8 @@ export function Analytics({ onMenu }: { onMenu?: () => void }) {
   return (
     <View style={{ flex: 1, backgroundColor: C.page }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: S.gutter }} showsVerticalScrollIndicator={false}>
-        <TopRow live={session.link.live || session.link.kind !== 'bridge'} label={session.link.live ? 'Live' : session.link.kind === 'sim' ? 'Live' : session.link.kind === 'take' ? 'Replay' : 'Idle'} onMenu={onMenu} />
-        <Title status={session.link.live ? 'Connected' : session.link.kind === 'take' ? 'Replay' : 'Synthetic feed'} spinning={!session.link.live}>Analytics</Title>
+        <TopRow onMenu={onMenu} onStatus={onStatus} />
+        <Title status={session.status.kind === 'live' ? 'Live device' : session.status.kind === 'replay' ? 'Replay' : session.status.kind === 'sim' ? 'Synthetic feed' : 'No data'} spinning={session.status.kind !== 'live'}>Analytics</Title>
 
         <View style={{ marginTop: 34 }}>
           <M size={11} color={C.ink2}>Mean flexion</M>

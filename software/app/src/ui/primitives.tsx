@@ -1,8 +1,9 @@
 // primitives.tsx - the small set of shapes every screen is built from.
 import React from 'react';
-import { View, Text, StyleSheet, type StyleProp, type ViewStyle, type TextStyle } from 'react-native';
+import { View, Text, Pressable, TextInput, ActivityIndicator, StyleSheet, type StyleProp, type ViewStyle, type TextStyle, type KeyboardTypeOptions } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { C, F, fontFor } from './tokens';
+import { C, F, R, fontFor } from './tokens';
 
 type TW = TextStyle['fontWeight'];
 
@@ -88,6 +89,69 @@ export function Ring({ value, size, stroke, color = C.green, track = C.line, chi
           strokeLinecap="round" strokeDasharray={`${c * v} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
       </Svg>
       {children}
+    </View>
+  );
+}
+
+/** A button: 'primary' is ink on the page, 'ghost' is a tile, 'danger' is the stop. */
+export function Btn({ label, onPress, kind = 'ghost', icon, disabled, busy, style, height = 44 }: {
+  label: string; onPress?: () => void; kind?: 'primary' | 'ghost' | 'danger'; icon?: keyof typeof Feather.glyphMap;
+  disabled?: boolean; busy?: boolean; style?: StyleProp<ViewStyle>; height?: number;
+}) {
+  const bg = kind === 'primary' ? C.ink : kind === 'danger' ? C.red : C.tile;
+  const fg = kind === 'ghost' ? C.ink : C.white;
+  const off = disabled || busy;
+  return (
+    <Pressable onPress={off ? undefined : onPress} accessibilityRole="button" accessibilityState={{ disabled: !!off }}
+      style={({ pressed }) => [{
+        height, borderRadius: R.r2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+        paddingHorizontal: 14, backgroundColor: bg, borderWidth: 1, borderColor: kind === 'ghost' ? C.tileLine : bg,
+        opacity: off ? 0.4 : pressed ? 0.8 : 1,
+      }, style]}>
+      {busy ? <ActivityIndicator size="small" color={fg} /> : icon ? <Feather name={icon} size={14} color={fg} /> : null}
+      <M size={10.5} color={fg} weight="500">{label}</M>
+    </Pressable>
+  );
+}
+
+/** A small tag: what a take is, where a number came from. */
+export function Pill({ children, color = C.ink2, bg = C.tile }: { children: React.ReactNode; color?: string; bg?: string }) {
+  return (
+    <View style={{ alignSelf: 'flex-start', backgroundColor: bg, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+      <M size={8} color={color} tracking={0.8}>{children}</M>
+    </View>
+  );
+}
+
+/** A labelled text field. */
+export function Field({ label, value, onChange, placeholder, keyboardType, onSubmit, mono, icon }: {
+  label?: string; value: string; onChange: (v: string) => void; placeholder?: string;
+  keyboardType?: KeyboardTypeOptions; onSubmit?: () => void; mono?: boolean; icon?: keyof typeof Feather.glyphMap;
+}) {
+  return (
+    <View style={{ marginTop: 10 }}>
+      {label ? <M size={8.5} color={C.ink2} style={{ marginBottom: 6 }}>{label}</M> : null}
+      <View style={fieldSt.row}>
+        {icon ? <Feather name={icon} size={14} color={C.ink3} /> : null}
+        <TextInput value={value} onChangeText={onChange} autoCapitalize="none" autoCorrect={false}
+          keyboardType={keyboardType} returnKeyType={onSubmit ? 'go' : 'done'} onSubmitEditing={onSubmit}
+          placeholder={placeholder} placeholderTextColor={C.ink3}
+          style={[fieldSt.input, { fontFamily: mono ? F.mono : F.ui }]} />
+      </View>
+    </View>
+  );
+}
+const fieldSt = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.tile, borderRadius: R.r2, borderWidth: 1, borderColor: C.tileLine, paddingHorizontal: 12, height: 42 },
+  input: { flex: 1, fontSize: 13, color: C.ink, minWidth: 0 },
+});
+
+/** A thin progress bar, 0..1. */
+export function Bar({ value, color = C.ink, height = 4 }: { value: number; color?: string; height?: number }) {
+  const v = Math.max(0, Math.min(1, value));
+  return (
+    <View style={{ height, borderRadius: height / 2, backgroundColor: C.line, overflow: 'hidden' }}>
+      <View style={{ width: `${v * 100}%`, height, backgroundColor: color }} />
     </View>
   );
 }

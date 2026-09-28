@@ -29,7 +29,7 @@ const ROWS: Row[] = [
 
 const HIST = 40;
 
-export function Overview({ onMenu }: { onMenu?: () => void }) {
+export function Overview({ onMenu, onStatus }: { onMenu?: () => void; onStatus?: () => void }) {
   const session = useSession();
   const frame = session.frame;
   const tel = frame.telemetry;
@@ -70,7 +70,7 @@ export function Overview({ onMenu }: { onMenu?: () => void }) {
   return (
     <View style={{ flex: 1, backgroundColor: C.page }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: S.gutter }} showsVerticalScrollIndicator={false}>
-        <TopRow live={session.link.live || session.link.kind !== 'bridge'} label={session.link.live ? 'Live' : session.link.kind === 'sim' ? 'Live' : session.link.kind === 'take' ? 'Replay' : 'Idle'} onMenu={onMenu} />
+        <TopRow onMenu={onMenu} onStatus={onStatus} />
 
         {/* the hero: words on the left, the machine on the right */}
         <View style={{ height: 292 }}>
@@ -86,7 +86,7 @@ export function Overview({ onMenu }: { onMenu?: () => void }) {
               </View>
             )}
           </View>
-          <Title status={session.link.live ? 'Connected' : session.link.kind === 'take' ? 'Replay' : 'Syncing'} spinning={!session.link.live && session.link.kind !== 'take'}>Digital twin</Title>
+          <Title status={session.status.kind === 'live' ? 'Live device' : session.status.kind === 'replay' ? 'Replay' : session.status.kind === 'sim' ? 'Simulated' : 'No data'} spinning={session.status.kind !== 'live' && session.status.kind !== 'replay'}>Digital twin</Title>
           <View style={{ marginTop: 40 }} pointerEvents="none">
             <M size={9.5} color={C.ink2}>System status</M>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 6 }}>

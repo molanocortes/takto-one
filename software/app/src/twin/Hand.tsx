@@ -16,6 +16,16 @@
 // Every angle and every slide comes from kinematics.js, the model shared with
 // the operator console. Nothing here is tuned by eye: a slide is what the
 // mechanism must do to permit the angle, not a number that looks right.
+//
+// The arm (MOTION_PIPELINE.md): the model's own axes ARE the segment axes
+// (+Z distal, +Y dorsal, +X toward the thumb), so the body quaternions drive
+// it directly. The palm and fingers hang from a wrist pivot inside the
+// forearm group; the hand turns about that pivot by hand-relative-to-forearm.
+//   view 'hand': the forearm holds still and only the wrist moves;
+//   view 'arm' : the forearm group is placed at wrist_m with forearm_quat,
+//                in metres in the body frame, so the arm moves through space.
+// A finger whose flexion channels the bridge marked dead is drawn as a ghost
+// at the neutral pose: absent, never a confident 0 degrees.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame } from './canvas';
@@ -24,6 +34,14 @@ import { makeMaterials, makeLookMaterials, materialFor, type Materials, type Loo
 import { fingerPose, spoolAngleDeg, SPOOL_STATIONS, type FingerPose } from '../data/kinematics';
 import { FINGERS, type Finger } from '../ui/tokens';
 import { session } from '../data/session';
+import { armBody } from '../data/arm';
+import { QI } from '../data/quat';
+import type { Quat } from '../data/types';
+
+/** the anatomical wrist pivot in model millimetres: between the housing's
+ *  distal end (z 0) and the palm plate (z 26), below the dorsal shell */
+const PIVOT_MM = new THREE.Vector3(0, -8, 13);
+const NEUTRAL_ARM = armBody(QI, QI, { origin: 'body', cal: 'none', live: false });
 
 const D2R = Math.PI / 180;
 const AX_X = new THREE.Vector3(1, 0, 0);
@@ -31,8 +49,17 @@ const AX_Y = new THREE.Vector3(0, 1, 0);
 
 type Hinge = { node: THREE.Object3D; base: THREE.Quaternion; baseZ: number };
 type Slide = { node: THREE.Object3D; baseZ: number };
+type Ghost = { mesh: THREE.Mesh; solid: THREE.Material | THREE.Material[]; ghost: THREE.Material | THREE.Material[] };
 type Rig = {
   root: THREE.Group;
+  /** carries the forearm; its origin is the wrist pivot */
+  fore: THREE.Group;
+  /** carries the palm and fingers; rotates by hand-relative-to-forearm */
+  wrist: THREE.Group;
+  /** model centre relative to the pivot, model units */
+  centre: THREE.Vector3;
+  ghosts: Record<Finger, Ghost[]>;
+  dead: Record<Finger, boolean>;
   size: number;
   screen: THREE.MeshStandardMaterial | null;
   fingers: Record<Finger, {
@@ -83,19 +110,53 @@ function buildRig(scene: THREE.Object3D, mats: Materials, part: 'device' | 'hand
     mesh.receiveShadow = true;
   });
 
-  // Normalise: centre the device on the origin and scale it to a unit box, so
-  // the camera framing below is independent of the export's units.
+  // Measure before any regrouping: the framing in Twin.tsx assumes a unit box.
   const box = new THREE.Box3().setFromObject(model);
   const size = Math.max(...box.getSize(new THREE.Vector3()).toArray());
-  const centre = box.getCenter(new THREE.Vector3());
-  model.position.sub(centre);
-  // ...and shrink the whole device to a unit box, so VIEW.distance in Twin.tsx
-  // means the same thing whatever units the export happens to carry.
-  root.scale.setScalar(1 / size);
-  root.add(model);
+  const centre = box.getCenter(new THREE.Vector3()).sub(PIVOT_MM);
+
+  // the wrist: palm (and every finger under it) re-hung from a pivot group,
+  // so turning the group turns the hand about the anatomical wrist
+  const wrist = new THREE.Group();
+  wrist.name = 'wrist_pivot';
+  const palm = model.getObjectByName('palm');
+  if (palm?.parent) {
+    model.updateMatrixWorld(true);
+    palm.parent.add(wrist);
+    wrist.position.copy(PIVOT_MM);
+    wrist.updateMatrixWorld(true);
+    wrist.attach(palm);
+  } else {
+    model.add(wrist);
+  }
+  // the pivot is the origin of `fore`
+  model.position.copy(PIVOT_MM).negate();
+  const fore = new THREE.Group();
+  fore.add(model);
+  root.add(fore);
 
   const grab = (n: string) => model.getObjectByName(n) ?? undefined;
   const fingers = {} as Rig['fingers'];
+  const ghosts = {} as Rig['ghosts'];
+  const dead = {} as Rig['dead'];
+  const ghostOf = new Map<THREE.Material, THREE.Material>();
+  const toGhost = (m: THREE.Material) => {
+    let g = ghostOf.get(m);
+    if (!g) {
+      g = m.clone();
+      // grey, not white: a white ghost over the light page reads as nothing
+      // at all, and "absent" must still be visibly a finger that is there
+      const tint = (g as THREE.MeshStandardMaterial).color;
+      if (tint) tint.set('#8E8E8E');
+      const em = (g as THREE.MeshStandardMaterial).emissive;
+      if (em) em.set('#000000');
+      g.transparent = true;
+      g.opacity = 0.3;
+      g.depthWrite = false;
+      ghostOf.set(m, g);
+    }
+    return g;
+  };
   const pinR = size * 0.0055, pinL = size * 0.035;
   for (const f of FINGERS) {
     const rec = {
@@ -110,6 +171,15 @@ function buildRig(scene: THREE.Object3D, mats: Materials, part: 'device' | 'hand
     addPin(rec.mcpFlex, 'x', pinR, pinL, mats.pin);
     addPin(rec.pipFlex, 'x', pinR, pinL * 0.82, mats.pin);
     fingers[f] = rec;
+    const list: Ghost[] = [];
+    rec.abduct?.node.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const solid = mesh.material;
+      list.push({ mesh, solid, ghost: Array.isArray(solid) ? solid.map(toGhost) : toGhost(solid) });
+    });
+    ghosts[f] = list;
+    dead[f] = false;
   }
 
   const spools = Object.keys(SPOOL_STATIONS)
@@ -117,15 +187,37 @@ function buildRig(scene: THREE.Object3D, mats: Materials, part: 'device' | 'hand
     .filter((s): s is { name: string; node: THREE.Object3D } => !!s.node)
     .map((s) => ({ ...s, base: s.node.quaternion.clone() }));
 
-  return { root, size, fingers, spools, screen: mats.glass };
+  return { root, fore, wrist, centre, ghosts, dead, size, fingers, spools, screen: mats.glass };
 }
 
-export function Hand({ onReady, colourway = 'white', look = 'studio', part = 'device' }: {
+export function Hand({ onReady, colourway = 'white', look = 'studio', part = 'device', view = 'hand' }: {
   onReady?: (size: number) => void; colourway?: 'white' | 'graphite'; look?: Look; part?: 'device' | 'hand';
+  /** 'hand': a unit-box device, forearm still, wrist articulated; 'arm': metres, body frame */
+  view?: 'hand' | 'arm';
 }) {
   const [rig, setRig] = useState<Rig | null>(null);
   const mats = useMemo(() => colourway === 'graphite' ? makeLookMaterials(look) : makeMaterials(), [colourway, look]);
   const q = useRef(new THREE.Quaternion()).current;
+  const qf = useRef(new THREE.Quaternion()).current;
+  const qh = useRef(new THREE.Quaternion()).current;
+  const setQ = (dst: THREE.Quaternion, v: Quat) => dst.set(v[1], v[2], v[3], v[0]);
+
+  // how the rig sits in its parent: a centred unit box, or millimetres -> metres
+  useEffect(() => {
+    if (!rig) return;
+    if (view === 'arm') {
+      rig.root.scale.setScalar(1);
+      rig.root.position.set(0, 0, 0);
+      rig.fore.scale.setScalar(0.001);
+    } else {
+      const s = 1 / rig.size;
+      rig.root.scale.setScalar(s);
+      rig.root.position.copy(rig.centre).multiplyScalar(-s);
+      rig.fore.scale.setScalar(1);
+      rig.fore.position.set(0, 0, 0);
+      rig.fore.quaternion.identity();
+    }
+  }, [rig, view]);
 
   useEffect(() => {
     let live = true;
@@ -151,8 +243,26 @@ export function Hand({ onReady, colourway = 'white', look = 'studio', part = 'de
     const frame = session.frame;
     const poses: Record<string, FingerPose> = {};
 
+    // the arm: hand relative to forearm at the wrist, and (arm view) the
+    // forearm itself placed and turned in the body frame
+    const body = frame.body ?? NEUTRAL_ARM;
+    setQ(qf, body.forearmQuat);
+    setQ(qh, body.handQuat);
+    rig.wrist.quaternion.copy(qf).invert().multiply(qh);
+    if (view === 'arm') {
+      rig.fore.quaternion.copy(qf);
+      rig.fore.position.set(body.wrist[0], body.wrist[1], body.wrist[2]);
+    }
+
     for (const f of FINGERS) {
       const j = frame.joints[f];
+      const ok = frame.ok[f];
+      const isDead = !ok.mcp && !ok.pip;
+      if (isDead !== rig.dead[f]) {
+        rig.dead[f] = isDead;
+        for (const g of rig.ghosts[f]) { g.mesh.material = isDead ? g.ghost : g.solid; g.mesh.castShadow = !isDead; }
+      }
+      // a dead channel is held at the neutral pose the bridge client filled in
       const p = fingerPose(f, j.ab, j.mcp, j.pip);
       poses[f] = p;
       const r = rig.fingers[f];

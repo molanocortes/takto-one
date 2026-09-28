@@ -11,7 +11,9 @@
 // closes from the tip, abduction narrows as the hand closes, and nothing ever
 // moves in a straight line. Curl is 0..1 and maps onto the mechanism's range.
 import { FINGERS, type Finger } from '../ui/tokens';
-import { emptyFrame, type Frame } from './types';
+import { emptyFrame, type Body, type Frame } from './types';
+import { armBody } from './arm';
+import { qmul, qx, qy, qz } from './quat';
 
 const TAU = Math.PI * 2;
 const LOOP = 32;
@@ -137,9 +139,40 @@ export function simFrame(t: number): Frame {
     minutesLeft: Math.max(0, 154 - t / 60 * 1.4),
     health: 0.98 - 0.01 * (0.5 - 0.5 * Math.cos(t / 23)) - 0.003 * Math.sin(t * 0.9) - 0.002 * Math.sin(t * 1.9 + 1) - 0.001 * Math.sin(t * 3.3),
   };
-  // the whole hand rolls a little with the wave and settles at rest
-  const roll = Math.sin(x * 0.2) * 0.05 + envelope(x, 17.8, 18.6, 24.4, 25.2) * Math.sin((x - 18.6) * 1.6) * 0.06;
-  f.hand = [Math.cos(roll / 2), 0, 0, Math.sin(roll / 2)];
+  f.body = simBody(t);
+  f.forearm = f.body.forearmQuat;
+  f.hand = f.body.handQuat;
   void meanCurl;
   return f;
+}
+
+/**
+ * The arm, written as the v16 body model would report it: an upper arm that
+ * hangs and swings forward for the reach, a forearm that lifts, sways and
+ * rolls, and a wrist that breathes, extends for the taps and flexes into the
+ * grasp. Segment axes and the body frame are MOTION_PIPELINE.md's.
+ */
+export function simBody(t: number): Body {
+  const x = t % LOOP;
+  const reach = envelope(x, 24.6, 26.4, 29.4, 31.4);
+  const bloom = envelope(x, 11.6, 12.6, 17.0, 18.0);
+  const wave = envelope(x, 17.8, 18.6, 24.4, 25.2);
+  const taps = envelope(x, 5.6, 6.4, 11.6, 12.4);
+  // upper arm: forward elevation, degrees (0 = hanging)
+  const elev = 3 + 2 * Math.sin(x * 0.31) + reach * 30;
+  const a = elev * Math.PI / 180;
+  const u: [number, number, number] = [0, -Math.cos(a), Math.sin(a)];
+  // forearm: pitch (elbow flexion lifting the hand), yaw sway, axial roll
+  const pitch = 4 * Math.sin(x * 0.4) + bloom * 22 - reach * 14 + taps * 3;
+  const yaw = 9 * Math.sin(x * 0.23) - reach * 6;
+  const pro = 5 * Math.sin(x * 0.2) + wave * 30 * Math.sin((x - 18.6) * 1.1);
+  const fq = qmul(qmul(qy(yaw), qx(-pitch)), qz(pro));
+  // wrist: + flexion palm-ward, + radial deviation toward the thumb
+  const flex = 7 * Math.sin(x * 0.5) - taps * 14 + reach * 16 - bloom * 10;
+  const dev = 6 * Math.sin(x * 0.37 + 1) + bloom * 9 * Math.sin((x - 12) * 1.3);
+  const hq = qmul(fq, qmul(qx(flex), qy(dev)));
+  return armBody(fq, hq, {
+    origin: 'body', cal: 'provisional', live: true, u,
+    posSource: reach > 0.05 ? 'arm+inertial' : 'arm', still: false,
+  });
 }
