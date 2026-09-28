@@ -382,3 +382,23 @@ def test_body_neutral_survives_a_bridge_restart_only_on_the_same_boot(fresh_brid
         tb.DEVICE["boot_id"] = None
         tb._on_device_boot(boot, "first")
         assert tb.BODY.status() == ("calibrated" if expect else "none")
+
+
+# ---- encoder channel map (map_encoders.py / {"cmd":"enc_map"}) ---------------
+def test_enc_map_validate_and_apply():
+
+    saved = ({k: v for k, v in tb.ENC_DOF.items()}, dict(tb.ENC_FINGER))
+    try:
+        tb.enc_map_apply({"3": {"finger": "middle", "dof": "mcpflex", "sign": -1},
+                          "10": {"finger": "index", "dof": "abduct"}}, save=False)
+        assert tb.ENC_DOF == {3: ("mcpflex", -1.0), 10: ("abduct", 1.0)}
+        assert tb.enc_joint_id(3) == "middle_pip"          # wire name: _pip = MCP flexion
+        assert tb.calibrated_joint(3, 120.0)[0] == "middle_pip"
+        with pytest.raises(ValueError):                    # one channel per finger/DOF
+            tb.enc_map_validate({"1": {"finger": "ring", "dof": "abduct"},
+                                 "2": {"finger": "ring", "dof": "abduct"}})
+        with pytest.raises(ValueError):
+            tb.enc_map_validate({"1": {"finger": "thumb", "dof": "abduct"}})
+    finally:
+        tb.ENC_DOF.clear(); tb.ENC_DOF.update(saved[0])
+        tb.ENC_FINGER.clear(); tb.ENC_FINGER.update(saved[1])

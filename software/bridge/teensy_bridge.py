@@ -140,6 +140,17 @@ ENC_DOF = {
     8:  ("mcpflex", +1.0),
     9:  ("pipflex", +1.0),
 }
+# channel -> finger. The default is the one wired index finger above; a full
+# 12-encoder map (4 fingers x abduction / MCP flexion / PIP flexion) is learned
+# with map_encoders.py (or set with {"cmd":"enc_map","action":"set"}) and
+# persisted in .takto_enc_map.json, which replaces BOTH tables at start-up.
+ENC_FINGER = {ch: WIRED_FINGER for ch in ENC_DOF}
+ENC_DOFS = ("abduct", "mcpflex", "pipflex")
+
+
+def enc_joint_id(ch):
+    """The twin joint a mapped encoder channel drives (wire naming)."""
+    return ENC_FINGER.get(ch, WIRED_FINGER) + "_" + DOF_SEG[ENC_DOF[ch][0]]
 # Real AS5600 samples are absolute magnet angles, not anatomical joint angles.
 # Only channels in ENC_DOF have a measured channel -> DOF mapping today. The
 # simulator and the explicit bench replay opt in when their arrays are already
@@ -471,7 +482,7 @@ def calibrated_joint(ch, raw):
     # it is a constant derived from two stationary marks, not a live signal.
     cont = unwrapped_deg(ch, raw)
     travel = cont - _open_in_cont_frame(ch, raw)
-    return WIRED_FINGER + "_" + seg, joint_value(dof, sign, travel, o, ENC_CLOSED.get(ch))
+    return ENC_FINGER.get(ch, WIRED_FINGER) + "_" + seg, joint_value(dof, sign, travel, o, ENC_CLOSED.get(ch))
 
 
 def joint_value(dof, sign, travel, open_raw, closed_raw):
@@ -592,6 +603,66 @@ def _load_jcal():
 
 
 _load_jcal()
+
+
+# ----- the encoder channel map (which finger / DOF each channel measures) -----
+_ENC_MAP_FILE = os.path.join(STATE_DIR, ".takto_enc_map.json")
+
+
+def enc_map_public():
+    return {str(ch): {"finger": ENC_FINGER.get(ch, WIRED_FINGER), "dof": ENC_DOF[ch][0],
+                      "sign": ENC_DOF[ch][1]} for ch in sorted(ENC_DOF)}
+
+
+def enc_map_validate(m):
+    """{"<ch>": {"finger","dof","sign"}} -> {ch: (finger, dof, sign)}, or raise.
+    Every finger/DOF pair may be claimed by one channel only."""
+    out, seen = {}, set()
+    for k, v in (m or {}).items():
+        ch = int(k)
+        if not 0 <= ch < N_CH:
+            raise ValueError(f"channel {ch} out of range")
+        f, dof = v.get("finger"), v.get("dof")
+        sign = float(v.get("sign", 1.0))
+        if f not in FINGERS or dof not in ENC_DOFS or sign not in (1.0, -1.0):
+            raise ValueError(f"channel {ch}: bad finger/dof/sign {v}")
+        if (f, dof) in seen:
+            raise ValueError(f"{f} {dof} mapped twice")
+        seen.add((f, dof))
+        out[ch] = (f, dof, sign)
+    return out
+
+
+def enc_map_apply(m, save=True):
+    """Replace the channel map. A channel whose finger/DOF changed loses its
+    open/closed marks (they described a different joint)."""
+    new = enc_map_validate(m)
+    with _enc_lock:
+        for ch in list(ENC_DOF):
+            if ch not in new or new[ch][:2] != (ENC_FINGER.get(ch, WIRED_FINGER), ENC_DOF[ch][0]):
+                ENC_OPEN.pop(ch, None); ENC_CLOSED.pop(ch, None)
+        ENC_DOF.clear(); ENC_FINGER.clear()
+        for ch, (f, dof, sign) in new.items():
+            ENC_DOF[ch] = (dof, sign)
+            ENC_FINGER[ch] = f
+    if save:
+        _write_json_atomic(_ENC_MAP_FILE, {"channels": enc_map_public()})
+        _save_jcal()
+    print("[encmap] channel map:", {ch: f"{ENC_FINGER[ch]}/{ENC_DOF[ch][0]}" for ch in sorted(ENC_DOF)})
+
+
+def _load_enc_map():
+    try:
+        with open(_ENC_MAP_FILE) as f:
+            d = json.load(f)
+        enc_map_apply(d.get("channels", {}), save=False)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        _quarantine_corrupt(_ENC_MAP_FILE, e, "encmap")
+
+
+_load_enc_map()
 
 
 # ----- shared state written by the serial thread, read by the ws server ------
@@ -3146,9 +3217,10 @@ def enable_sim_pipeline():
     encoder map is replaced by the direct joint map. IMUs are NOT special-cased
     any more: the sim device emits raw sensor-frame data mounted like the bench
     priors, and it goes through the real mounting / neutral / body pipeline."""
-    global ENC_JOINT_SPACE_DIRECT, _JCAL_FILE, _TARE_FILE, _IMU_CFG_FILE, _BODY_FILE, BODY
+    global ENC_JOINT_SPACE_DIRECT, _JCAL_FILE, _TARE_FILE, _IMU_CFG_FILE, _BODY_FILE, BODY, _ENC_MAP_FILE
     if not _JCAL_FILE.endswith(".sim"):
         _JCAL_FILE += ".sim"
+        _ENC_MAP_FILE += ".sim"
         _TARE_FILE += ".sim"
         _IMU_CFG_FILE += ".sim"
         _BODY_FILE += ".sim"
@@ -3348,7 +3420,7 @@ def _joints_from_enc(enc):
         if ok:
             n_enc += 1
         if ch in ENC_DOF:
-            joint_name = WIRED_FINGER + "_" + DOF_SEG[ENC_DOF[ch][0]]
+            joint_name = enc_joint_id(ch)
         elif SIM_MODE or ENC_JOINT_SPACE_DIRECT:
             joint_name = CH2JOINT.get(ch)
         else:
@@ -4931,6 +5003,7 @@ class _OfflineJoints:
 
     def __init__(self):
         self.dof = dict(ENC_DOF)
+        self.finger = dict(ENC_FINGER)
         self.open = dict(ENC_OPEN)
         self.closed = dict(ENC_CLOSED)
         self.filters = {}
@@ -4989,7 +5062,7 @@ class _OfflineJoints:
                     a = self.anchor[ch] = st["cont"] - _wrap180(d - o)
                 travel = st["cont"] - a
             val = joint_value(dof, sign, travel, o, self.closed.get(ch))
-            jid = WIRED_FINGER + "_" + DOF_SEG[dof]
+            jid = self.finger.get(ch, WIRED_FINGER) + "_" + DOF_SEG[dof]
             i = list(JOINT2CH).index(jid)
             cols[i] = round(val, 2)
             oks[i] = True
@@ -5991,6 +6064,15 @@ def handle_command(c, raw):
             _ack(c, event="error", error="unknown env", id=env_id)
         return
 
+    if name == "enc_map":         # which finger / DOF each encoder channel measures
+        if cmd.get("action") == "set":
+            try:
+                enc_map_apply(cmd.get("map") or {})
+            except (ValueError, TypeError, AttributeError) as e:
+                _ack(c, event="enc_map", ok=False, error=str(e))
+                return
+        _ack(c, event="enc_map", ok=True, map=enc_map_public())
+        return
     if name == "take_data":       # replay rows of a sealed take, private
         take_id = str(cmd.get("id") or "")
         try:
