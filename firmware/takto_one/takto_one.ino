@@ -2704,7 +2704,11 @@ void loop() {
     // stall (SD flush, calibrate) resync instead of bursting catch-up frames:
     // bunched rows would be worse data than honestly missing rows.
     lastSample += PERIOD_MS;
-    if (now - lastSample >= PERIOD_MS) lastSample = now;
+    // v16: a frame that is a few ms late (a paint, an SD flush) is caught up
+    // on the next pass, so the average stays at SAMPLE_HZ; only a real stall
+    // (>= 3 frames: calibrate, a file transfer) resyncs. Every frame carries
+    // its own t_ms and dv, so a late frame is exact, just late.
+    if (now - lastSample >= 3 * PERIOD_MS) lastSample = now;
     // reduce the EMG oversample to envelope (mean) + RMS, then reset the accumulator
     emgHave = (emgCount > 0);
     if (emgHave) {
