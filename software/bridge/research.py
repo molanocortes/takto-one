@@ -124,10 +124,15 @@ class QualityAccumulator:
     rate_hz      (frames - 1) / duration_s
     nominal_hz   the firmware's frame rate (100 on v16+, 50 before); the
                  nominal period P = 1 / nominal_hz
-    gaps         consecutive rows further apart than 1.5 P
-    dropped      frames missing in those gaps: sum of floor(gap / P + 0.5) - 1
-                 (the number of whole periods the gap spans, rounded half up)
+    gaps         consecutive rows further apart than 1.5 P (LATE frames: a
+                 frame that runs late is caught up by the next one, so a gap
+                 is sampling jitter, not necessarily a lost frame)
+    dropped      frames actually MISSING: round(duration_s / P) + 1 - frames
+                 (never negative). [2026-09-29] The first definition summed
+                 the periods spanned by every gap and reported 10-12 % dropped
+                 for an SD take that had 8 200 of 8 227 expected frames (0.3 %)
     dropped_pct  dropped / (frames + dropped) * 100
+    interval_p99_ms  99th percentile of the row-to-row interval
     max_gap_ms   the largest row-to-row interval
     imu_live_pct per IMU, % of rows in which it delivered a valid quaternion
     enc_live     channels with a valid reading in >= 95 % of rows
@@ -261,6 +266,19 @@ class QualityAccumulator:
                 if dt > 1.5 * per:
                     gaps += 1
                     dropped += max(0, int(math.floor(dt / per + 0.5)) - 1)
+        if nom and n > 1 and span > 0:          # missing frames = expected - present
+            dropped = max(0, int(round(span * nom)) + 1 - n)
+        p99 = None
+        tot = sum(self.dt_hist.bins) + len(self._long)
+        if tot:
+            want, acc = 0.99 * tot, 0
+            for i, c in enumerate(self.dt_hist.bins):
+                acc += c
+                if acc >= want:
+                    p99 = round(self.dt_hist.lo + (i + 1) * self.dt_hist.width, 2)
+                    break
+            if p99 is None and self._long:
+                p99 = round(sorted(self._long)[max(0, int(0.99 * tot) - sum(self.dt_hist.bins))], 2)
         pct = lambda c: round(100.0 * c / n, 2) if n else 0.0
         enc_live = [ch for ch, c in enumerate(self.enc_live) if n and c >= 0.95 * n]
         enc_pct = {str(ch): pct(c) for ch, c in enumerate(self.enc_live) if c}
@@ -284,6 +302,7 @@ class QualityAccumulator:
             "dropped_pct": dropped_pct,
             "gaps": int(gaps),
             "max_gap_ms": round(self.max_gap_ms, 2),
+            "interval_p99_ms": p99,
             "dup": self.dup,
             "imu_live_pct": imu_pct,
             "enc_live": enc_live,
