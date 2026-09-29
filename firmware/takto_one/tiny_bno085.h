@@ -102,6 +102,10 @@ struct TinyBNO085 {
   uint32_t lastLinUs = 0;                         // sensor-clock time of the last lin report
   bool     haveLinT = false;
   uint32_t linIntervalUs = 10000;                 // requested report period (fallback dt)
+  uint32_t rotUs = 0;                             // sensor-clock time of the selected quaternion
+  bool     haveRotT = false;
+  // age of the latest selected quaternion at host time nowUs (0 = none yet)
+  uint32_t quatAgeUs(uint32_t nowUs) const { return haveRotT ? (nowUs - rotUs) : 0; }
 
   void takeDv(float out[3], uint16_t &n) {
     out[0] = dvx; out[1] = dvy; out[2] = dvz; n = dvN;
@@ -203,7 +207,7 @@ struct TinyBNO085 {
     const uint32_t iv[8]  = { rot_us, vec_us, vec_us, 50000, rot_us, vec_us, vec_us, vec_us };
     const uint8_t count = fullSet ? 8 : 4;
     linIntervalUs = vec_us;
-    haveLinT = false; stability = 255;
+    haveLinT = false; haveRotT = false; stability = 255;
     featuresOk = 0; featuresAsked = count; lastFeatureFail = 0;
     for (uint8_t i = 0; i < count; i++) {
       bool got = false;
@@ -386,6 +390,7 @@ struct TinyBNO085 {
             // 0x05 carries a heading-accuracy field in Q12 radians; 0x08 does not.
             rotAccuracyRad = (id == RPT_ROTVEC) ? (rd16(v + 8) / 4096.0f) : 0.0f;
             fresh = true;
+            rotUs = tRepUs; haveRotT = true;       // when the chip sampled it
           }
           break;
         }

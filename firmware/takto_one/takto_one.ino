@@ -138,6 +138,7 @@
  *     <m1_pos>,<m1_vel>,<m1_ma>,<crown_live>
  *   v16 appends: <fw_flags>,<take>,<rows>,<boot_id>,<dv hand xyz>,<dv forearm xyz>,
  *     <dv thumb xyz>,<stab h,f,t>,<n_lin h,f,t>  (MOTION_PIPELINE.md section 5)
+ *   v17 appends: <t_us>,<qage_us hand,forearm,thumb>,<enc_us>  (section 8)
  * (fields are append-only across firmware versions: v3 ended at crown, v4
  *  appends the thumb-tip quaternion + live flag, v5 DOCUMENTED servo telemetry,
  *  v6 actually EMITS it and appends crown_live, v7 the full IMU set, v9 the
@@ -207,7 +208,10 @@ const uint8_t  EMG_PIN     = 14;       // MyoWare ENVELOPE output on A0; oversam
 // [MERGE] v6: the S-line finally carries the servo telemetry v5 documented, plus
 // crown_live. Both are APPENDED, so every pre-existing field index is unchanged
 // and an old host simply does not look at them.
-const uint8_t  FW_VERSION  = 16;       // v16: motion capture (100 Hz, dv, stability,
+const uint8_t  FW_VERSION  = 17;       // v17: research timing - frame t_us, per-IMU
+                                       // quaternion age on the sensor clock, encoder
+                                       // sweep duration (MOTION_PIPELINE.md s.8)
+                                       // v16: motion capture (100 Hz, dv, stability,
                                        // boot_id), standalone SD takes + F protocol,
                                        // neutral capture, sounds, IMU self-recovery
                                        // v15 adds the bounded mode-2 breakaway kick
@@ -295,6 +299,10 @@ uint16_t bootId = 0;                   // random per power-up (host neutral keyi
 float    frameDv[3][3];                // world-frame velocity increment per IMU, this frame
 uint16_t frameDvN[3] = {0, 0, 0};      // linear-acceleration reports folded into it
 uint8_t  imuStab[3] = {255, 255, 255}; // BNO085 stability classifier per IMU
+// v17 timing: when this frame started (micros), how old each IMU's quaternion
+// was at that instant (sensor clock), and how long the encoder sweep took
+uint32_t frameUs = 0, frameEncUs = 0;
+uint32_t frameQAgeUs[3] = {0, 0, 0};
 uint32_t imuRetryMs[3] = {0, 0, 0};    // next self-recovery attempt for a dead IMU
 uint8_t  imuRetryN[3] = {0, 0, 0};     // attempts so far (exponential backoff)
 bool     imuEverLive[3] = {false, false, false};
@@ -1878,7 +1886,8 @@ void recStartTake(bool fromDevice) {
   }
   recFile.print(",h_live,f_live,t_live,emg_present"
                 ",h_dvx,h_dvy,h_dvz,f_dvx,f_dvy,f_dvz,t_dvx,t_dvy,t_dvz"
-                ",h_stab,f_stab,t_stab\n");
+                ",h_stab,f_stab,t_stab"
+                ",t_us,h_qage_us,f_qage_us,t_qage_us,enc_us\n");
   if (recFile.getWriteError()) {
     recFile.close(); recFail("write"); return;
   }
@@ -1935,7 +1944,9 @@ void recWrite(uint32_t t) {
   ap(",%d,%d,%d,%d", imuLive[0] ? 1 : 0, imuLive[1] ? 1 : 0, imuLive[2] ? 1 : 0, emgHave ? 1 : 0);
   for (uint8_t i = 0; i < N_IMU; i++)
     ap(",%.5f,%.5f,%.5f", frameDv[i][0], frameDv[i][1], frameDv[i][2]);
-  ap(",%u,%u,%u\n", imuStab[0], imuStab[1], imuStab[2]);
+  ap(",%u,%u,%u", imuStab[0], imuStab[1], imuStab[2]);
+  ap(",%lu,%lu,%lu,%lu,%lu\n", (unsigned long)frameUs, (unsigned long)frameQAgeUs[0],
+     (unsigned long)frameQAgeUs[1], (unsigned long)frameQAgeUs[2], (unsigned long)frameEncUs);
   const size_t wrote = recFile.write((const uint8_t*)rowBuf, rowLen);
   // A card that stopped accepting data must stop the take loudly, not keep
   // counting rows.
@@ -2268,6 +2279,10 @@ void emitStream(uint32_t t) {
     for (uint8_t k = 0; k < 3; k++) { Serial.print(','); Serial.print(frameDv[i][k], 5); }
   for (uint8_t i = 0; i < N_IMU; i++) { Serial.print(','); Serial.print(imuStab[i]); }
   for (uint8_t i = 0; i < N_IMU; i++) { Serial.print(','); Serial.print(frameDvN[i]); }
+  // v17 (MOTION_PIPELINE.md s.8): t_us, quaternion age per IMU, encoder sweep
+  Serial.print(','); Serial.print(frameUs);
+  for (uint8_t i = 0; i < N_IMU; i++) { Serial.print(','); Serial.print(frameQAgeUs[i]); }
+  Serial.print(','); Serial.print(frameEncUs);
   Serial.print('\n');
 }
 
@@ -2759,7 +2774,10 @@ void loop() {
     // faces. [MERGE] the sweep now runs whenever anything consumes it - and the
     // on-device screen always does, which is why the device shows real finger
     // motion standing alone instead of only while a host is streaming.
+    frameUs = micros();
+    for (uint8_t i = 0; i < N_IMU; i++) frameQAgeUs[i] = imuLive[i] ? bno[i].quatAgeUs(frameUs) : 0;
     readAllChannels(frameDeg);
+    frameEncUs = micros() - frameUs;
     noteChannelRange();
     // v16: this frame's preintegrated velocity increment + stability class
     for (uint8_t i = 0; i < N_IMU; i++) {
