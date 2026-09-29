@@ -90,7 +90,12 @@ async def scenario(port):
               % (pct(lat, .5), pct(lat, .95), lat[-1], pct(e2e, .5), pct(e2e, .95)))
         # the device-clock rate is the lane's rate; arrival-based `rate` is
         # skewed by this (Python, two-client) test reader catching up
-        assert 95.0 <= dev_rate <= 105.0 and len(pa) >= 350, (dev_rate, len(pa), rate)
+        # [2026-09-29] the count is NOT asserted at 350: the simulated device is
+        # Python inside the bridge process and falls behind real time on a
+        # loaded machine (seen: load average 23-31, 2.3 s of device time in a 4 s
+        # window, every message in sequence at exactly 100 Hz device clock). The
+        # lane's properties are the device-clock rate, continuity and latency.
+        assert 95.0 <= dev_rate <= 105.0 and len(pa) >= 150, (dev_rate, len(pa), rate)
         assert gaps <= 5
         assert all(p["tx"] >= p["rx"] for p in pa)
         assert all(y > x for x, y in zip(seqs, seqs[1:]))
