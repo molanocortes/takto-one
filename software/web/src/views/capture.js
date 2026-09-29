@@ -7,6 +7,7 @@ import { store } from "../store.js";
 import { drawSpark } from "../charts.js";
 import { setReplayTake } from "./replay.js";
 import { sourceBadges } from "../sim_badge.js";
+import { zipStore } from "../zip_store.js";
 
 const TASKS = ["grasp-cylinder", "grasp-sphere", "pinch", "open-close", "free-manipulation"];
 
@@ -255,7 +256,7 @@ export function mountCapture(rootHost) {
   }
 
   function download(name, text, type) {
-    const blob = new Blob([text], { type });
+    const blob = text instanceof Blob ? text : new Blob([text], { type });
     const a = el("a", { href: URL.createObjectURL(blob), download: name });
     document.body.append(a);
     a.click();
@@ -265,7 +266,51 @@ export function mountCapture(rootHost) {
   // Export: the metadata alone, or the take's actual ROWS (take_data from the
   // host) as CSV (one header row of column names, empty cells for absent
   // values) or as the replay JSON the viewer itself reads.
+  // The research package (MOTION_PIPELINE.md s.8): one zip per take with
+  // take.csv (every row, SI units, header documented in take.json), take.json
+  // (metadata, quality, provenance, column dictionary) and the raw device
+  // stream (the take's S/E lines with receive times, or the SD card file),
+  // fetched from the bridge in chunks ({"cmd":"take_file"}).
+  let exporting = null;
+  async function exportResearch(take, only = null) {
+    if (exporting) { toast(`Still exporting ${exporting}`, { tone: "warn" }); return; }
+    if (!store.live) { toast("The research export needs the live bridge", { tone: "warn" }); return; }
+    exporting = take.id;
+    const mb = (b) => (b / 1e6).toFixed(b > 1e7 ? 0 : 1);
+    let lastToast = 0;
+    const prog = (label) => (got, total) => {
+      const now = performance.now();
+      if (now - lastToast > 1200 && total > 2e6) { lastToast = now; toast(`${take.id} · ${label} ${mb(got)} / ${mb(total)} MB`, { tone: "live" }); }
+    };
+    try {
+      if (only) {
+        const f = await store.requestTakeFile(take.id, only, prog(only));
+        download(f.name, new Blob(f.parts, { type: f.mime }));
+        toast(`${f.name} · ${mb(f.bytes)} MB`, { tone: "ok" });
+        return;
+      }
+      toast(`Preparing the research package of ${take.id}…`, { tone: "live" });
+      const meta = await store.requestTakeFile(take.id, "meta");
+      const csv = await store.requestTakeFile(take.id, "csv", prog("rows"));
+      let raw = null, rawErr = null;
+      try { raw = await store.requestTakeFile(take.id, "raw", prog("raw stream")); }
+      catch (e) { rawErr = e.message; }
+      const dir = take.id + "_research/";
+      const files = [{ name: dir + "take.csv", parts: csv.parts }, { name: dir + "take.json", parts: meta.parts }];
+      if (raw) files.push({ name: dir + (raw.name.endsWith(".sd.csv.gz") ? "take.sd.csv.gz" : "take.raw.txt.gz"), parts: raw.parts });
+      download(take.id + "_research.zip", zipStore(files));
+      const n = csv.parts.reduce((a, p) => a + p.length, 0) + meta.bytes + (raw ? raw.bytes : 0);
+      toast(`${take.id} research package · ${mb(n)} MB` + (rawErr ? ` · no raw stream (${rawErr})` : ""),
+        { tone: rawErr ? "warn" : "ok" });
+    } catch (e) {
+      toast(`${take.id}: ${e.message}`, { tone: "warn" });
+    } finally {
+      exporting = null;
+    }
+  }
+
   async function exportTake(take, what) {
+    if (what === "research" || what === "raw") { exportResearch(take, what === "raw" ? "raw" : null); return; }
     if (what === "meta") {
       download(take.id + ".meta.json", JSON.stringify(take, null, 2), "application/json");
       toast(`${take.id} metadata exported`, { tone: "live" });
@@ -295,7 +340,12 @@ export function mountCapture(rootHost) {
       b.addEventListener("click", () => { menu.remove(); openMenu = null; exportTake(take, what); });
       return b;
     };
+    const research = store.live && !!take.has_data;
     const menu = el("div", { class: "exp-menu", role: "menu" },
+      item("Research package · ZIP", research ? "take.csv (SI) + take.json + raw stream"
+        : (store.live ? "no rows for this take" : "needs the live bridge"), "research", research),
+      item("Raw device stream", store.live && take.raw ? `${take.raw.file} · ${((take.raw.bytes || 0) / 1e6).toFixed(1)} MB`
+        : "not kept for this take", "raw", !!(store.live && take.raw)),
       item("Rows · CSV", take.has_data ? "every sample, named columns" : "no rows for this take", "csv", !!take.has_data),
       item("Rows · JSON", take.has_data ? "replay format (cols + rows)" : "no rows for this take", "json", !!take.has_data),
       item("Metadata · JSON", "labels, duration, quality", "meta"));
@@ -307,9 +357,54 @@ export function mountCapture(rootHost) {
   document.addEventListener("pointerdown", closeMenu);
   cleanups.push(() => document.removeEventListener("pointerdown", closeMenu));
 
+  // quality badges from the take's `quality` block (bridge v17); a pre-v17
+  // take carries only a word, shown as before
+  function qualityBadges(q) {
+    if (!q || typeof q !== "object") return [];
+    const pct = (v) => (Number.isFinite(v) ? (v >= 10 ? v.toFixed(0) : v.toFixed(1)) : "?");
+    const out = [];
+    if (Number.isFinite(q.rate_hz)) {
+      const ok = !q.nominal_hz || Math.abs(q.rate_hz - q.nominal_hz) <= 0.02 * q.nominal_hz;
+      out.push(el("span", { class: "take-qb " + (ok ? "ok" : "warn"),
+        title: `device frames per second over the take (nominal ${q.nominal_hz || "?"} Hz, clock ${q.clock || "?"})` },
+        `${Math.round(q.rate_hz)} Hz`));
+    }
+    const dr = q.dropped || 0;
+    out.push(el("span", { class: "take-qb " + (dr === 0 ? "ok" : q.dropped_pct > 1 ? "stop" : "warn"),
+      title: `${dr} frames missing in ${q.gaps || 0} gaps (gap > 1.5 x the nominal period); longest ${Math.round(q.max_gap_ms || 0)} ms` },
+      dr === 0 ? "0 drops" : `${dr} drops · ${pct(q.dropped_pct)}%`));
+    const cp = q.cal_pct || {};
+    const n = q.neutral || {};
+    const cal = cp.calibrated >= 95 ? ["ok", "calibrated"] : cp.calibrated >= 50 ? ["warn", "part-cal"]
+      : cp.provisional >= 50 ? ["warn", "provisional"] : ["stop", "no neutral"];
+    out.push(el("span", { class: "take-qb " + cal[0],
+      title: `body neutral: ${pct(cp.calibrated)}% calibrated, ${pct(cp.provisional)}% provisional, ${pct(cp.none)}% none` +
+        (n.kind ? `\nneutral at start: ${n.kind}` + (Number.isFinite(n.age_s) ? `, ${n.age_s} s before` : "") +
+          (Number.isFinite(n.spread_deg) ? `, hold spread ${n.spread_deg} deg` : "") : "") },
+      cal[1]));
+    const im = q.imu_live_pct || {};
+    const imMin = Math.min(im.hand ?? 0, im.forearm ?? 0);
+    if (imMin < 99.5) out.push(el("span", { class: "take-qb " + (imMin < 90 ? "stop" : "warn"),
+      title: `IMU live: hand ${pct(im.hand)}%, forearm ${pct(im.forearm)}%, thumb ${pct(im.thumb)}%` }, `IMU ${pct(imMin)}%`));
+    return out;
+  }
+  function qualityTitle(q) {
+    if (!q || typeof q !== "object") return "";
+    const L = [`grade ${q.grade}` + (q.issues && q.issues.length ? ": " + q.issues.join("; ") : "")];
+    if (q.latency_ms) L.push(`pose-lane latency ${q.latency_ms.median} / ${q.latency_ms.p95} ms (p50 / p95, in the bridge)`);
+    const t = q.timing || {};
+    if (t.qage_ms && t.qage_ms.forearm) L.push(`IMU sample age forearm ${t.qage_ms.forearm.median} / ${t.qage_ms.forearm.p95} ms`);
+    if (t.enc_ms) L.push(`encoder sweep ${t.enc_ms.median} ms`);
+    if (t.rx_jitter_ms) L.push(`serial jitter ${t.rx_jitter_ms.median} / ${t.rx_jitter_ms.p95} ms`);
+    if (q.enc_live) L.push(`encoders live: ${q.enc_live.length ? q.enc_live.join(", ") : "none"}`);
+    return L.join("\n");
+  }
+
   function takeCard(take, isNew) {
     const cv = el("canvas", { class: "take-spark" });
-    const qualityTone = take.quality === "good" ? "ok" : "warn";
+    const qObj = take.quality && typeof take.quality === "object" ? take.quality : null;
+    const qWord = qObj ? qObj.grade : take.quality;
+    const qualityTone = qWord === "good" ? "ok" : "warn";
     const taskChip = el("button", { class: "take-task chip" }, take.task);
     if (store.live) {
       // On the live bridge the HOST library is authoritative: every takes push
@@ -335,8 +430,9 @@ export function mountCapture(rootHost) {
       el("div", { class: "take-main" },
         el("div", { class: "take-id-row" },
           el("span", { class: "mono take-id" }, take.id),
-          el("span", { class: `pill take-q` }, el("span", { class: `dot ${qualityTone}` }), take.quality)),
+          el("span", { class: `pill take-q`, title: qualityTitle(qObj) }, el("span", { class: `dot ${qualityTone}` }), qWord || "—")),
         cv,
+        qObj ? el("div", { class: "take-qbs" }, ...qualityBadges(qObj)) : null,
         el("div", { class: "take-meta" },
           el("span", { class: "take-profile" }, take.profile),
           taskChip,
@@ -353,7 +449,7 @@ export function mountCapture(rootHost) {
       rp.addEventListener("click", () => { setReplayTake(take.id); location.hash = "#/replay"; });
       node.append(rp);
     }
-    requestAnimationFrame(() => drawSpark(cv, take.spark, take.quality === "good" ? "#C9401B" : "#C08327"));
+    requestAnimationFrame(() => drawSpark(cv, take.spark, qWord === "good" ? "#C9401B" : "#C08327"));
     return node;
   }
 

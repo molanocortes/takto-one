@@ -19,7 +19,8 @@ IMU_NAMES = ("hand", "forearm", "thumb")
 
 
 def sd_columns():
-    """The firmware v16 take header (recStartTake), generated the same way."""
+    """The firmware v17 take header (recStartTake), generated the same way.
+    (A v16 file simply lacks the five timing columns: consumers index by name.)"""
     cols = ["t_ms"] + ["enc%02d" % ch for ch in range(N_CH)]
     cols += ["h_qw", "h_qx", "h_qy", "h_qz", "f_qw", "f_qx", "f_qy", "f_qz", "emg_env", "emg_rms",
              "crown", "t_qw", "t_qx", "t_qy", "t_qz", "thumb_live",
@@ -35,6 +36,8 @@ def sd_columns():
     cols += ["h_live", "f_live", "t_live", "emg_present",
              "h_dvx", "h_dvy", "h_dvz", "f_dvx", "f_dvy", "f_dvz", "t_dvx", "t_dvy", "t_dvz",
              "h_stab", "f_stab", "t_stab"]
+    # v17: device timing (MOTION_PIPELINE.md s.8)
+    cols += ["t_us", "h_qage_us", "f_qage_us", "t_qage_us", "enc_us"]
     return cols
 
 

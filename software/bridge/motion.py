@@ -555,6 +555,11 @@ class BodyModel:
       "lin": {k: m/s^2 sensor frame, gravity removed | None},   (optional)
       "dv":  {k: m/s in W_s since the previous frame | None},   (optional, v16)
       "dv_n": {k: int},  "stab": {k: 0..4 | 255 | None},        (optional, v16)
+      "ts":  {k: device seconds the IMU sampled this orientation | None}  (optional, v17:
+             frame time - qage). When present, rates and the inertial path use
+             the interval between successive SAMPLES of that IMU instead of the
+             frame interval (a frame that re-reports an old sample adds no
+             motion; a frame after a late report covers two).
     }
     """
 
@@ -580,6 +585,8 @@ class BodyModel:
         self.bleed_psi = 0.0         # accumulated hand heading correction (rad)
         self.still_since = {k: None for k in KEYS}
         self._prev_q = {k: None for k in KEYS}
+        self._ts_prev = {k: None for k in KEYS}
+        self.dt_s = {k: None for k in KEYS}   # interval between this IMU's last two samples
         self._rate = {k: 0.0 for k in KEYS}
         self._reset_arm()
         self._pending = None         # a device neutral waiting for its frames
@@ -708,7 +715,7 @@ class BodyModel:
             return {"ok": False, "reason": str(e)}
         self.neutral = {"kind": kind, "t": t_end, "q0": q_avg, "psi": sol["psi"],
                         "M": sol["M"], "report": sol["report"], "provisional": provisional,
-                        "boot_id": self.boot_id}
+                        "boot_id": self.boot_id, "spread": spread}
         self.bleed_psi = 0.0
         self._reset_arm()
         self._pro_prev = 0.0
@@ -808,11 +815,23 @@ class BodyModel:
         self.t = t
         qin = fr.get("q") or {}
         gyr = fr.get("gyr") or {}
+        ts = fr.get("ts") or {}
         for k in KEYS:
             q = valid_quat(qin.get(k))
             self.live[k] = q is not None
             if q is not None:
                 self.raw[k] = q
+            # per-IMU sample interval (v17 timing); None = unknown -> frame dt
+            tk = ts.get(k) if q is not None else None
+            if tk is None or gap:
+                self.dt_s[k] = None if tk is None else 0.0
+            else:
+                p = self._ts_prev[k]
+                d = (tk - p) if p is not None else None
+                self.dt_s[k] = d if (d is not None and -1e-6 <= d <= cfg["gap_s"]) else None
+                if self.dt_s[k] is not None and self.dt_s[k] < 0.0:
+                    self.dt_s[k] = 0.0
+            self._ts_prev[k] = tk if q is not None else None
         self.hist.append((t, {k: (self.raw[k] if self.live[k] else None) for k in KEYS}))
         while self.hist and t - self.hist[0][0] > cfg["history_s"]:
             self.hist.popleft()
@@ -822,11 +841,15 @@ class BodyModel:
             rate = None
             if self.live[k]:
                 g = valid_vec(gyr.get(k))
+                dk = self.dt_s[k] if self.dt_s[k] is not None else dt
                 if g is not None:
                     rate = vlen(g)
-                elif self._prev_q[k] is not None and dt > 0.0:
-                    rate = qangle_between(self._prev_q[k], self.raw[k]) / dt
-                self._prev_q[k] = self.raw[k]
+                elif self._prev_q[k] is not None and dk > 0.0:
+                    rate = qangle_between(self._prev_q[k], self.raw[k]) / dk
+                elif self._prev_q[k] is not None and self.dt_s[k] == 0.0:
+                    rate = self._rate[k]          # the same sample again: no new evidence
+                if self.dt_s[k] != 0.0:
+                    self._prev_q[k] = self.raw[k]
             else:
                 self._prev_q[k] = None
             if rate is None:
@@ -888,6 +911,7 @@ class BodyModel:
         k = "forearm"
         t = self.t
         both_still = (self.still_since["hand"] is not None and self.still_since["forearm"] is not None)
+        prev_active, prev_zupt = self.inertial_active, self.zupt
         self.inertial_active = False
         self.zupt = False
         if not cfg["inertial"] or not self.live[k] or dt <= 0.0:
@@ -902,10 +926,26 @@ class BodyModel:
         dv = valid_vec((fr.get("dv") or {}).get(k))
         dv_n = (fr.get("dv_n") or {}).get(k)
         lin = valid_vec((fr.get("lin") or {}).get(k))
+        # dt_a: the time the forearm's inertial data of this frame spans. With
+        # v17 timing it is the interval between the IMU's successive samples
+        # (frame time - qage), which is what the preintegrated dv covers when
+        # the linear acceleration and the game vector share one report
+        # interval; a frame that carries no new sample integrates nothing.
+        dt_a = self.dt_s[k] if self.dt_s[k] is not None else dt
+        if dt_a <= 0.0:
+            # no new forearm sample in this frame: keep the elbow velocity and
+            # the ZUPT verdict, advance the position on the frame clock, learn
+            # nothing
+            self.inertial_active, self.zupt = prev_active, prev_zupt
+            if self.neutral is not None and prev_active and not prev_zupt:
+                elbow = vadd(vscale(self.u, cfg["L_ua"]), vscale(self.v_e, dt))
+                self.u = self._cone(vnorm(elbow, self.u))
+            self._relax(both_still, dt)
+            return
         # acceleration in the SENSOR frame (needs no heading, so the bias can be
         # learned from the first still second of the boot, before any neutral)
         if dv is not None and (dv_n is None or dv_n > 0):
-            a_s_raw = vscale(qrot(qconj(q_raw), dv), 1.0 / dt)    # W_s -> S, mean over the frame
+            a_s_raw = vscale(qrot(qconj(q_raw), dv), 1.0 / dt_a)  # W_s -> S, mean over the span
         elif lin is not None:
             a_s_raw = lin
         else:
@@ -938,7 +978,7 @@ class BodyModel:
         if g_s is not None:
             w_body = qrot(rsb, g_s)
         elif self._fq_prev_body is not None:
-            w_body = vscale(qrotvec(qmul(qf, qconj(self._fq_prev_body))), 1.0 / dt)
+            w_body = vscale(qrotvec(qmul(qf, qconj(self._fq_prev_body))), 1.0 / dt_a)
         else:
             w_body = [0.0, 0.0, 0.0]
         self._fq_prev_body = qf
@@ -961,7 +1001,7 @@ class BodyModel:
         # soft-thresholded away (a deadband at the sensor's noise floor), so a
         # long elbow/wrist exercise does not slowly walk the upper arm, while a
         # real reach (0.3..1 m/s^2) passes almost untouched.
-        a_rot = vscale(vsub(v_rot, self._v_rot_prev), 1.0 / dt) if self._v_rot_prev is not None else [0.0, 0.0, 0.0]
+        a_rot = vscale(vsub(v_rot, self._v_rot_prev), 1.0 / dt_a) if self._v_rot_prev is not None else [0.0, 0.0, 0.0]
         self._v_rot_prev = v_rot
         a_un = vsub(a_body, a_rot)
         al = min(1.0, dt / cfg["acc_smooth_s"])
@@ -981,7 +1021,7 @@ class BodyModel:
         gh = max(0.0, 1.0 - thr_h / mh) if mh > 1e-9 else 0.0
         gv = max(0.0, 1.0 - thr_v / mv) if mv > 1e-9 else 0.0
         a_eff = [a_un[0] * gh, a_un[1] * gv, a_un[2] * gh]
-        v_e = vadd(self.v_e, vscale(a_eff, dt))
+        v_e = vadd(self.v_e, vscale(a_eff, dt_a))                # = the (de-biased) dv itself
         v_e = vsub(v_e, vscale(self.u, vdot(v_e, self.u)))      # tangent to the sphere
         v_e = vscale(v_e, cfg["vel_leak_per_s"] ** dt)
         self.v_e = v_e
@@ -1124,6 +1164,28 @@ class BodyModel:
     def pop_events(self):
         ev, self.events = self.events, []
         return ev
+
+    # ---------------- state snapshot (research re-derivation) ----------------
+    def export_state(self):
+        """The slowly-evolving model state a re-derivation cannot rebuild from
+        a short pre-roll: heading bleed, upper-arm direction, elbow velocity,
+        accelerometer bias. Stored in a take's raw sidecar (#meta state0)."""
+        return {"bleed_psi": self.bleed_psi, "u": list(self.u), "v_e": list(self.v_e),
+                "bias_s": list(self.bias_s)}
+
+    def import_state(self, st):
+        if not isinstance(st, dict):
+            return
+        try:
+            if st.get("bleed_psi") is not None:
+                self.bleed_psi = float(st["bleed_psi"])
+            for key in ("u", "v_e", "bias_s"):
+                v = st.get(key)
+                if isinstance(v, list) and len(v) == 3:
+                    setattr(self, key, [float(x) for x in v])
+        except (TypeError, ValueError):
+            pass
+        self._out = None
 
 
 B_COLS = ["b_ex", "b_ey", "b_ez", "b_wx", "b_wy", "b_wz",

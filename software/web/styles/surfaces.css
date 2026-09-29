@@ -1713,6 +1713,13 @@ a.wordmark:hover { opacity: 0.72; }
 .exp-item:hover:not(:disabled) { background: var(--panel); }
 .exp-item:disabled { opacity: 0.45; cursor: default; }
 .exp-sub { font-size: 10.5px; color: var(--text-2); }
+/* take quality badges (research quality block): rate, drops, calibration, IMU */
+.take-qbs { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.take-qb { font: 500 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.03em;
+  padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line-soft); color: var(--text-2); white-space: nowrap; }
+.take-qb.ok { color: var(--ok); }
+.take-qb.warn { color: var(--warn); border-color: var(--line); }
+.take-qb.stop { color: var(--stop); border-color: var(--line); }
 @media (max-width: 720px) {
   .cap-sd { max-height: none; }
 }

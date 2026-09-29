@@ -225,9 +225,11 @@ class Sensors:
         return [self.rng.gauss(0.0, s) for _ in range(3)] if s > 0 else [0.0, 0.0, 0.0]
 
     # --- one device frame -------------------------------------------------
-    def frame(self, t, dt):
+    def frame(self, t, dt, keys=None):
         """Everything the v16 firmware would report for the frame at time t
-        (covering (t - dt, t]). Quaternions etc. keyed by IMU name."""
+        (covering (t - dt, t]). Quaternions etc. keyed by IMU name. `keys`
+        restricts the synthesis to some IMUs (each sampled at its own report
+        instant by SampledSensors)."""
         h = 1e-3
         seg0 = self._seg(t)
         segm, segp = self._seg(t - h), self._seg(t + h)
@@ -236,6 +238,8 @@ class Sensors:
         out = {"t": t, "q": {}, "gyr": {}, "lin": {}, "dv": {}, "dv_n": {}, "stab": {}}
         n_rep = max(1, int(round(self.lin_rate * dt)))
         for k in KEYS:
+            if keys is not None and k not in keys:
+                continue
             if k == "thumb" and not self.thumb:
                 out["q"][k] = None
                 continue
@@ -278,6 +282,56 @@ class Sensors:
             quiet = vlen(w_body) < 0.02 and vlen(a_body) < 0.03
             self._still_for[k] = self._still_for[k] + dt if quiet else 0.0
             out["stab"][k] = 2 if self._still_for[k] >= 0.3 else 4
+        return out
+
+
+class SampledSensors:
+    """The v17 device's view of the IMUs: each BNO085 reports on its OWN clock
+    (period 10 ms +- 0.4 % crystal error, random phase), the report reaches
+    the Teensy after a bus latency (0.8..1.4 ms), and a device frame at time t
+    carries the latest report that has arrived, together with its age
+    (qage = t - report time). A frame can therefore carry the same report as
+    the previous one (dv_n = 0) or follow a two-period gap; the ages sweep
+    0..10 ms (+ bus) as the two clocks beat. Everything an IMU reports in a
+    frame (quaternion, gyro, linear acceleration, dv over the interval between
+    its last two reports) is synthesised at that report instant."""
+
+    def __init__(self, sensors, seed=0, period_s=0.01):
+        self.s = sensors
+        self.rng = random.Random(seed)
+        self.clk = {k: {"P": period_s * (1.0 + self.rng.uniform(-0.004, 0.004)),
+                        "phase": self.rng.uniform(0.0, period_s)} for k in KEYS}
+        self.last = {k: None for k in KEYS}      # (report time, {q, gyr, lin, stab})
+
+    def report_time(self, k, t_arrival):
+        c = self.clk[k]
+        return c["phase"] + math.floor((t_arrival - c["phase"]) / c["P"]) * c["P"]
+
+    def frame(self, t, dt):
+        out = {"t": t, "q": {}, "gyr": {}, "lin": {}, "dv": {}, "dv_n": {}, "stab": {},
+               "ts": {}, "qage_us": {}}
+        for k in KEYS:
+            if k == "thumb" and not self.s.thumb:
+                out["q"][k] = None
+                out["qage_us"][k] = 0
+                continue
+            bus = 0.0008 + 0.0006 * self.rng.random()
+            r = self.report_time(k, t - bus)
+            prev = self.last[k]
+            if prev is not None and abs(r - prev[0]) < 1e-9:
+                # no new report since the previous frame: the same sample again
+                q, gyr, lin, stab = prev[1]["q"], prev[1]["gyr"], prev[1]["lin"], prev[1]["stab"]
+                dv, dv_n = [0.0, 0.0, 0.0], 0
+            else:
+                r_prev = prev[0] if prev is not None else r - self.clk[k]["P"]
+                fk = self.s.frame(r, max(1e-4, r - r_prev), keys=(k,))
+                q, gyr, lin, stab = fk["q"][k], fk["gyr"][k], fk["lin"][k], fk["stab"][k]
+                dv, dv_n = fk["dv"][k], fk["dv_n"][k]
+                self.last[k] = (r, {"q": q, "gyr": gyr, "lin": lin, "stab": stab})
+            out["q"][k], out["gyr"][k], out["lin"][k], out["stab"][k] = q, gyr, lin, stab
+            out["dv"][k], out["dv_n"][k] = dv, dv_n
+            out["ts"][k] = r
+            out["qage_us"][k] = max(1, int(round((t - r) * 1e6)))
         return out
 
 

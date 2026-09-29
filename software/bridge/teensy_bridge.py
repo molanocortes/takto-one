@@ -11,16 +11,18 @@ Data sources (pick one):
       prints one `S,` line per frame - 100 Hz on firmware v16, 50 Hz before -
       with 14 encoders, three BNO085s (game rotation vector, gyro, linear
       acceleration, ...), EMG, crown, the motor block (bridged read-only since
-      v6), and on v16 the SD/boot/dv/stability tail (software/MOTION_PIPELINE.md
-      section 5 is the contract). Sensors the firmware reports absent are sent
-      ok:false (honest).
+      v6), on v16 the SD/boot/dv/stability tail and on v17 the timing tail
+      (t_us, quaternion ages, encoder sweep; software/MOTION_PIPELINE.md
+      sections 5 and 8 are the contract). Sensors the firmware reports absent
+      are sent ok:false (honest).
   --sim   no hardware: sim_device.SimDevice, a LINE-LEVEL v16 device (raw game
       quaternions with a random per-boot heading, mounting rotations, gyro, dv,
       stability, E-events, an in-memory SD card) whose text goes through the
       same parser and pipeline as the hardware. Motors stay simulated (SimMotors).
 
 Per device frame (serial/sim thread): parse -> encoders -> legacy IMU display
--> motion.BodyModel (the contract's `body` block) -> one recorded take row.
+-> motion.BodyModel (the contract's `body` block) -> the fast pose lane (opt-in
+clients, 100 Hz) -> one recorded take row + the take's raw stream sidecar.
 The broadcast loop only packages the latest derived state.
 
 Run:
@@ -29,13 +31,36 @@ Run:
     (add --ws-host 0.0.0.0 to serve the phone / headset on the LAN)
 See software/bridge/README.md.
 """
-import argparse, asyncio, copy, glob, json, math, os, re, threading, time, sys
+import argparse, asyncio, copy, glob, gzip, json, math, os, re, threading, time, sys
 from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tendon
 import motion
 import sdcard
+import research
+
+# Written into every take's provenance. Bump when the derived rows change meaning.
+BRIDGE_VERSION = "2026.09-v17"
+
+
+def _git_rev():
+    """Short commit of the checkout this bridge runs from (+ "-dirty"), or None."""
+    try:
+        import subprocess
+        here = os.path.dirname(os.path.abspath(__file__))
+        rev = subprocess.run(["git", "-C", here, "rev-parse", "--short", "HEAD"], capture_output=True,
+                             text=True, timeout=2).stdout.strip()
+        if not rev:
+            return None
+        dirty = subprocess.run(["git", "-C", here, "status", "--porcelain", "--", "."],
+                               capture_output=True, text=True, timeout=2).stdout.strip()
+        return rev + ("-dirty" if dirty else "")
+    except Exception:
+        return None
+
+
+GIT_REV = _git_rev()
 
 # Snapshot broadcast rate. Firmware v16 samples at 100 Hz; the snapshot carries
 # the latest frame at 60 Hz (a fresh sample waits at most one 16.7 ms tick).
@@ -1388,6 +1413,20 @@ class InertialTracker:
             return None
         return max(0.0, self.t - self.zero_t)
 
+    _STATE = ("p", "v", "bias", "still", "_quiet_since", "last_zupt", "zupts", "zero_t")
+
+    def export_state(self):
+        """Integrator state (a take's raw sidecar keeps it, so a re-derivation
+        continues the displacement exactly where the live one stood)."""
+        return {k: (list(getattr(self, k)) if isinstance(getattr(self, k), list) else getattr(self, k))
+                for k in self._STATE}
+
+    def import_state(self, st):
+        for k in self._STATE:
+            if isinstance(st, dict) and k in st:
+                v = st[k]
+                setattr(self, k, list(v) if isinstance(v, list) else v)
+
     def snapshot(self):
         s = self.since_zupt()
         z = self.since_zero()
@@ -1829,6 +1868,11 @@ ECO = {
     "spool_path": None,
     "rows_n": 0, "last_row_t": None, "any_traj": False, "any_inertial": False,
     "sd_take": None,            # the device's SD take number recording alongside
+    # research-grade takes (MOTION_PIPELINE.md s.8)
+    "raw": None,                # research.RawWriter of the running take (ingest thread writes)
+    "raw_path": None,
+    "raw_pending": False,       # opened by the ingest thread at the take's first frame
+    "qacc": None,               # research.QualityAccumulator of the running take
 }
 
 # column layout of a replay row (kept in ONE place; the take_data payload
@@ -1857,7 +1901,14 @@ ROW_COLS = (["t_ms"] + ["%s_%s" % (f, s) for f in ("index", "middle", "ring", "p
             # frame), forearm + hand body quaternions, calibration state
             # (0 none, 1 provisional, 2 calibrated). Rows are now written once per
             # DEVICE frame, so t_ms never repeats.
-            + motion.B_COLS)
+            + motion.B_COLS
+            # 2026-09 (research-grade takes, MOTION_PIPELINE.md s.8): +32 RAW
+            # columns appended at the END (59 -> 91): device timing (t_us, the
+            # three quaternion ages, the encoder sweep), the bridge receive time
+            # (rx_ms, Unix epoch ms), the unfiltered encoder degrees (-1 absent)
+            # and the raw game quaternions, so every derived column can be
+            # recomputed from the row itself (see research.RAW_COLS).
+            + research.RAW_COLS)
 # Resolved once, so nothing downstream indexes a replay row by a hand-counted
 # offset (see the traj flag at seal time for what that mistake cost).
 _COL_PX = ROW_COLS.index("px")
@@ -2369,6 +2420,284 @@ def _spool_path(take_id):
     return os.path.join(STATE_DIR, ".sensoryhand_takedata_%s.rows.partial" % take_id)
 
 
+def _raw_path(take_id, ext=".raw.txt.gz"):
+    """The take's raw device stream: `.raw.txt.gz` for a live take (every S/E
+    line with its receive time), `.sd.csv.gz` for an SD import (the card file)."""
+    return os.path.join(STATE_DIR, ".sensoryhand_takedata_%s%s" % (take_id, ext))
+
+
+def _meta_path(take_id):
+    """The take's research metadata (take.json: quality, provenance, columns)."""
+    return os.path.join(STATE_DIR, ".sensoryhand_takedata_%s.meta.json" % take_id)
+
+
+def _take_raw_file(take_id):
+    for ext in (".raw.txt.gz", ".sd.csv.gz"):
+        p = _raw_path(take_id, ext)
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def _nominal_hz():
+    """The firmware's own frame rate: 100 Hz from v16 (fw_flags present), 50 before."""
+    return 100.0 if ((_fw.get("version") or 0) >= 16 or DEVICE.get("flags") is not None) else 50.0
+
+
+def provenance(source="live", fw=None, boot_id=None):
+    """Everything a derived row depends on besides the device stream: firmware
+    and boot, this bridge's version, the encoder map and marks, the IMU
+    mounting (config, priors, wrist axis), the body-model parameters and the
+    encoder filter. Stored per take; rederive.py re-applies it."""
+    pri = body_priors()
+    cfg = dict(motion.DEFAULT_CFG)
+    cfg.update(BODY_PERSIST.get("arm") or {})
+    return {
+        "fw": fw if fw is not None else (DEVICE.get("fw") or _fw.get("version") or None),
+        "boot_id": boot_id if boot_id is not None else DEVICE.get("boot_id"),
+        "bridge_version": BRIDGE_VERSION, "git": GIT_REV, "source": source, "sim": bool(SIM_MODE),
+        "enc_map": {
+            "channels": enc_map_public(),
+            "open": {str(ch): round(v, 4) for ch, v in ENC_OPEN.items()},
+            "closed": {str(ch): round(v, 4) for ch, v in ENC_CLOSED.items()},
+            "joint_space_direct": bool(ENC_JOINT_SPACE_DIRECT),
+            "sim_bias_deg": SIM_ENC_BIAS if SIM_MODE else None,
+            "filter": {"on": bool(ENC_FILTER_ON), "min_cutoff_hz": ENC_FILTER_MIN_CUTOFF,
+                       "beta": ENC_FILTER_BETA},
+        },
+        "imu_mounting": {
+            "cfg": copy.deepcopy(IMU_CFG),
+            "priors": {k: [round(float(x), 7) for x in pri[k]] for k in IMU_KEYS},
+            "wrist_axis": BODY_PERSIST.get("wrist_axis"),
+            "orientation_source": IMU_ORIENTATION_SOURCE,
+        },
+        "body_params": {k: cfg[k] for k in ("L_ua", "L_fa", "f_imu_to_wrist", "hand_offset",
+                                            "heading_bleed_tau_s", "zupt_acc", "zupt_gyr",
+                                            "zupt_hold_s", "vel_leak_per_s", "acc_deadband",
+                                            "acc_deadband_per_rad_s", "acc_deadband_v",
+                                            "relax_after_s", "relax_tau_s", "max_elev_deg",
+                                            "inertial", "still_rad_s", "neutral_max_spread_deg")},
+        "row_cols": len(ROW_COLS),
+    }
+
+
+def apply_provenance(prov):
+    """rederive.py: make this process derive exactly like the bridge that
+    recorded the take (encoder map + marks, IMU mounting, wrist axis, arm
+    lengths, encoder filter, sim encoding). Never called inside the bridge."""
+    global ENC_JOINT_SPACE_DIRECT, ENC_FILTER_ON, ENC_FILTER_MIN_CUTOFF, ENC_FILTER_BETA, SIM_MODE
+    if not isinstance(prov, dict):
+        return
+    em = prov.get("enc_map") or {}
+    ENC_DOF.clear(); ENC_FINGER.clear(); ENC_OPEN.clear(); ENC_CLOSED.clear()
+    for k, v in (em.get("channels") or {}).items():
+        ENC_DOF[int(k)] = (v["dof"], float(v.get("sign", 1.0)))
+        ENC_FINGER[int(k)] = v.get("finger", WIRED_FINGER)
+    for k, v in (em.get("open") or {}).items():
+        ENC_OPEN[int(k)] = float(v)
+    for k, v in (em.get("closed") or {}).items():
+        ENC_CLOSED[int(k)] = float(v)
+    ENC_JOINT_SPACE_DIRECT = bool(em.get("joint_space_direct"))
+    flt = em.get("filter") or {}
+    ENC_FILTER_ON = bool(flt.get("on", True))
+    ENC_FILTER_MIN_CUTOFF = float(flt.get("min_cutoff_hz", ENC_FILTER_MIN_CUTOFF))
+    ENC_FILTER_BETA = float(flt.get("beta", ENC_FILTER_BETA))
+    SIM_MODE = bool(prov.get("sim"))
+    im = prov.get("imu_mounting") or {}
+    if isinstance(im.get("cfg"), dict):
+        for k in IMU_KEYS:
+            if isinstance(im["cfg"].get(k), dict):
+                IMU_CFG[k] = copy.deepcopy(im["cfg"][k])
+    BODY_PERSIST["wrist_axis"] = im.get("wrist_axis")
+    bp = prov.get("body_params") or {}
+    BODY_PERSIST["arm"] = {k: float(bp[k]) for k in ("L_ua", "L_fa") if isinstance(bp.get(k), (int, float))}
+
+
+# ---- the raw sidecar (ingest thread) ----------------------------------------
+RAW_RING = deque(maxlen=110)      # the last ~1 s of S/E lines: a take's pre-roll
+RAW_PREROLL_S = 1.0
+_raw_lock = threading.Lock()      # the ingest thread writes, record_stop closes
+_raw_neutral_ref = [None]         # the BODY.neutral object last annotated
+
+
+def _raw_begin(now):
+    """Called by the ingest thread for each frame while recording: opens the
+    take's raw sidecar at the first one (with the pre-roll, the provenance,
+    the neutral in force and the model state). True while the sidecar is open."""
+    if ECO.get("raw") is not None:
+        return True
+    if not ECO.get("raw_pending"):
+        return False
+    ECO["raw_pending"] = False
+    n = BODY.neutral
+    pre = [(rx, ln) for (rx, ln) in list(RAW_RING) if now - rx <= RAW_PREROLL_S]
+    RAW_RING.clear()
+    meta = {
+        "take": ECO.get("rec_id"), "created_unix_ms": int(now * 1000),
+        "provenance": provenance("live"),
+        "nominal_hz": _nominal_hz(),
+        "boot_id": DEVICE.get("boot_id"),
+        "neutral": ({"t": n["t"], "kind": n["kind"], "provisional": bool(n["provisional"]),
+                     "q0": {k: (list(v) if v is not None else None) for k, v in n["q0"].items()},
+                     "spread": n.get("spread")} if n is not None else None),
+        "state0": dict(BODY.export_state(),
+                       trackers={k: TRACKERS[k].export_state() for k in IMU_KEYS}),
+        "preroll": sum(1 for _rx, ln in pre if ln.startswith("S,")),
+        "cols": len(ROW_COLS),
+    }
+    try:
+        w = research.RawWriter(ECO["raw_path"], meta)
+        for rx, ln in pre:
+            w.write(rx, ln)
+    except Exception as e:
+        print("[takes] cannot open the raw stream sidecar:", e)
+        return False
+    _raw_neutral_ref[0] = n
+    with _raw_lock:
+        ECO["raw"] = w
+    return True
+
+
+def _raw_write(rx, line):
+    with _raw_lock:
+        w = ECO.get("raw")
+        if w is None:
+            return
+        try:
+            w.write(rx if rx is not None else time.time(), line)
+        except Exception as e:
+            print("[takes] raw stream write failed:", e)
+            ECO["raw"] = None
+
+
+def _raw_neutral_note(phase, rx):
+    """Annotate a body-neutral change in the raw stream (see _body_step)."""
+    if ECO.get("raw") is None:
+        return
+    n = BODY.neutral
+    if n is _raw_neutral_ref[0]:
+        return
+    _raw_neutral_ref[0] = n
+    if n is None:
+        return                 # a reboot: the S-line's boot id says so
+    _raw_write(rx, research.neutral_line(phase, n["t"], n["kind"], n["provisional"], n["q0"]))
+
+
+# ---- the fast pose lane (MOTION_PIPELINE.md s.8) ------------------------------
+# Built in the ingest thread per device frame, handed to the event loop through
+# ONE latest-wins slot (at most one pending call_soon_threadsafe), and from
+# there into each opted-in client's own latest-wins slot. No queue anywhere can
+# grow: a slow loop or a slow client drops stale poses (counted), never delays
+# fresh ones.
+POSE_LANE = {"clients": 0, "seq": 0, "coalesced": 0}
+_pose_slot = {"text": None, "rx": 0.0, "scheduled": False}
+_pose_lock = threading.Lock()
+LINK_STATS = {"rx_off": deque(maxlen=600),     # (receive - device) ms, last ~6 s of frames
+              "lat": deque(maxlen=4096),       # (tx wall s, tx - rx ms) per pose sent
+              "built": deque(maxlen=1024),     # wall s of every pose built
+              "cache": None, "cache_t": 0.0}
+
+
+def _r4(v):
+    return [round(float(x), 4) for x in v]
+
+
+def pose_message(fr, derived, rx, seq):
+    """The pose-lane message for one frame, as a dict (tx is added at send)."""
+    b = derived["body"]
+    th = derived.get("thumb")
+    wd = b.get("wrist_deg") or {}
+    tm = fr.get("timing")
+    return {"kind": "pose", "t": fr["t"], "us": tm["t_us"] if tm else None, "seq": seq,
+            "rx": round(rx * 1000.0, 1),
+            "cal": 2 if b.get("calibrated") else (1 if b.get("provisional") else 0),
+            "live": bool(b.get("live")),
+            "e": _r4(b["elbow_m"]), "w": _r4(b["wrist_m"]), "h": _r4(b["hand_m"]),
+            "fq": _r4(b["forearm_quat"]), "hq": _r4(b["hand_quat"]),
+            "wd": [wd.get("flex"), wd.get("dev"), wd.get("pro")],
+            "j": [round(j["deg"], 2) if j.get("ok") else None for j in derived["joints"]],
+            "tq": _r4(th["rel_quat"]) if th else None}
+
+
+def _pose_publish(fr, derived, now):
+    loop = _LOOP
+    if loop is None:
+        return
+    # serialised ONCE here, without its closing brace: the writer appends tx
+    text = wire_json(pose_message(fr, derived, now, POSE_LANE["seq"]))[:-1]
+    with _pose_lock:
+        if _pose_slot["text"] is not None:
+            POSE_LANE["coalesced"] += 1
+        _pose_slot["text"] = text
+        _pose_slot["rx"] = now
+        need = not _pose_slot["scheduled"]
+        _pose_slot["scheduled"] = True
+    LINK_STATS["built"].append(now)
+    if need:
+        try:
+            loop.call_soon_threadsafe(_pose_dispatch)
+        except RuntimeError:
+            with _pose_lock:
+                _pose_slot["scheduled"] = False
+
+
+def _pose_dispatch():
+    """Event loop: move the latest pose into every opted-in client's slot."""
+    with _pose_lock:
+        text, rx = _pose_slot["text"], _pose_slot["rx"]
+        _pose_slot["text"] = None
+        _pose_slot["scheduled"] = False
+    if text is None:
+        return
+    for c in list(CLIENTS):
+        if c.pose:
+            c.offer_pose(text, rx)
+
+
+def _pose_sent(tx, rx):
+    lat = (tx - rx) * 1000.0
+    LINK_STATS["lat"].append((tx, lat))
+    q = ECO.get("qacc")
+    if q is not None:
+        q.add_latency(lat)
+
+
+def _timing_now(tm):
+    if not tm:
+        return {"imu_age_ms": None, "enc_sweep_ms": None}
+    qa = tm.get("qage_us") or {}
+    return {"imu_age_ms": {k: (round(qa[k] / 1000.0, 2) if qa.get(k) else None) for k in IMU_KEYS},
+            "enc_sweep_ms": round(tm.get("enc_us", 0) / 1000.0, 3) if tm.get("enc_us") else None}
+
+
+def link_stats(now):
+    """snapshot link.* timing (cached 0.5 s): pose-lane latency median/p95
+    over the last 5 s, pose-lane and device frame rates, serial jitter."""
+    c = LINK_STATS
+    if c["cache"] is not None and now - c["cache_t"] < 0.5:
+        return c["cache"]
+    lat = [v for (tx, v) in list(c["lat"]) if now - tx <= 5.0]
+    p50, p95 = research.percentiles(lat)
+    built = [t for t in list(c["built"]) if now - t <= 2.0]
+    pose_hz = ((len(built) - 1) / (built[-1] - built[0])) if (len(built) > 2 and built[-1] > built[0]) else 0.0
+    offs = [o for (t, o) in list(c["rx_off"]) if now - t <= 6.0]
+    jit = None
+    if len(offs) > 10:
+        lo = min(offs)
+        j50, j95 = research.percentiles([o - lo for o in offs])
+        jit = {"median": round(j50, 2), "p95": round(j95, 2)}
+    fresh = bool(offs) and (now - list(c["rx_off"])[-1][0]) < 1.0
+    out = {"latency_ms": ({"median": round(p50, 3), "p95": round(p95, 3), "n": len(lat), "window_s": 5}
+                          if lat else None),
+           "pose_hz": round(pose_hz, 1),
+           "pose_clients": POSE_LANE["clients"],
+           "pose_coalesced": POSE_LANE["coalesced"],
+           "frame_hz": round(_frame_rate["hz"], 2) if (_frame_rate.get("hz") and fresh) else None,
+           "serial_jitter_ms": jit if fresh else None}
+    c["cache"], c["cache_t"] = out, now
+    return out
+
+
 def record_start(profile_name, task, notes):
     """Begin the one shared recording. Idempotent: a second start joins the
     running take instead of restarting it. Returns (take_id, newly_started).
@@ -2406,17 +2735,25 @@ def record_start(profile_name, task, notes):
         ECO["profile"] = profile_name or "Operator"
         ECO["task"] = task or "unlabelled"
         ECO["notes"] = notes or ""
+        # research: the raw sidecar opens at the take's first device frame
+        # (ingest thread), the quality accumulates per recorded row
+        ECO["raw_path"] = _raw_path(take_id)
+        ECO["raw_pending"] = True
+        ECO["qacc"] = research.QualityAccumulator(nominal_hz=_nominal_hz())
     send_teensy(b"b" if _fw["explicit_rec"] else b"r")   # idempotent start when the fw can
     return take_id, True
 
 
-def _record_row(row, used_vision, used_enc, fresh_env):
+def _record_row(row, used_vision, used_enc, fresh_env, qinfo=None):
     """Append one row of the running take (ingest thread, once per device
     frame). A repeated device t_ms is dropped: rows are never duplicated."""
     with state_lock:
         if not state["recording"] or ECO["spool"] is None:
             return
+        qacc = ECO.get("qacc")
         if ECO["last_row_t"] is not None and row[0] <= ECO["last_row_t"]:
+            if qacc is not None:
+                qacc.dup += 1
             return
         if ECO["rows_n"] >= REC_ROWS_CAP:
             if ECO["rows_n"] == REC_ROWS_CAP:
@@ -2431,6 +2768,12 @@ def _record_row(row, used_vision, used_enc, fresh_env):
             return
         ECO["last_row_t"] = row[0]
         ECO["rows_n"] += 1
+        if qacc is not None and qinfo is not None:
+            if qacc.frames == 0:
+                if qinfo.get("qage_us") is not None:
+                    qacc.clock = "t_us"
+                qacc.set_neutral(research.neutral_info(BODY.neutral, qinfo["t_dev_us"] / 1e6))
+            qacc.add(**qinfo)
         if row[_COL_PX] is not None:
             ECO["any_traj"] = True
         if row[_COL_IHX] is not None:
@@ -2450,15 +2793,17 @@ def _write_take_data(take_id, spool_path, contacts):
     tmp = path + ".tmp"
     n = 0
     with open(tmp, "w") as out:
-        out.write('{"id":%s,"cols":%s,"rows":[' % (json.dumps(take_id), json.dumps(ROW_COLS)))
+        # one row per line (still one JSON document): research.iter_take_rows
+        # streams it back without loading a 2 h take whole
+        out.write('{"id":%s,"cols":%s,"rows":[\n' % (json.dumps(take_id), json.dumps(ROW_COLS)))
         with open(spool_path) as src:
             for line in src:
                 line = line.strip()
                 if not line:
                     continue
-                out.write(("," if n else "") + line)
+                out.write((",\n" if n else "") + line)
                 n += 1
-        out.write("]")
+        out.write("\n]")
         if contacts:
             out.write(',"contacts":%s,"contact_cols":%s' % (json.dumps(contacts), json.dumps(CONTACT_COLS)))
         out.write("}")
@@ -2484,6 +2829,8 @@ def record_stop():
         rows_enc = ECO["rows_enc"]; ECO["rows_enc"] = 0
         contacts = ECO["contacts"]; ECO["contacts"] = []
         sd_take = ECO["sd_take"]
+        qacc = ECO["qacc"]; ECO["qacc"] = None
+        ECO["raw_pending"] = False
         take = {
             "id": ECO["rec_id"], "profile": ECO["profile"], "task": ECO["task"],
             "created_ms": int(state["t_ms"]), "duration_s": round(dur, 1),
@@ -2505,6 +2852,25 @@ def record_stop():
             spool.close()
         except Exception:
             pass
+    with _raw_lock:
+        raw = ECO["raw"]
+        ECO["raw"] = None
+    RAW_RING.clear()
+    # research: quality (computed from the rows just recorded), provenance,
+    # the raw device stream
+    quality = qacc.finish() if qacc is not None else None
+    if quality is not None:
+        take["quality"] = quality
+        if quality.get("rate_hz"):
+            take["rate_hz"] = quality["rate_hz"]
+    prov = provenance("live")
+    take["fw"] = prov["fw"]
+    take["boot_id"] = prov["boot_id"]
+    take["bridge_version"] = BRIDGE_VERSION
+    if raw is not None:
+        size = raw.close({"rows": n_rows, "lines": raw.lines})
+        take["raw"] = {"file": take["id"] + ".raw.txt.gz", "bytes": size, "lines": raw.lines,
+                       "format": research.RAW_FORMAT}
     # 4D replay: seal the host-side sample log next to the library. traj =
     # at least one row carried a fresh 6-DoF pose (AR wrist stream / sim).
     if n_rows and spool_path:
@@ -2539,9 +2905,19 @@ def record_stop():
         except OSError:
             pass
     send_teensy(b"e" if _fw["explicit_rec"] else b"r")   # idempotent stop when the fw can
+    _write_research_meta(take, prov, quality)
     takes.insert(0, take)
     _save_takes()
     return take
+
+
+def _write_research_meta(take, prov, quality):
+    try:
+        _write_json_atomic(_meta_path(take["id"]), research.take_json(
+            take, prov, quality, raw_name=(take["raw"]["file"] if take.get("raw") else None)))
+        take["research"] = True
+    except Exception as e:
+        print("[takes] could not write the research metadata:", e)
 
 
 def _joint_source_label(n_rows, rows_vision, rows_enc):
@@ -3245,7 +3621,7 @@ def sim_thread(hz=100.0):
         speed = 1.0
     dev = sim_device.SimDevice(body_priors(), speed=speed, emit=_sim_line)
     SIM_DEVICE = dev
-    print("[sim] line-level v16 device running (100 Hz S-lines, boot_id %d, 3 IMUs, "
+    print("[sim] line-level v17 device running (100 Hz S-lines, boot_id %d, 3 IMUs, "
           "12 joints, EMG, SD card)" % dev.boot_id)
     dev.write(b"v\nj\n")                    # the same handshake the serial thread sends
     dev.run()
@@ -3262,11 +3638,16 @@ def _sim_line(line):
 # S-line parsing (pure: a list of fields -> a frame dict)
 # ----------------------------------------------------------------------------
 V16_BASE = SEA_STATE_IDX + 1          # 121: fw_flags (MOTION_PIPELINE.md s.5)
+V17_BASE = V16_BASE + 19              # 140: t_us, qage x3, enc_us (MOTION_PIPELINE.md s.8)
 
 
 def parse_s_line(line):
     """Parse one `S,` line into a frame dict, or None if it is not a frame.
-    Every group is length-gated, so any firmware from v1 to v16 parses."""
+    Every group is length-gated, so any firmware from v1 to v17 parses.
+
+    fr["t_dev_us"] is the frame's device time in microseconds since boot:
+    t_us unwrapped across its 32-bit wrap (research.unwrap_us) on v17, else
+    t_ms * 1000. fr["timing"] carries the v17 tail or None."""
     p = line.split(",")
     # 1 tag + 1 t + 14 enc + 8 quat + 2 live = 26
     if len(p) < 26 or p[0] != "S":
@@ -3359,9 +3740,30 @@ def parse_s_line(line):
             if len(p) >= V16_BASE + 19:
                 v16["dv_n"] = {k: int(float(p[V16_BASE + 16 + i])) for i, k in enumerate(IMU_KEYS)}
         fr["v16"] = v16
+        # ---- v17: device timing (t_us, quaternion ages, encoder sweep) ----
+        timing = None
+        if len(p) >= V17_BASE + 5:
+            timing = {"t_us": int(float(p[V17_BASE])),
+                      "qage_us": {k: int(float(p[V17_BASE + 1 + i])) for i, k in enumerate(IMU_KEYS)},
+                      "enc_us": int(float(p[V17_BASE + 4]))}
+        fr["timing"] = timing
+        fr["t_dev_us"] = research.unwrap_us(fr["t"], timing["t_us"] if timing else None)
     except (ValueError, IndexError):
         return None
     return fr
+
+
+def imu_sample_times(fr):
+    """{imu: device seconds the orientation in this frame was sampled} (v17:
+    frame time - qage; a zero age means "no quaternion yet"), or {}."""
+    tm = fr.get("timing")
+    if not tm or fr.get("t_dev_us") is None:
+        return {}
+    out = {}
+    for k in IMU_KEYS:
+        a = tm["qage_us"].get(k)
+        out[k] = (fr["t_dev_us"] - a) / 1e6 if a and a > 0 else None
+    return out
 
 
 # ----------------------------------------------------------------------------
@@ -3539,7 +3941,7 @@ def _device_frame_meta(fr, now):
         if boot != DEVICE.get("boot_id"):
             _on_device_boot(boot, "first" if DEVICE.get("boot_id") is None else "device rebooted")
         fl = v16["flags"]
-        DEVICE.update(fw=max(16, _fw.get("version") or 16), flags=fl,
+        DEVICE.update(fw=max(17 if fr.get("timing") else 16, _fw.get("version") or 16), flags=fl,
                       sd_recording=bool(fl & 1), sd_present=bool(fl & 2), standby=bool(fl & 4),
                       host_link=bool(fl & 8), auto_record=bool(fl & 16),
                       neutral_running=bool(fl & 32), sd_take=v16["take"], sd_rows=v16["rows"])
@@ -3554,23 +3956,37 @@ def _device_frame_meta(fr, now):
         # pre-v16: no boot id, but the device clock starts again at every boot
         _on_device_boot(None, "device clock restarted (reboot)")
     DEVICE["last_t_ms"] = t
+    # the device clock in ms, at microsecond resolution on v17 (t_us)
+    td = fr["t_dev_us"] / 1000.0 if fr.get("t_dev_us") is not None else float(t)
     fp = _frame_rate["t_prev"]
-    if fp is not None and 0 < t - fp < 500:
+    if fp is not None and 0 < td - fp < 500:
         # average the PERIOD (not 1/period, which a jittery frame biases upward)
-        dtm = float(t - fp)
+        dtm = float(td - fp)
         _frame_rate["dt"] = dtm if _frame_rate.get("dt") is None else _frame_rate["dt"] + 0.02 * (dtm - _frame_rate["dt"])
         _frame_rate["hz"] = 1000.0 / _frame_rate["dt"]
-    _frame_rate["t_prev"] = t
+    _frame_rate["t_prev"] = td
+    # serial delivery jitter: receive time minus device time (the constant
+    # clock offset cancels against the window minimum in the snapshot)
+    LINK_STATS["rx_off"].append((now, now * 1000.0 - td))
 
 
-def _body_step(fr, hq, fq, tq, live_map):
-    """Advance the body model by one device frame (ingest thread only)."""
+def _body_step(fr, hq, fq, tq, live_map, raw_line=None, rx=None):
+    """Advance the body model by one device frame (ingest thread only).
+
+    While a take records, the raw sidecar gets this frame's S-line here, with
+    any change of the body neutral annotated around it in stream order (`#N,b`
+    before the frame for a change made between frames, `#N,a` after it for one
+    made inside the frame's update), so rederive.py can replay the take
+    exactly (research.RawWriter)."""
     while BODY_REQ:
         fn = BODY_REQ.popleft()
         try:
             fn(BODY)
         except Exception as e:
             print("[body] request failed:", e)
+    if raw_line is not None:
+        _raw_neutral_note("b", rx)
+        _raw_write(rx, raw_line)
     imu_full = fr.get("imu_full") or {}
     v16 = fr.get("v16") or {}
     dv = v16.get("dv") or {}
@@ -3579,7 +3995,8 @@ def _body_step(fr, hq, fq, tq, live_map):
     q = {"hand": hq if live_map["hand"] else None,
          "forearm": fq if live_map["forearm"] else None,
          "thumb": tq if live_map["thumb"] else None}
-    bf = {"t": fr["t"] / 1000.0, "q": q,
+    t_dev = fr["t_dev_us"] / 1e6 if fr.get("t_dev_us") is not None else fr["t"] / 1000.0
+    bf = {"t": t_dev, "q": q, "ts": imu_sample_times(fr),
           "gyr": {k: (imu_full.get(k) or {}).get("gyr") if live_map[k] else None for k in IMU_KEYS},
           "lin": {k: (imu_full.get(k) or {}).get("lin") if live_map[k] else None for k in IMU_KEYS},
           # a dv with zero integrated reports is "no data", not "no motion"
@@ -3587,6 +4004,8 @@ def _body_step(fr, hq, fq, tq, live_map):
           "dv_n": {k: dvn.get(k) for k in IMU_KEYS},
           "stab": {k: (stab.get(k) if stab.get(k) not in (None, 255) else None) for k in IMU_KEYS}}
     BODY.update(bf)
+    if raw_line is not None:
+        _raw_neutral_note("a", rx)
     for kind, res in BODY.pop_events():
         _body_event(kind, res)
     BODY_STATUS["status"] = BODY.status()
@@ -3785,7 +4204,7 @@ def handle_line(line):
         fr = parse_s_line(line)
         if fr is None:
             return None
-        ingest_frame(fr, now)
+        ingest_frame(fr, now, line)
         return fr
     if line.startswith("F,"):
         if SD is not None:
@@ -3826,6 +4245,9 @@ def handle_line(line):
                 print(f"[watch] device rejected face {fi}/{ci}")
         return None
     if line.startswith("E,"):
+        RAW_RING.append((now, line))
+        if ECO.get("raw") is not None:
+            _raw_write(now, line)
         ep = line.split(",")
         if len(ep) >= 2 and ep[1] in ("rec", "neutral", "standby"):
             _device_event(ep, line)
@@ -3840,9 +4262,20 @@ def handle_line(line):
     return None
 
 
-def ingest_frame(fr, now):
-    """Everything one device frame changes. Runs in the serial / sim thread."""
+def ingest_frame(fr, now, line=None):
+    """Everything one device frame changes. Runs in the serial / sim thread.
+    `line` is the S-line as received (kept in the take's raw sidecar)."""
     t = fr["t"]
+    if fr.get("t_dev_us") is None:
+        fr["t_dev_us"] = int(t) * 1000
+    with state_lock:
+        rec = state["recording"]
+    raw_line = None
+    if line is not None:
+        if rec and _raw_begin(now):
+            raw_line = line
+        else:
+            RAW_RING.append((now, line))
     _stale["cleared"] = False
     _device_frame_meta(fr, now)
     if SIM_MODE:
@@ -3872,18 +4305,21 @@ def ingest_frame(fr, now):
     il = [int(live_map["hand"]), int(live_map["forearm"])]
     act = run_activation(fr["emg_env"], fr["emg_present"])
     # Strapdown integration (legacy `inertial` block), on the firmware clock.
+    # Each IMU on its own sample clock (v17: frame time - qage), so a frame
+    # that re-reports an old sample integrates nothing.
     imu_full = fr["imu_full"]
     if imu_full:
-        t_s = t / 1000.0
+        t_s = fr["t_dev_us"] / 1e6
+        ts = imu_sample_times(fr)
         raw_q = {"hand": hq, "forearm": fq, "thumb": tq or [1.0, 0.0, 0.0, 0.0]}
         for sk in IMU_KEYS:
             if live_map[sk]:
                 d = imu_full[sk]
-                TRACKERS[sk].update(raw_q[sk], d["lin"], d["gyr"], t_s)
+                TRACKERS[sk].update(raw_q[sk], d["lin"], d["gyr"], ts.get(sk) if ts.get(sk) is not None else t_s)
             else:
                 TRACKERS[sk].t = None
     # the body model (the contract), then the legacy display derived from it
-    _body_step(fr, hq, fq, tq, live_map)
+    _body_step(fr, hq, fq, tq, live_map, raw_line, now)
     hq_d, fq_d, thumb = _legacy_imu_display(live_map)
     body = dict(BODY.body())
     body_rel = BODY.display_rel() if BODY.has_heading() else None
@@ -3891,8 +4327,14 @@ def ingest_frame(fr, now):
     derived = {"t": t, "joints": joints, "n_live": n_live, "encoders": encoders, "n_enc": n_enc,
                "hand_q": hq_d, "forearm_q": fq_d, "thumb": thumb, "body": body,
                "body_rel": body_rel, "tare": _tare_state}
+    # the fast pose lane: built here, the moment the frame is in, and handed
+    # to the event loop (never blocks this thread; latest-wins)
+    POSE_LANE["seq"] += 1
+    if POSE_LANE["clients"] > 0:
+        _pose_publish(fr, derived, now)
     with state_lock:
         state["imu_full"] = imu_full
+        state["timing"] = fr.get("timing")
         state["motors_fw"] = fr["motors_fw"]
         state["orientation_source"] = orientation_source
         state["t_ms"] = t
@@ -3917,11 +4359,30 @@ def ingest_frame(fr, now):
         _note_sample_locked()        # shared recording counters (all clients)
     update_joint_sweep(enc)          # ROM sweep: capture open/closed extremes
     if rec:
-        _record_frame(t, derived, act, imu_full, live_map)
+        _record_frame(t, derived, act, imu_full, live_map, fr=fr, sel=(hq, fq, tq), rx=now)
     return derived
 
 
-def _record_frame(t, derived, act, imu_full, live_map):
+def raw_cols(fr, sel, live_map, rx):
+    """The research.RAW_COLS cells of one frame: device timing, receive time,
+    the unfiltered encoder degrees as streamed (-1 absent) and the raw game
+    quaternions the pipeline used (None when that IMU was not live)."""
+    tm = fr.get("timing")
+    if tm:
+        qa = tm["qage_us"]
+        out = [tm["t_us"], qa.get("hand"), qa.get("forearm"), qa.get("thumb"), tm["enc_us"]]
+    else:
+        out = [None] * 5
+    out.append(round(rx * 1000.0, 1) if rx is not None else None)
+    enc = list(fr.get("enc") or [])[:N_CH]
+    enc += [-1.0] * (N_CH - len(enc))
+    out += [round(d, 2) if (d is not None and d >= 0.0) else -1.0 for d in enc]
+    for k, q in zip(IMU_KEYS, sel):
+        out += ([round(v, 6) for v in q] if (q is not None and live_map.get(k)) else [None] * 4)
+    return out
+
+
+def _record_frame(t, derived, act, imu_full, live_map, fr=None, sel=(None, None, None), rx=None):
     """One take row for this device frame (ROW_COLS order)."""
     now = time.time()
     with state_lock:
@@ -3953,7 +4414,17 @@ def _record_frame(t, derived, act, imu_full, live_map):
     else:
         row += [None] * 7
     row += BODY.take_cols()
-    _record_row(row, used_vision, used_enc, pose["env"] if (fresh and pose["env"]) else None)
+    row += raw_cols(fr or {"t": t}, sel, live_map, rx)
+    b = derived["body"]
+    qinfo = {"t_dev_us": (fr or {}).get("t_dev_us", int(t) * 1000),
+             "imu_live": live_map,
+             "enc_ok": [d is not None and d >= 0.0 for d in ((fr or {}).get("enc") or [])],
+             "cal": 2 if b.get("calibrated") else (1 if b.get("provisional") else 0),
+             "pos_src": "vision" if fresh else b.get("pos_source", "arm"),
+             "qage_us": ((fr or {}).get("timing") or {}).get("qage_us"),
+             "enc_us": ((fr or {}).get("timing") or {}).get("enc_us"),
+             "rx_ms": rx * 1000.0 if rx is not None else None}
+    _record_row(row, used_vision, used_enc, pose["env"] if (fresh and pose["env"]) else None, qinfo)
 
 
 def clear_stale_device_state(reason):
@@ -3965,6 +4436,7 @@ def clear_stale_device_state(reason):
         state["imu_live"] = [0, 0]
         state["thumb_live"] = False
         state["imu_full"] = None
+        state["timing"] = None
         state["motors_fw"] = None
         state["crown"] = None
         state["emg_present"] = False
@@ -4706,9 +5178,14 @@ def build_snapshot(hz):
         "mode": eco["mode"],
         "safety": "ok" if device_up else "fault",
         "blend": blend,
-        "link": {"device": device_up, "motors": motors_up, "clients": len(CLIENTS),
-                 "paused": "sd_transfer" if (sd_busy and not data_fresh) else None,
-                 "lan": LAN_IP, "port": WS_PORT},
+        "link": dict({"device": device_up, "motors": motors_up, "clients": len(CLIENTS),
+                      "paused": "sd_transfer" if (sd_busy and not data_fresh) else None,
+                      "lan": LAN_IP, "port": WS_PORT},
+                     # timing (MOTION_PIPELINE.md s.8): pose-lane latency (tx - rx,
+                     # median/p95 over 5 s), pose-lane + device frame rates,
+                     # serial delivery jitter, and the newest frame's IMU sample
+                     # ages / encoder sweep (v17; None before)
+                     **link_stats(now_w), **_timing_now(s.get("timing") if data_fresh else None)),
         "hand": hand, "forearm": forearm, "rel": rel, "world": world,
         "orientation_source": orientation_source,
         # the full BNO085 report set, and what it integrates to. Both are absent
@@ -5069,61 +5546,282 @@ class _OfflineJoints:
         return cols, oks
 
 
-def import_sd_take(text, name, take_id, progress=None):
+_SHORT = {"hand": "h", "forearm": "f", "thumb": "t"}
+
+
+def sd_row_frame(r, idx, boot=None):
+    """One SD take row (parsed floats, columns by name) -> the frame dict
+    parse_s_line() builds from an S-line, so an SD take and a live stream go
+    through ONE offline pipeline (OfflineDeriver)."""
+    def g(key):
+        i = idx.get(key)
+        return None if i is None else r[i]
+
+    def vec(keys):
+        v = [g(k) for k in keys]
+        return None if any(x is None for x in v) else v
+
+    t_ms = g("t_ms")
+    enc = [g("enc%02d" % ch) for ch in range(N_CH)]
+    enc = [(-1.0 if v is None else v) for v in enc]
+    fr = {"t": int(t_ms), "enc": enc,
+          "hq": vec(["h_qw", "h_qx", "h_qy", "h_qz"]) or [0.0, 0.0, 0.0, 0.0],
+          "fq": vec(["f_qw", "f_qx", "f_qy", "f_qz"]) or [0.0, 0.0, 0.0, 0.0],
+          "tq": vec(["t_qw", "t_qx", "t_qy", "t_qz"]),
+          "emg_env": g("emg_env") or 0.0, "emg_rms": g("emg_rms") or 0.0,
+          "emg_present": bool(g("emg_present")), "motors_fw": None}
+    live = {}
+    for k in IMU_KEYS:
+        lv = g(_SHORT[k] + "_live")
+        if lv is None:                        # pre-v16 file: v15 flags where they exist
+            lv = g("thumb_live") if k == "thumb" else 1.0
+        live[k] = bool(lv) and lv > 0.5
+    fr["il"] = [int(live["hand"]), int(live["forearm"])]
+    fr["thumb_live"] = live["thumb"] and fr["tq"] is not None
+    crown, crown_live = g("crown"), g("crown_live")
+    fr["crown_live"] = None if crown_live is None else crown_live == 1
+    fr["crown"] = (max(0.0, min(1.0, crown / 1000.0)) if (crown is not None and crown_live == 1) else None)
+    imu_full = None
+    if idx.get("hand_lax") is not None:
+        imu_full = {}
+        for k in IMU_KEYS:
+            n = k
+            imu_full[k] = {
+                "lin": vec(["%s_lax" % n, "%s_lay" % n, "%s_laz" % n]),
+                "acc": vec(["%s_ax" % n, "%s_ay" % n, "%s_az" % n]),
+                "gyr": vec(["%s_gx" % n, "%s_gy" % n, "%s_gz" % n]),
+                "mag": vec(["%s_mx" % n, "%s_my" % n, "%s_mz" % n]),
+                "grv": vec(["%s_grx" % n, "%s_gry" % n, "%s_grz" % n]),
+                "game": vec(["%s_gqw" % n, "%s_gqx" % n, "%s_gqy" % n, "%s_gqz" % n]),
+                "accuracy": {"acc": g("%s_cal_a" % n), "gyr": g("%s_cal_g" % n), "mag": g("%s_cal_m" % n)},
+                "rot_accuracy_rad": g("%s_rotacc" % n)}
+    fr["imu_full"] = imu_full
+    dv = {k: vec(["%s_dvx" % _SHORT[k], "%s_dvy" % _SHORT[k], "%s_dvz" % _SHORT[k]]) for k in IMU_KEYS}
+    stab = {}
+    for k in IMU_KEYS:
+        st = g("%s_stab" % _SHORT[k])
+        stab[k] = int(st) if st is not None else 255
+    fr["v16"] = {"flags": None, "take": None, "rows": None, "boot_id": boot,
+                 "dv": dv if any(v is not None for v in dv.values()) else None,
+                 "stab": stab, "dv_n": None}
+    timing = None
+    if g("t_us") is not None:
+        timing = {"t_us": int(g("t_us")),
+                  "qage_us": {k: int(g("%s_qage_us" % _SHORT[k]) or 0) for k in IMU_KEYS},
+                  "enc_us": int(g("enc_us") or 0)}
+    fr["timing"] = timing
+    fr["t_dev_us"] = research.unwrap_us(fr["t"], timing["t_us"] if timing else None)
+    return fr
+
+
+class OfflineDeriver:
+    """The live per-frame pipeline (encoders -> joints, IMU selection -> body
+    model -> legacy display -> strapdown trackers -> the take row + quality)
+    re-run on a recorded stream with its OWN state, so neither an SD import
+    nor a re-derivation touches the live bridge. Mirrors ingest_frame /
+    _record_frame column for column; what it cannot know offline is said so:
+    `act` is 0 (the EMG activation module is live-only), `blend` comes from
+    the crown when the device reports one (else 0.35), and the headset
+    columns are empty. Reads the calibration globals (encoder map and marks,
+    IMU config, wrist axis, arm lengths); rederive.py sets them from the
+    take's provenance first."""
+
+    def __init__(self, take_id, path=None, boot=None, nominal_hz=None, keep_rows=False):
+        self.bm = motion.BodyModel(body_priors(), cfg=dict(BODY_PERSIST.get("arm") or {}),
+                                   wrist_axis=BODY_PERSIST.get("wrist_axis"))
+        self.bm.set_boot(boot)
+        self.bm.auto_neutral = False
+        self.joints = _OfflineJoints()
+        self.trackers = {k: InertialTracker(k) for k in IMU_KEYS}
+        self.tare = self._tare_of(None)
+        self._neutral_ref = None
+        self.q = research.QualityAccumulator(nominal_hz=nominal_hz)
+        self.take_id = take_id
+        self.path = path
+        self.out = None
+        self.rows = [] if keep_rows else None
+        if path:
+            self.out = open(path + ".tmp", "w")
+            self.out.write('{"id":%s,"cols":%s,"rows":[\n' % (json.dumps(take_id), json.dumps(ROW_COLS)))
+        self.n = 0
+        self.last_t = None
+        self.t_first = None
+        self.spark = []
+        self.any_iner = False
+        self.any_enc = False
+        self.pip_i = list(JOINT2CH).index(WIRED_FINGER + "_pip")
+
+    @staticmethod
+    def _tare_of(q0):
+        out = {}
+        for k in IMU_KEYS:
+            q = q0.get(k) if q0 else None
+            tq = imu_cfg_apply(q, k) if q is not None else None
+            out[k] = quat_conj(_norm_quat(tq)) if (tq is not None and _valid_quat(tq)) else [1.0, 0.0, 0.0, 0.0]
+        return out
+
+    def set_neutral(self, t_s, q0, kind, provisional=False, spread=None):
+        res = self.bm.capture_neutral(t_end=t_s, kind=kind, q_avg=q0, provisional=provisional)
+        if res.get("ok") and spread is not None:
+            self.bm.neutral["spread"] = spread
+        return bool(res.get("ok"))
+
+    def frame(self, fr, rx=None, emit=True, before=None, after=None):
+        """One device frame. `before`/`after` run just before / after the body
+        model's update (neutral changes replayed in stream order). Returns the
+        row written, or None (pre-roll, duplicate)."""
+        t_ms = fr["t"]
+        if fr.get("t_dev_us") is None:
+            fr["t_dev_us"] = int(t_ms) * 1000
+        v16 = fr.get("v16") or {}
+        boot = v16.get("boot_id")
+        if boot is not None and boot != self.bm.boot_id:
+            self.bm.set_boot(boot)
+        if before is not None:
+            before()
+        il = fr["il"]
+        live_map = {"hand": bool(il[0]), "forearm": bool(il[1]), "thumb": bool(fr.get("thumb_live"))}
+        hq, fq, tq, _src = select_orientation_quats(fr["hq"], fr["fq"], fr.get("tq"), fr.get("imu_full"),
+                                                    live_map)
+        live_map = {"hand": live_map["hand"] and hq is not None,
+                    "forearm": live_map["forearm"] and fq is not None,
+                    "thumb": live_map["thumb"] and tq is not None}
+        imu_full = fr.get("imu_full") or {}
+        dv = v16.get("dv") or {}
+        dvn = v16.get("dv_n") or {}
+        stab = v16.get("stab") or {}
+        q = {"hand": hq if live_map["hand"] else None, "forearm": fq if live_map["forearm"] else None,
+             "thumb": tq if live_map["thumb"] else None}
+        t_dev = fr["t_dev_us"] / 1e6
+        ts = imu_sample_times(fr)
+        bf = {"t": t_dev, "q": q, "ts": ts,
+              "gyr": {k: (imu_full.get(k) or {}).get("gyr") if live_map[k] else None for k in IMU_KEYS},
+              "lin": {k: (imu_full.get(k) or {}).get("lin") if live_map[k] else None for k in IMU_KEYS},
+              "dv": {k: (dv.get(k) if (live_map[k] and dvn.get(k, 1) != 0) else None) for k in IMU_KEYS},
+              "dv_n": {k: dvn.get(k) for k in IMU_KEYS},
+              "stab": {k: (stab.get(k) if stab.get(k) not in (None, 255) else None) for k in IMU_KEYS}}
+        bm = self.bm
+        bm.update(bf)
+        if after is not None:
+            after()
+        bm.pop_events()
+        if bm.neutral is not self._neutral_ref:
+            self._neutral_ref = bm.neutral
+            self.tare = self._tare_of(bm.neutral["q0"] if bm.neutral else None)
+        # encoders: the live filter + map, own state (warmed by the pre-roll too)
+        cols, oks = self.joints(fr["enc"], t_ms)
+        # legacy strapdown trackers, each IMU on its own sample clock
+        if fr.get("imu_full"):
+            for k in IMU_KEYS:
+                if live_map[k] and imu_full.get(k) and imu_full[k].get("lin") and imu_full[k].get("gyr"):
+                    qk = {"hand": hq, "forearm": fq, "thumb": tq or [1.0, 0.0, 0.0, 0.0]}[k]
+                    self.trackers[k].update(qk, imu_full[k]["lin"], imu_full[k]["gyr"],
+                                            ts.get(k) if ts.get(k) is not None else t_dev)
+                else:
+                    self.trackers[k].t = None
+        if not emit:
+            return None
+        if self.last_t is not None and t_ms <= self.last_t:
+            self.q.dup += 1
+            return None
+        self.last_t = t_ms
+        if self.t_first is None:
+            self.t_first = t_ms
+            if fr.get("timing"):
+                self.q.clock = "t_us"
+            self.q.set_neutral(research.neutral_info(bm.neutral, t_dev))
+        self.any_enc = self.any_enc or any(oks)
+        disp = {}
+        for k in IMU_KEYS:
+            qr = bm.raw[k] or [1.0, 0.0, 0.0, 0.0]
+            d = quat_mul(self.tare[k], imu_cfg_apply(qr, k))
+            disp[k] = quat_flip_sense(quat_gain(d, IMU_CFG[k]["gain"]), IMU_CFG[k]["flip"])
+        th_rel = ([round(v, 4) for v in quat_mul(quat_conj(disp["hand"]), disp["thumb"])]
+                  if (live_map["thumb"] and bm.raw["thumb"] is not None) else [0, 0, 0, 0])
+        crown = fr.get("crown")
+        blend = crown if crown is not None else 0.35
+        iner = [None] * 7
+        if fr.get("imu_full") and live_map["hand"] and live_map["forearm"]:
+            hp, fp = self.trackers["hand"].p, self.trackers["forearm"].p
+            conf = min(self.trackers["hand"].confidence(), self.trackers["forearm"].confidence())
+            iner = [round(hp[0] * 1000, 1), round(hp[1] * 1000, 1), round(hp[2] * 1000, 1),
+                    round(fp[0] * 1000, 1), round(fp[1] * 1000, 1), round(fp[2] * 1000, 1), round(conf, 2)]
+            self.any_iner = True
+        row = ([int(t_ms)] + cols + [round(v, 4) for v in disp["hand"]]
+               + [round(v, 4) for v in disp["forearm"]] + th_rel
+               + [round(blend, 3), 0.0] + [None] * 7 + [None] * 3 + iner + bm.take_cols()
+               + raw_cols(fr, (hq, fq, tq), live_map, rx))
+        b = bm.body()
+        tm = fr.get("timing") or {}
+        self.q.add(fr["t_dev_us"], imu_live=live_map,
+                   enc_ok=[d is not None and d >= 0.0 for d in fr["enc"]],
+                   cal=2 if b["calibrated"] else (1 if b["provisional"] else 0),
+                   pos_src=b.get("pos_source", "arm"), qage_us=tm.get("qage_us"),
+                   enc_us=tm.get("enc_us"), rx_ms=(rx * 1000.0 if rx is not None else None))
+        if self.out is not None:
+            self.out.write((",\n" if self.n else "") + json.dumps(row, separators=(",", ":")))
+        if self.rows is not None:
+            self.rows.append(row)
+        self.n += 1
+        if self.n % 5 == 0:
+            self.spark.append(max(0.0, min(1.0, (cols[self.pip_i] - FLEX_OPEN) / (FLEX_CLOSED - FLEX_OPEN)))
+                              if oks[self.pip_i] else 0.0)
+        return row
+
+    def finish(self):
+        if self.out is not None:
+            self.out.write("\n]}")
+            self.out.close()
+            os.replace(self.path + ".tmp", self.path)
+            self.out = None
+        return {"rows": self.n, "quality": self.q.finish(), "spark": _downsample(self.spark),
+                "any_iner": self.any_iner, "any_enc": self.any_enc,
+                "duration_s": ((self.last_t or 0) - (self.t_first or 0)) / 1000.0}
+
+    def abort(self):
+        if self.out is not None:
+            try:
+                self.out.close()
+                os.remove(self.path + ".tmp")
+            except OSError:
+                pass
+            self.out = None
+
+
+def import_sd_take(text, name, take_id, progress=None, out_path=None, raw_keep=True, want_prov=False):
     # `text`: the file as a string, or its lines (what SdClient.get returns)
     """Run one SD take file through the SAME pipeline as live data - encoder
     calibration, a FRESH BodyModel (its own neutral, trackers, inertial state),
-    the legacy display and the take-row builder - and write it as a normal
-    take. Nothing here reads or writes the live state beyond the (read-only)
-    calibration constants. Worker thread."""
+    the legacy display and the take-row builder (OfflineDeriver) - and write
+    it as a normal take, with its quality and provenance. The card file is
+    kept as the take's raw stream (`.sd.csv.gz`). Nothing here reads or
+    writes the live state beyond the (read-only) calibration constants.
+    Worker thread."""
     parsed = sdcard.parse_take_csv(text)
     idx, raw_rows = parsed["idx"], parsed["rows"]
     if not raw_rows:
         raise sdcard.SdError("the take has no rows")
     meta = parsed["meta"]
     ncols = len(parsed["cols"])
+    try:
+        boot = int(meta.get("boot")) if meta.get("boot") is not None else None
+    except ValueError:
+        boot = None
+    try:
+        fw = int(meta.get("fw")) if meta.get("fw") is not None else None
+    except ValueError:
+        fw = None
+    try:
+        nominal = float(meta["rate_hz"]) if meta.get("rate_hz") else None
+    except ValueError:
+        nominal = None
 
     def rows_iter(step=1):
         for line in raw_rows[::step]:
             yield sdcard.parse_row(line, ncols)
 
-    def g(r, key):
-        i = idx.get(key)
-        return None if i is None else r[i]
-
-    def vec(r, keys):
-        v = [g(r, k) for k in keys]
-        return None if any(x is None for x in v) else v
-
-    short = {"hand": "h", "forearm": "f", "thumb": "t"}
-    live_col = {"hand": "h_live", "forearm": "f_live", "thumb": "t_live"}
-    try:
-        boot = int(meta.get("boot")) if meta.get("boot") is not None else None
-    except ValueError:
-        boot = None
-
-    def frame_of(r):
-        fr = {"t": g(r, "t_ms") / 1000.0, "q": {}, "gyr": {}, "lin": {}, "dv": {}, "stab": {}}
-        for k in IMU_KEYS:
-            n = k
-            lv = g(r, live_col[k])
-            if lv is None:                        # pre-v16 file: v15 flags where they exist
-                lv = g(r, "thumb_live") if k == "thumb" else 1.0
-            live = bool(lv) and lv > 0.5
-            q = vec(r, ["%s_gqw" % n, "%s_gqx" % n, "%s_gqy" % n, "%s_gqz" % n])
-            if q is None or motion.valid_quat(q) is None:
-                s = short[k]
-                q = vec(r, ["%s_qw" % s, "%s_qx" % s, "%s_qy" % s, "%s_qz" % s])
-            fr["q"][k] = q if (live and motion.valid_quat(q) is not None) else None
-            fr["gyr"][k] = vec(r, ["%s_gx" % n, "%s_gy" % n, "%s_gz" % n]) if live else None
-            fr["lin"][k] = vec(r, ["%s_lax" % n, "%s_lay" % n, "%s_laz" % n]) if live else None
-            s = short[k]
-            fr["dv"][k] = vec(r, ["%s_dvx" % s, "%s_dvy" % s, "%s_dvz" % s]) if live else None
-            st = g(r, "%s_stab" % s)
-            fr["stab"][k] = int(st) if (st is not None and st != 255) else None
-        return fr
-
-    thumb_seen = any(bool(g(r, "t_live")) for r in rows_iter(max(1, len(raw_rows) // 200)))
+    ti = idx.get("t_live")
+    thumb_seen = ti is not None and any(bool(r[ti]) for r in rows_iter(max(1, len(raw_rows) // 200)))
     # ---- neutrals: header > inline events > this bridge's neutral for that boot
     neutrals = []
     if parsed["neutral"]:
@@ -5141,118 +5839,68 @@ def import_sd_take(text, name, take_id, progress=None):
             q["thumb"] = None
         neutrals[i] = (t_n, q, src)
 
-    def make_model():
-        bm = motion.BodyModel(body_priors(), cfg=dict(BODY_PERSIST.get("arm") or {}),
-                              wrist_axis=BODY_PERSIST.get("wrist_axis"))
-        bm.set_boot(boot)
-        return bm
-
     provisional = None
     if not neutrals:
         # no neutral anywhere: the first 1.5 s still window of the take, used
         # retroactively for the whole take and flagged provisional
-        probe = make_model()
+        probe = OfflineDeriver(take_id, None, boot=boot)
+        probe.bm.auto_neutral = True
         for r in rows_iter():
-            if g(r, "t_ms") is None:
+            if r[idx["t_ms"]] is None:
                 continue
-            probe.update(frame_of(r))
-            if probe.neutral is not None:
-                provisional = (probe.neutral["t"], probe.neutral["q0"])
+            probe.frame(sd_row_frame(r, idx, boot), emit=False)
+            if probe.bm.neutral is not None:
+                provisional = (probe.bm.neutral["t"], probe.bm.neutral["q0"])
                 break
-    bm = make_model()
-    bm.auto_neutral = False
+
+    path = out_path or _take_data_path(take_id)
+    d = OfflineDeriver(take_id, path, boot=boot, nominal_hz=nominal)
     applied = {"src": "none", "i": 0}
 
     def apply(t_n, q, src, prov=False):
-        res = bm.capture_neutral(t_end=t_n / 1000.0, kind="sd-" + src, q_avg=q, provisional=prov)
-        if res.get("ok"):
+        if d.set_neutral(t_n / 1000.0, q, "sd-" + src, provisional=prov):
             applied["src"] = src
-        return res.get("ok")
+            return True
+        return False
 
     if neutrals:
         apply(*neutrals[0])
         applied["i"] = 1
     elif provisional:
         apply(provisional[0] * 1000.0, provisional[1], "auto", prov=True)
-
-    def tare_of(q0):
-        out = {}
-        for k in IMU_KEYS:
-            q = q0.get(k) if q0 else None
-            tq = imu_cfg_apply(q, k) if q is not None else None
-            out[k] = quat_conj(_norm_quat(tq)) if (tq is not None and _valid_quat(tq)) else [1.0, 0.0, 0.0, 0.0]
-        return out
-    tare = tare_of(bm.neutral["q0"] if bm.neutral else None)
-    joints = _OfflineJoints()
-    trackers = {k: InertialTracker(k) for k in IMU_KEYS}
-    enc_names = ["enc%02d" % ch for ch in range(N_CH)]
-    path = _take_data_path(take_id)
-    tmp = path + ".tmp"
-    n_out, last_t, spark, t_first, any_iner, any_enc = 0, None, [], None, False, False
-    pip_i = list(JOINT2CH).index(WIRED_FINGER + "_pip")
-    with open(tmp, "w") as out:
-        out.write('{"id":%s,"cols":%s,"rows":[' % (json.dumps(take_id), json.dumps(ROW_COLS)))
+    t_i = idx["t_ms"]
+    try:
         for ri, r in enumerate(rows_iter()):
-            t_ms = g(r, "t_ms")
-            if t_ms is None or (last_t is not None and t_ms <= last_t):
-                continue                            # never duplicate a t_ms
-            last_t = t_ms
-            if t_first is None:
-                t_first = t_ms
+            t_ms = r[t_i]
+            if t_ms is None:
+                continue
             while applied["i"] < len(neutrals) and neutrals[applied["i"]][0] <= t_ms:
-                if apply(*neutrals[applied["i"]]):
-                    tare = tare_of(bm.neutral["q0"])
+                apply(*neutrals[applied["i"]])
                 applied["i"] += 1
-            fr = frame_of(r)
-            bm.update(fr)
-            bm.pop_events()
-            cols, oks = joints([g(r, n) for n in enc_names], t_ms)
-            any_enc = any_enc or any(oks)
-            # legacy display quats relative to the neutral's raw averages
-            disp = {}
-            for k in IMU_KEYS:
-                q = bm.raw[k] or [1.0, 0.0, 0.0, 0.0]
-                d = quat_mul(tare[k], imu_cfg_apply(q, k))
-                disp[k] = quat_flip_sense(quat_gain(d, IMU_CFG[k]["gain"]), IMU_CFG[k]["flip"])
-            th_rel = (quat_mul(quat_conj(disp["hand"]), disp["thumb"]) if bm.live["thumb"]
-                      else [0, 0, 0, 0])
-            crown, crown_live = g(r, "crown"), g(r, "crown_live")
-            blend = (max(0.0, min(1.0, crown / 1000.0)) if (crown is not None and crown_live == 1)
-                     else 0.35)
-            iner = [None] * 7
-            if bm.live["hand"] and bm.live["forearm"] and fr["lin"]["hand"] and fr["lin"]["forearm"]:
-                for k in ("hand", "forearm"):
-                    trackers[k].update(bm.raw[k], fr["lin"][k], fr["gyr"][k] or [0.0, 0.0, 0.0],
-                                       t_ms / 1000.0)
-                hp, fp = trackers["hand"].p, trackers["forearm"].p
-                conf = min(trackers["hand"].confidence(), trackers["forearm"].confidence())
-                iner = [round(hp[0] * 1000, 1), round(hp[1] * 1000, 1), round(hp[2] * 1000, 1),
-                        round(fp[0] * 1000, 1), round(fp[1] * 1000, 1), round(fp[2] * 1000, 1),
-                        round(conf, 2)]
-                any_iner = True
-            row = ([int(t_ms)] + cols + [round(v, 4) for v in disp["hand"]]
-                   + [round(v, 4) for v in disp["forearm"]] + [round(v, 4) for v in th_rel]
-                   + [round(blend, 3), 0.0] + [None] * 7 + [None] * 3 + iner + bm.take_cols())
-            out.write(("," if n_out else "") + json.dumps(row, separators=(",", ":")))
-            n_out += 1
-            if n_out % 5 == 0:
-                spark.append(max(0.0, min(1.0, (cols[pip_i] - FLEX_OPEN) / (FLEX_CLOSED - FLEX_OPEN)))
-                             if oks[pip_i] else 0.0)
+            d.frame(sd_row_frame(r, idx, boot), rx=None)
             if progress and ri % 1000 == 0:
                 progress(ri / max(1, len(raw_rows)))
-        out.write("]}")
-    os.replace(tmp, path)
-    dur = ((last_t or 0) - (t_first or 0)) / 1000.0
+        res = d.finish()
+    except Exception:
+        d.abort()
+        raise
     src = applied["src"]
+    quality = res["quality"]
+    if parsed["warnings"]:
+        quality["warnings"] = len(parsed["warnings"])
+    prov = provenance("sd", fw=fw, boot_id=boot)
+    prov["sd"] = {"name": name, "recorded_by": meta.get("source"), "format": meta.get("format"),
+                  "columns": len(parsed["cols"]), "end": parsed.get("end")}
     take = {
         "id": take_id, "profile": "SD card", "task": "SD take %s" % (meta.get("take") or name),
-        "created_ms": int(time.time() * 1000), "duration_s": round(dur, 1),
-        "samples": n_out, "rows": n_out, "quality": "good" if not parsed["warnings"] else "partial",
-        "spark": _downsample(spark), "has_data": True, "traj": False,
-        "traj_inertial": any_iner, "body": True,
-        "joint_source": ("sim" if SIM_MODE else ("encoders" if any_enc else "none")),
+        "created_ms": int(time.time() * 1000), "duration_s": round(res["duration_s"], 1),
+        "samples": res["rows"], "rows": res["rows"], "quality": quality,
+        "spark": res["spark"], "has_data": True, "traj": False,
+        "traj_inertial": res["any_iner"], "body": True,
+        "joint_source": ("sim" if SIM_MODE else ("encoders" if res["any_enc"] else "none")),
         "source": "sd", "sd_name": name, "sd_take": int(meta["take"]) if str(meta.get("take", "")).isdigit() else None,
-        "boot_id": boot, "rate_hz": int(float(meta["rate_hz"])) if meta.get("rate_hz") else None,
+        "boot_id": boot, "fw": fw, "bridge_version": BRIDGE_VERSION,
+        "rate_hz": quality.get("rate_hz") or (int(float(meta["rate_hz"])) if meta.get("rate_hz") else None),
         "recorded_by": meta.get("source"),
         # where the body neutral came from: header / event (the device's own
         # capture), boot (this bridge's capture for that power-up), auto
@@ -5264,9 +5912,99 @@ def import_sd_take(text, name, take_id, progress=None):
     }
     if parsed["warnings"]:
         take["warnings"] = parsed["warnings"][:10]
+    if raw_keep and out_path is None:
+        # the card file itself is this take's raw device stream
+        try:
+            rp = _raw_path(take_id, ".sd.csv.gz")
+            with gzip.open(rp, "wt", compresslevel=6, encoding="utf-8", newline="\n") as f:
+                for ln in (text.splitlines() if isinstance(text, str) else text):
+                    f.write(ln + "\n")
+            take["raw"] = {"file": take_id + ".sd.csv.gz", "bytes": os.path.getsize(rp),
+                           "lines": len(raw_rows), "format": "takto take v1 (SD card CSV)"}
+        except Exception as e:
+            print("[sd] could not keep the card file:", e)
+    if out_path is None:
+        _write_research_meta(take, prov, quality)
     if progress:
         progress(1.0)
-    return take
+    return (take, prov) if want_prov else take
+
+
+def derive_raw_take(lines, take_id, out_path, progress=None):
+    """Re-derive a live take from its raw sidecar (research.RawWriter) with
+    the offline pipeline: the pre-roll warms the filters, the model state of
+    the first row is restored, and every neutral change is replayed where it
+    happened in the stream. Returns (take meta, provenance). The caller has
+    applied the provenance (rederive.py) or accepts the current calibration."""
+    rs = research.RawStream(lines)
+    meta = rs.meta or {}
+    prov = meta.get("provenance") or {}
+    boot = meta.get("boot_id")
+    d = OfflineDeriver(take_id, out_path, boot=boot, nominal_hz=meta.get("nominal_hz"))
+    n0 = meta.get("neutral")
+    if n0 and n0.get("q0"):
+        d.set_neutral(n0["t"], n0["q0"], n0.get("kind") or "restored", bool(n0.get("provisional")),
+                      spread=n0.get("spread"))
+    preroll = int(meta.get("preroll") or 0)
+    pending = []
+    n_s = 0
+    it = rs.items()
+    nxt = next(it, None)
+    try:
+        while nxt is not None:
+            rx, line = nxt
+            nxt = next(it, None)
+            if line.startswith("#N"):
+                nl = research.parse_neutral_line(line)
+                if nl is not None:
+                    pending.append(nl)       # an orphan "a" is applied like a "b"
+                continue
+            if not line.startswith("S,"):
+                continue
+            fr = parse_s_line(line)
+            if fr is None:
+                continue
+            posts = []
+            while nxt is not None and nxt[1].startswith("#N,a"):
+                nl = research.parse_neutral_line(nxt[1])
+                if nl is not None:
+                    posts.append(nl)
+                nxt = next(it, None)
+            first = n_s == preroll
+            is_pre = n_s < preroll
+            n_s += 1
+            if first and meta.get("state0"):
+                d.bm.import_state(meta["state0"])
+                for k, st in (meta["state0"].get("trackers") or {}).items():
+                    if k in d.trackers:
+                        d.trackers[k].import_state(st)
+            pend, pending = pending, []
+
+            def before(pend=pend):
+                for nl in pend:
+                    d.set_neutral(nl["t"], nl["q0"], nl["kind"], nl["provisional"])
+
+            def after(posts=posts):
+                for nl in posts:
+                    d.set_neutral(nl["t"], nl["q0"], nl["kind"], nl["provisional"])
+            d.frame(fr, rx=rx / 1000.0, emit=not is_pre, before=before if pend else None,
+                    after=after if posts else None)
+            if progress and n_s % 1000 == 0:
+                progress(n_s)
+        res = d.finish()
+    except Exception:
+        d.abort()
+        raise
+    q = res["quality"]
+    if not rs.complete:
+        q["truncated"] = True
+    take = {"id": take_id, "source": "rederived", "rows": res["rows"], "samples": res["rows"],
+            "duration_s": round(res["duration_s"], 1), "quality": q, "spark": res["spark"],
+            "has_data": True, "body": True, "traj_inertial": res["any_iner"],
+            "boot_id": boot, "fw": prov.get("fw"), "bridge_version": BRIDGE_VERSION,
+            "rederived_from": {"take": meta.get("take"), "bridge_version": prov.get("bridge_version"),
+                               "git": prov.get("git")}}
+    return take, prov
 
 
 # ============================================================================
@@ -5314,6 +6052,18 @@ class ClientSession:
         self.outbox = deque(maxlen=64)      # reliable messages (acks, takes)
         self.latest = None                  # latest-wins snapshot text
         self.wake = asyncio.Event()
+        # the fast pose lane (opt-in): a latest-wins slot, like the snapshot
+        self.pose = False
+        self.pose_text = None               # pose JSON without its closing brace
+        self.pose_rx = 0.0
+        self.pose_sent = 0
+        self.pose_dropped = 0               # superseded before the socket took them
+        # bulk transfers (take_file): a SMALL bounded queue the producer awaits
+        # on, drained one chunk per writer pass so poses/snaps interleave
+        self.bulk = asyncio.Queue(maxsize=4)
+        self.bulk_busy = False
+        self.bulk_next = 0.0
+        self.bulk_timer = None
         try:
             self.remote = "%s:%s" % ws.remote_address[:2]
         except Exception:
@@ -5325,6 +6075,13 @@ class ClientSession:
 
     def offer_snap(self, text):
         self.latest = text
+        self.wake.set()
+
+    def offer_pose(self, text, rx):
+        if self.pose_text is not None:
+            self.pose_dropped += 1
+        self.pose_text = text
+        self.pose_rx = rx
         self.wake.set()
 
 
@@ -5350,11 +6107,143 @@ async def _client_writer(c):
             c.wake.clear()
             while c.outbox:
                 await c.ws.send(c.outbox.popleft())
+            if c.pose_text is not None:
+                text, rx = c.pose_text, c.pose_rx
+                c.pose_text = None
+                tx = time.time()
+                await c.ws.send(text + ',"tx":%.1f}' % (tx * 1000.0))
+                c.pose_sent += 1
+                _pose_sent(tx, rx)
             if c.latest is not None:
                 text, c.latest = c.latest, None
                 await c.ws.send(text)
+            if not c.bulk.empty():
+                # paced: one chunk per BULK_GAP_S while this client rides the
+                # pose lane, so a 40 MB export never parks the twin's poses
+                # behind megabytes of socket buffer (~10 MB/s; ~40 MB/s otherwise)
+                now = time.monotonic()
+                if now >= c.bulk_next:
+                    await c.ws.send(c.bulk.get_nowait())
+                    c.bulk_next = time.monotonic() + (BULK_GAP_S if c.pose else BULK_GAP_S / 4)
+                if not c.bulk.empty() and (c.bulk_timer is None or c.bulk_timer.cancelled()
+                                           or c.bulk_timer.when() < asyncio.get_running_loop().time()):
+                    c.bulk_timer = asyncio.get_running_loop().call_later(
+                        max(0.0, c.bulk_next - time.monotonic()), c.wake.set)
     except Exception:
         pass          # connection closed; the reader side tears the client down
+
+
+def _pose_clients_recount():
+    POSE_LANE["clients"] = sum(1 for c in list(CLIENTS) if c.pose)
+
+
+# ---- take files (research export) ---------------------------------------------
+TAKE_FILE_CHUNK = 192 * 1024        # raw bytes per message (256 KiB of base64)
+BULK_GAP_S = 0.02                   # min interval between chunks to a pose-lane client
+
+
+def _take_csv_file(take_id):
+    """Generate the research take.csv (SI units) to a temp file; returns its path."""
+    src = _take_data_path(take_id)
+    cols, rows, _hdr = research.iter_take_rows(src)
+    out = os.path.join(STATE_DIR, ".sensoryhand_takedata_%s.csv.partial" % take_id)
+    with open(out, "w", newline="") as f:
+        research.write_research_csv(cols, rows, f)
+    return out
+
+
+def _take_meta_bytes(take_id):
+    tmeta = next((t for t in takes if t.get("id") == take_id), None)
+    try:
+        with open(_meta_path(take_id)) as f:
+            d = json.load(f)
+        if tmeta:                              # labels may have been re-read since
+            d["take"] = {k: v for k, v in tmeta.items() if k != "spark"}
+    except (OSError, ValueError):
+        if tmeta is None:
+            raise FileNotFoundError(take_id)
+        # a take recorded before research metadata existed: say what is known
+        raw = _take_raw_file(take_id)
+        d = research.take_json(tmeta, provenance=None, quality=tmeta.get("quality"),
+                               raw_name=os.path.basename(raw) if raw else None)
+        d["note"] = "recorded before provenance was kept; provenance unknown"
+    # names inside the research package (the web zips take.csv, take.json and
+    # the raw stream into one folder per take)
+    raw = _take_raw_file(take_id)
+    d["files"] = {"csv": "take.csv", "json": "take.json",
+                  "raw": ("take.raw.txt.gz" if raw.endswith(".raw.txt.gz") else "take.sd.csv.gz") if raw else None}
+    return json.dumps(d, indent=1).encode()
+
+
+async def take_file_send(c, take_id, what):
+    """Stream one take file to one client as base64 chunks through its bounded
+    bulk queue: constant memory for any size, poses and snapshots keep
+    flowing between chunks, and a vanished client ends the transfer."""
+    if not re.fullmatch(r"take_\d{1,6}", take_id or ""):
+        _ack(c, event="error", cmd="take_file", id=take_id, what=what, error="bad take id")
+        return
+    if what not in ("raw", "meta", "csv"):
+        _ack(c, event="error", cmd="take_file", id=take_id, what=what, error="what: raw | meta | csv")
+        return
+    if c.bulk_busy:
+        _ack(c, event="error", cmd="take_file", id=take_id, what=what,
+             error="a take file transfer to this client is already running")
+        return
+    c.bulk_busy = True
+    tmp = None
+    try:
+        if what == "raw":
+            path = _take_raw_file(take_id)
+            if path is None:
+                raise FileNotFoundError("this take has no raw stream (recorded before v17 research takes)")
+            name = take_id + (".raw.txt.gz" if path.endswith(".raw.txt.gz") else ".sd.csv.gz")
+            mime = "application/gzip"
+        elif what == "csv":
+            if not os.path.exists(_take_data_path(take_id)):
+                raise FileNotFoundError("no rows for this take")
+            tmp = path = await asyncio.to_thread(_take_csv_file, take_id)
+            name, mime = take_id + ".csv", "text/csv"
+        else:
+            data = await asyncio.to_thread(_take_meta_bytes, take_id)
+            tmp = path = os.path.join(STATE_DIR, ".sensoryhand_takedata_%s.json.partial" % take_id)
+            with open(path, "wb") as f:
+                f.write(data)
+            name, mime = take_id + ".json", "application/json"
+        total = os.path.getsize(path)
+        import base64
+        with open(path, "rb") as f:
+            seq = 0
+            sent = 0
+            while True:
+                buf = f.read(TAKE_FILE_CHUNK)
+                sent += len(buf)
+                last = sent >= total or not buf
+                msg = ('{"kind":"take_file","id":%s,"what":%s,"name":%s,"mime":%s,"bytes":%d,'
+                       '"seq":%d,"last":%s,"data":"%s"}' % (json.dumps(take_id), json.dumps(what),
+                                                         json.dumps(name), json.dumps(mime), total, seq,
+                                                         "true" if last else "false",
+                                                         base64.b64encode(buf).decode("ascii")))
+                if c not in CLIENTS:
+                    return
+                await asyncio.wait_for(c.bulk.put(msg), timeout=30.0)
+                if c.bulk.qsize() == 1:
+                    c.wake.set()
+                seq += 1
+                if last:
+                    break
+    except FileNotFoundError as e:
+        _ack(c, event="error", cmd="take_file", id=take_id, what=what, error=str(e) or "not found")
+    except asyncio.TimeoutError:
+        print("[ws] take_file %s/%s to client #%d stalled; abandoned" % (take_id, what, c.n))
+    except Exception as e:
+        _ack(c, event="error", cmd="take_file", id=take_id, what=what, error=str(e))
+    finally:
+        c.bulk_busy = False
+        if tmp:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 async def _broadcast_loop():
@@ -6073,6 +6962,18 @@ def handle_command(c, raw):
                 return
         _ack(c, event="enc_map", ok=True, map=enc_map_public())
         return
+    if name == "stream":          # opt in/out of the fast pose lane (MOTION_PIPELINE.md s.8)
+        if "pose" in cmd:
+            c.pose = bool(cmd.get("pose"))
+            _pose_clients_recount()
+        _ack(c, event="stream", pose=c.pose, hz=_nominal_hz())
+        return
+
+    if name == "take_file":       # research export: raw stream / take.json / take.csv, chunked
+        asyncio.get_running_loop().create_task(
+            take_file_send(c, str(cmd.get("id") or ""), str(cmd.get("what") or "")))
+        return
+
     if name == "take_data":       # replay rows of a sealed take, private
         take_id = str(cmd.get("id") or "")
         try:
@@ -6132,6 +7033,7 @@ async def ws_handler(ws, *args):
     finally:
         writer.cancel()
         CLIENTS.discard(c)
+        _pose_clients_recount()
         print(f"[ws] client #{c.n} disconnected ({len(CLIENTS)} online)")
 
 

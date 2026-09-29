@@ -108,7 +108,7 @@ async def scenario(port):
                      what="provisional neutral")
         b = c.snap["body"]
         assert b["frame"] == "body_yup_v1" and b["calibrated"] is False and b["live"] is True
-        assert c.snap["device"]["fw"] == 16 and c.snap["device"]["boot_id"]
+        assert c.snap["device"]["fw"] == 17 and c.snap["device"]["boot_id"]
         assert c.snap["rel"]["source"] == "body"
 
         # 2. the wrist moves (the sim choreography is running)
@@ -178,6 +178,10 @@ async def scenario(port):
         assert ev["neutral_dropped"] is True
         await c.next(lambda m: m.get("kind") == "snap" and m["device"]["boot_id"] == ev["boot_id"],
                      what="snap after reboot")
+        # the device block is read live while the body block is the last
+        # ingested frame's: one tick later they describe the same boot
+        await c.next(lambda m: m.get("kind") == "snap", what="next snap")
+        await c.next(lambda m: m.get("kind") == "snap", what="next snap")
         assert c.snap["body"]["calibrated"] is False
 
 

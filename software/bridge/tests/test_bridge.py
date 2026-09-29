@@ -30,7 +30,7 @@ def make_dev(seed=1):
 
 
 def sline(dev, t_s, dt=0.01):
-    fr = dev.sensors.frame(t_s, dt)
+    fr = dev.frame_at(t_s, dt)
     return dev._sline(int(round(t_s * 1000)), fr, t_s), fr
 
 
@@ -42,8 +42,14 @@ def test_parse_v16_v15_v6_lines():
     dev.streaming = True
     line, fr = sline(dev, 1.0)
     p = line.split(",")
-    assert len(p) == 140                                   # 0..139 per the contract
-    v16 = tb.parse_s_line(line)
+    assert len(p) == 145                                   # 0..144 per the contract (v17)
+    v17 = tb.parse_s_line(line)
+    assert v17["timing"]["t_us"] == 1000000
+    assert v17["timing"]["qage_us"] == fr["qage_us"]
+    assert 1800 <= v17["timing"]["enc_us"] <= 3200
+    assert v17["t_dev_us"] == 1000000
+    v16 = tb.parse_s_line(",".join(p[:140]))
+    assert v16["timing"] is None and v16["t_dev_us"] == 1000000
     assert v16["t"] == 1000
     assert v16["v16"]["boot_id"] == dev.boot_id
     assert v16["v16"]["flags"] & 2                         # SD present
@@ -195,8 +201,8 @@ def test_rows_once_per_device_frame(fresh_bridge):
     data = json.load(open(tb._take_data_path(take_id)))
     ts = [r[0] for r in data["rows"]]
     assert len(ts) == len(set(ts)) == len(frames)             # one row per device frame
-    assert data["cols"][-15:] == motion.B_COLS
-    assert len(data["cols"]) == len(data["rows"][0]) == 59
+    assert data["cols"][59 - 15:59] == motion.B_COLS
+    assert len(data["cols"]) == len(data["rows"][0]) == len(tb.ROW_COLS) == 91
     assert take["rows"] == len(frames) and take["body"] is True
     assert not os.path.exists(tb._spool_path(take_id))
     cal = data["cols"].index("b_cal")
@@ -341,7 +347,7 @@ def test_sd_import_offline_matches_truth(monkeypatch, device_neutral):
     text = "\n".join(dev.files["TAKES/TK00077.CSV"]) + "\n"
     parsed = sdcard.parse_take_csv(text)
     assert parsed["cols"] == sdcard.SD_COLUMNS and len(parsed["rows"]) == 1000
-    assert len(sdcard.parse_row(parsed["rows"][0], len(parsed["cols"]))) == 124
+    assert len(sdcard.parse_row(parsed["rows"][0], len(parsed["cols"]))) == 129
     assert (parsed["neutral"] is None) == device_neutral
     body_before = dict(tb.state.get("derived") or {})
     take = tb.import_sd_take(text, "TAKES/TK00077.CSV", "take_7777")

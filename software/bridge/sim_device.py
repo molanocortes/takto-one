@@ -1,10 +1,13 @@
 """
-sim_device.py - a line-level TAKTO ONE (firmware v16) for `teensy_bridge.py --sim`.
+sim_device.py - a line-level TAKTO ONE (firmware v17) for `teensy_bridge.py --sim`.
 
 It is a fake DEVICE, not a fake bridge state: it produces exactly the text the
-real Teensy prints - v16 `S,` lines at 100 Hz (raw game quaternions with a
+real Teensy prints - v17 `S,` lines at 100 Hz (raw game quaternions with a
 random per-boot heading reference, mounting rotations, gyro, gravity-free
-acceleration, preintegrated dv, stability classes, boot id, SD flags), `E,`
+acceleration, preintegrated dv, stability classes, boot id, SD flags, and the
+v17 timing tail: t_us, the age of each IMU's quaternion, the encoder sweep
+time; every IMU is sampled on its own report clock, see
+motion_synth.SampledSensors), `E,`
 events (neutral countdown/hold/done, SD record start/stop) and the `F,`
 protocol over an in-memory SD card - and the bridge parses them with the same
 code it uses on hardware. Commands the bridge writes (`v`, `j`, `b`, `e`, `N`,
@@ -31,7 +34,7 @@ from sdcard import SD_COLUMNS, crc32_hex
 
 N_CH = 14
 SIM_ENC_BIAS = 180.0
-FW_VERSION = 16
+FW_VERSION = 17
 RATE_HZ = 100.0
 SPLAY = [9.0, 2.5, -4.0, -10.0]
 
@@ -48,9 +51,12 @@ def _pose_lerp(a, b, w):
 
 
 class SimDevice:
-    def __init__(self, priors, seed=None, speed=1.0, emit=None, preload=True):
+    def __init__(self, priors, seed=None, speed=1.0, emit=None, preload=True, t_offset_s=0.0):
         self.rng = random.Random(seed)
         self.speed = speed
+        # device clock at power-up (s); tests start it just before the 32-bit
+        # micros() wrap (71.58 min) to exercise the host's unwrap
+        self.t_offset_s = float(t_offset_s)
         self.emit = emit or (lambda line: None)
         self.boot()
         self.cmd_q = deque()
@@ -81,6 +87,8 @@ class SimDevice:
         self.arm = ms.Arm()
         self.sensors = ms.Sensors(self.arm, self._pose, mount, heading,
                                   seed=rng.randint(0, 10 ** 6), noise=True)
+        self.sampler = ms.SampledSensors(self.sensors, seed=rng.randint(0, 10 ** 6))
+        self.enc_rng = random.Random(rng.randint(0, 10 ** 6))
 
     def reboot(self):
         """Simulated power cycle: new boot id, new heading references. A take
@@ -88,14 +96,39 @@ class SimDevice:
         the host link stays open, so streaming resumes (the bridge would
         re-send 'j' after 3 s of silence anyway)."""
         self.rec = None
+        self.t_offset_s = 0.0
         self.boot()
         self.streaming = True
         self._make_arm()
         self.emit("# boot_id %u  auto-record %s  SD present" % (self.boot_id, "on" if self.auto_record else "off"))
 
     # ------------------------------------------------------------------
+    def now_s(self):
+        return (time.time() - self.t0) * self.speed + self.t_offset_s
+
     def now_ms(self):
-        return int((time.time() - self.t0) * 1000.0 * self.speed)
+        return int(self.now_s() * 1000.0)
+
+    # ---- v17 timing -------------------------------------------------------
+    def frame_at(self, t, dt):
+        """The device frame at device time t (s): every IMU at its own latest
+        report, plus the v17 timing block."""
+        fr = self.sampler.frame(t, dt)
+        fr["timing"] = self._timing(t, fr.get("qage_us"))
+        return fr
+
+    def _timing(self, t, qage=None):
+        # a 12-channel AS5600 sweep over the I2C muxes: ~2..3 ms
+        enc_us = int(max(1800, min(3200, self.enc_rng.gauss(2450, 180))))
+        return {"t_us": int(round(t * 1e6)) & 0xFFFFFFFF,
+                "qage_us": dict(qage) if qage else {k: 1000 for k in ms.KEYS},
+                "enc_us": enc_us}
+
+    def _timing_fields(self, fr, t):
+        tm = fr.get("timing") or self._timing(t, fr.get("qage_us"))
+        qa = tm["qage_us"]
+        return [str(tm["t_us"]), str(qa.get("hand") or 0), str(qa.get("forearm") or 0),
+                str(qa.get("thumb") or 0), str(tm["enc_us"])]
 
     def _pose(self, t):
         base = ms.demo_loop(t)
@@ -280,6 +313,7 @@ class SimDevice:
         heading = {k: rng.uniform(-math.pi, math.pi) for k in ms.KEYS}
         sens = ms.Sensors(ms.Arm(), lambda t: pose_fn(t) if t >= 3.0 else ms.Pose(), mount,
                           heading, seed=take, noise=True)
+        sampler = ms.SampledSensors(sens, seed=take + 1)
         lines = ["# takto take v1",
                  "# fw=%d boot=%u take=%u source=device rate_hz=100 start_ms=5000" % (FW_VERSION, boot, take)]
         # the neutral: the hold is the first 3 s (the wearer holds the pose)
@@ -292,8 +326,9 @@ class SimDevice:
         n = int(dur / dt)
         for i in range(n):
             t = (i + 1) * dt
-            fr = sens.frame(t, dt)
+            fr = sampler.frame(t, dt)
             t_ms = 5000 + int(round(t * 1000))
+            fr["timing"] = self._timing(t_ms / 1000.0, fr.get("qage_us"))
             lines.append(self._row(t_ms, fr, t))
             if device_neutral and i == 0:
                 lines.append("#E,%d,neutral,start" % t_ms)
@@ -349,6 +384,7 @@ class SimDevice:
         for k in ms.KEYS:
             f += [fmt(v, 5) for v in fr["dv"][k]]
         f += [str(fr["stab"][k]) for k in ms.KEYS]
+        f += self._timing_fields(fr, t)                                  # v17
         return ",".join(f)
 
     def _sline(self, t_ms, fr, t):
@@ -369,6 +405,7 @@ class SimDevice:
             f += [fmt(v, 5) for v in fr["dv"][k]]
         f += [str(fr["stab"][k]) for k in ms.KEYS]
         f += [str(fr["dv_n"][k]) for k in ms.KEYS]
+        f += self._timing_fields(fr, t)                                  # v17: 140..144
         return ",".join(f)
 
     # ---- the device loop ----------------------------------------------------
@@ -376,9 +413,10 @@ class SimDevice:
         period = 1.0 / RATE_HZ
         self.emit("# boot_id %u  auto-record %s  SD present" % (self.boot_id, "on" if self.auto_record else "off"))
         next_t = time.time()
-        last_ms = None
+        last_t = None
         while stop is None or not stop.is_set():
-            t_ms = self.now_ms()
+            t_s = self.now_s()
+            t_ms = int(t_s * 1000.0)
             self._commands(t_ms)
             if self.transfer is not None:
                 # a file transfer blocks the device loop: no S lines, no rows
@@ -389,11 +427,11 @@ class SimDevice:
                 if not self.transfer:
                     self.transfer = None
             else:
-                t = t_ms / 1000.0
-                if last_ms is None or t_ms > last_ms:
-                    dt = 0.01 if last_ms is None else (t_ms - last_ms) / 1000.0
-                    last_ms = t_ms
-                    fr = self.sensors.frame(t, dt)
+                t = t_s
+                if last_t is None or t_ms > int(last_t * 1000.0):
+                    dt = 0.01 if last_t is None else (t - last_t)
+                    last_t = t
+                    fr = self.frame_at(t, dt)
                     self._neutral_step(t_ms, fr)
                     if self.rec is not None:
                         self.rec["lines"].append(self._row(t_ms, fr, t))

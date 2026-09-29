@@ -418,6 +418,9 @@ export function mountImu(rootHost) {
     const confFill = el("div", { class: "imu-conf-fill" });
     const confVal = el("span", { class: "imu-val imu-dim" }, "--");
     const still = el("span", { class: "imu-badge stale" }, "--");
+    // live timing (MOTION_PIPELINE.md s.8): how the twin is fed and how old it is
+    const timing = el("span", { class: "imu-val imu-dim", style: "font-size:11px" }, "--");
+    let timingAt = 0;
     const pos = el("div", { class: "imu-vec" });
     const cells = {};
     for (const k of ["elbow", "wrist", "hand"]) {
@@ -432,6 +435,10 @@ export function mountImu(rootHost) {
       el("div", { class: "imu-row" }, el("span", { class: "imu-lbl" }, "Neutral"), since),
       el("div", { class: "imu-row" }, el("span", { class: "imu-lbl" }, "Inertial"),
         el("div", { class: "imu-conf" }, confFill), confVal, still),
+      el("div", { class: "imu-row", title: "Pose lane: 100 Hz twin updates straight from the bridge's ingest thread. " +
+        "Latency p50/p95: inside the bridge (S-line received -> sent) and bridge -> this page (same-machine clock). " +
+        "IMU age: how old each orientation was when the device stamped the frame." },
+        el("span", { class: "imu-lbl" }, "Timing"), timing),
       el("p", { class: "imu-note", style: "margin:10px 0 2px" }, "positions in the body frame, cm (shoulder origin, +Y up, +Z forward, +X left)"),
       pos);
     const card = el("div", { class: "imu-card", style: "margin:0 0 14px" },
@@ -445,6 +452,22 @@ export function mountImu(rootHost) {
       absent.style.display = b ? "none" : "";
       content.style.display = b ? "" : "none";
       if (!b) { state.textContent = "not sent"; state.className = "imu-badge stale"; return; }
+      const nowT = performance.now();
+      if (nowT - timingAt > 250) {
+        timingAt = nowT;
+        const lt = store.linkTiming();
+        const f = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : "–");
+        const parts = [];
+        if (lt.active) {
+          parts.push(`pose lane ${f(lt.hz, 0)} Hz`);
+          const br = lt.bridgeReported || (lt.bridge && { median: lt.bridge.p50, p95: lt.bridge.p95 });
+          if (br) parts.push(`bridge ${f(br.median, 2)}/${f(br.p95, 2)} ms`);
+          if (lt.page) parts.push(`to page ${f(lt.page.p50)}/${f(lt.page.p95)} ms`);
+        } else parts.push(`snapshot ${s.link && s.link.device ? "60" : "–"} Hz (no pose lane)`);
+        if (Number.isFinite(lt.frameHz)) parts.push(`device ${f(lt.frameHz, 0)} Hz`);
+        if (lt.imuAge) parts.push(`IMU age ${f(lt.imuAge.hand)}/${f(lt.imuAge.forearm)} ms`);
+        timing.textContent = parts.join(" · ");
+      }
       state.textContent = b.calibrated ? "calibrated" : b.provisional ? "provisional" : "no neutral";
       state.className = "imu-badge " + (b.calibrated ? "live" : "mock");
       const w = b.wrist_deg || {};

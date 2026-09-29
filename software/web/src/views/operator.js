@@ -270,8 +270,12 @@ export function mountOperator(rootHost) {
   const rowSd = el("div", { class: "vital-row", title: "Device SD card (the archival copy of every take)" },
     dotSd, el("span", { class: "vital-k" }, "sd card"), vSd);
   rowSd.style.display = "none";
+  // device row: the device's own frame rate; hover for the timing detail
+  // (pose lane rate, latency inside the bridge and to this page, IMU ages)
+  const rowDevice = el("div", { class: "vital-row", title: "Device link" },
+    dotDevice, el("span", { class: "vital-k" }, "device"), vDevice);
   const linkDots = el("div", { class: "vital-rows" },
-    el("div", { class: "vital-row" }, dotDevice, el("span", { class: "vital-k" }, "device"), vDevice),
+    rowDevice,
     el("div", { class: "vital-row" }, dotMotors, el("span", { class: "vital-k" }, "motors"), vMotors),
     rowSd);
   const vLink = el("div", { class: "card vital" }, el("div", { class: "kicker" }, "Link"), linkDots);
@@ -645,7 +649,21 @@ export function mountOperator(rootHost) {
     dotDevice.className = "dot " + (s.link?.device ? "ok" : "stop");
     dotMotors.className = "dot " + (s.link?.motors ? "ok" : "stop");
     const linkH = (s.health || []).find((x) => x.stream === "link");
-    if (linkH) vDevice.textContent = `${linkH.rate_hz} Hz`;
+    const lt = store.linkTiming();
+    const f1 = (v) => (Number.isFinite(v) ? v.toFixed(1) : "–");
+    if (s.link?.device && Number.isFinite(lt.frameHz)) vDevice.textContent = `${Math.round(lt.frameHz)} Hz`;
+    else if (linkH) vDevice.textContent = `${linkH.rate_hz} Hz`;
+    const tip = [`device frames ${f1(lt.frameHz)} Hz · snapshot ${linkH ? linkH.rate_hz : "–"} Hz`];
+    if (lt.active) {
+      tip.push(`twin: pose lane ${f1(lt.hz)} Hz` + (lt.missed ? ` (${lt.missed} frames not seen)` : ""));
+      const br = lt.bridgeReported || (lt.bridge && { median: lt.bridge.p50, p95: lt.bridge.p95 });
+      const f2 = (v) => (Number.isFinite(v) ? v.toFixed(2) : "–");
+      if (br) tip.push(`inside the bridge ${f2(br.median)} / ${f2(br.p95)} ms (p50 / p95)`);
+      if (lt.page) tip.push(`bridge to this page ${f1(lt.page.p50)} / ${f1(lt.page.p95)} ms`);
+    } else tip.push(lt.requested ? "twin: 60 Hz snapshot (no pose lane on this bridge)" : "twin: 60 Hz snapshot (?pose=0)");
+    if (lt.serialJitter) tip.push(`serial jitter ${f1(lt.serialJitter.median)} / ${f1(lt.serialJitter.p95)} ms`);
+    if (lt.imuAge) tip.push(`IMU sample age hand ${f1(lt.imuAge.hand)} · forearm ${f1(lt.imuAge.forearm)} ms`);
+    rowDevice.title = tip.join("\n");
     vMotors.textContent = String((s.motors || []).length);
     const dev = s.device;
     rowSd.style.display = dev ? "" : "none";
