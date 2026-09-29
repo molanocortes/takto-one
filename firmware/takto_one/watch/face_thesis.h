@@ -63,7 +63,9 @@ public:
       // submitted Thesis geometry, with the panel-safe refined sweep; state
       // detail remains in the dedicated operator/calibration/capture screens.
       case FS_IDLE:       scConnecting(ms); break;
-      case FS_STANDALONE: scConnecting(ms); scHint(s.hint); break;
+      // standalone speaks through the diamond's centre node, never a caption:
+      // accent = ready to capture on the card, coral lamp = no card
+      case FS_STANDALONE: scConnecting(ms, s.hint); break;
       case FS_FAULT:      scHome(ms, s.imuOk, s.encOk, s.emgOk, s.motOk, s.link); break;
       case FS_TELEOP:     scTransparent(s.emg); break;
       case FS_RECORDING:  scCapture(ms, s.capSec); break;
@@ -177,7 +179,7 @@ private:
       bx += bw + gap;
     }
   }
-  void scConnecting(uint32_t ms) {
+  void scConnecting(uint32_t ms, uint8_t hint = 0) {
     // The physical panel receives this at 16.7 Hz.  A full degree per sample
     // displaced the tip ~1.7 px at r=98 and read as a series of jumps.  At
     // 0.6 degree/sample it advances ~1 px per displayed frame: visibly alive,
@@ -195,7 +197,14 @@ private:
     wgfx::aaDisc(wgfx::SCX+42, wgfx::SCY, 6.5f, P.saph, 3);
     wgfx::aaDisc(wgfx::SCX, wgfx::SCY+42, 6.5f, P.saph, 3);
     wgfx::aaDisc(wgfx::SCX-42, wgfx::SCY, 6.5f, P.saph, 3);
-    wgfx::aaDisc(wgfx::SCX, wgfx::SCY, 9, P.saph, 3.0f);
+    if (hint == 1) {                          // ready: the centre node lights in accent
+      wgfx::aaDisc(wgfx::SCX, wgfx::SCY, 9, P.acc, 5.0f);
+    } else if (hint == 2) {                   // no card: the fault-lamp vocabulary
+      wgfx::aaDisc(wgfx::SCX, wgfx::SCY, 9, P.coral, 3.0f);
+      wgfx::aaDisc(wgfx::SCX, wgfx::SCY, 5, P.maroon, 0);
+    } else {
+      wgfx::aaDisc(wgfx::SCX, wgfx::SCY, 9, P.saph, 3.0f);
+    }
   }
   void scHome(uint32_t ms, bool imu, bool enc, bool emg, bool mot, bool lnk) {
     bool healthy = imu && enc && lnk;
@@ -233,19 +242,12 @@ private:
     uint8_t ph = (ms / 180) % 6;
     wgfx::aaDisc(wgfx::SCX - 62, wgfx::SCY, 8, P.acc, 7.0f + 2.0f * (ph < 3 ? ph : 6 - ph));
     char buf[16];
-    if (sec < 6000) {                               // MM:SS up to 99:59 in the big face
-      snprintf(buf, sizeof buf, "%02ld:%02ld", sec/60, sec%60);
-      wgfx::aaText(&FreeSansBold24pt7b, buf, wgfx::SCX + 12, wgfx::SCY, P.text);
-    } else {                                        // long takes: H:MM:SS, smaller, same place
-      if (sec > 359999L) sec = 359999L;
-      snprintf(buf, sizeof buf, "%ld:%02ld:%02ld", sec/3600, (sec/60)%60, sec%60);
-      wgfx::aaText(&FreeSansBold12pt7b, buf, wgfx::SCX + 14, wgfx::SCY, P.text);
+    if (sec < 6000) snprintf(buf, sizeof buf, "%02ld:%02ld", sec/60, sec%60);   // MM:SS to 99:59
+    else {                                          // long takes: H:MM in the same big face;
+      if (sec > 359999L) sec = 359999L;             // the ring keeps sweeping the seconds
+      snprintf(buf, sizeof buf, "%ld:%02ld", sec/3600, (sec/60)%60);
     }
-  }
-  // standalone caption under the idle arc: what the wearer can do right now
-  void scHint(uint8_t hint) {
-    if (hint == 1) wgfx::aaText(&FreeSans9pt7b, "PRESS TO RECORD", wgfx::SCX, wgfx::SCY + 72, P.dim);
-    else if (hint == 2) wgfx::aaText(&FreeSans9pt7b, "NO SD CARD", wgfx::SCX, wgfx::SCY + 72, P.coral);
+    wgfx::aaText(&FreeSansBold24pt7b, buf, wgfx::SCX + 12, wgfx::SCY, P.text);
   }
   // kind 1: the neutral pose capture the IMU twin is calibrated from.
   //   progress 0..0.6 = 3-2-1 countdown, 0.6..1 = the hold itself.
@@ -253,16 +255,19 @@ private:
   void scCalibrate(float p, uint8_t kind) {
     if (!(p >= 0.0f)) p = 0.0f;
     if (p > 1.0f) p = 1.0f;
+    // same grammar as the range page ("Open / then close"): one word or
+    // numeral, one quiet companion word beneath it
     if (kind == 1) {
-      if (p < 0.6f) {
+      if (p < 0.6f) {                               // 3-2-1: the gold ring closes
         uiRingArc(p / 0.6f, P.gold, P.goldDim, P.gold, 1.5f);
         char buf[4]; snprintf(buf, sizeof buf, "%d", 3 - (int)(p / 0.2f));
-        wgfx::aaText(&FreeSansBold24pt7b, buf, wgfx::SCX, wgfx::SCY - 6, P.text);
-      } else {
+        wgfx::aaText(&FreeSansBold24pt7b, buf, wgfx::SCX, wgfx::SCY - 10, P.text);
+        wgfx::aaText(&FreeSans9pt7b, "palm down", wgfx::SCX, wgfx::SCY + 26, P.dim);
+      } else {                                      // the hold: the sapphire ring fills
         uiRingArc((p - 0.6f) / 0.4f, P.saph, P.saphDim, P.acc, 5.0f);
-        wgfx::aaText(&FreeSansBold12pt7b, "Hold still", wgfx::SCX, wgfx::SCY - 8, P.text);
+        wgfx::aaText(&FreeSansBold12pt7b, "Hold", wgfx::SCX, wgfx::SCY - 12, P.text);
+        wgfx::aaText(&FreeSans9pt7b, "still", wgfx::SCX, wgfx::SCY + 18, P.dim);
       }
-      wgfx::aaText(&FreeSans9pt7b, "palm down, wrist straight", wgfx::SCX, wgfx::SCY + 30, P.dim);
     } else {
       uiRingArc(p, P.gold, P.goldDim, P.gold, 5.0f);
       wgfx::aaText(&FreeSansBold12pt7b, "Open", wgfx::SCX, wgfx::SCY - 12, P.text);
