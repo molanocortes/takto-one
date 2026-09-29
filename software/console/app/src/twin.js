@@ -950,17 +950,22 @@ export class Twin {
       if (!this._armZoomManual && frameNow >= this._autoFrameNext) {
         this._autoFrameNext = frameNow + 100;
         const i = this._armInfo, f = this._follow;
-        let r = 0;
+        // room-fixed: frame the arm's reach envelope (forward, down and to the
+        // side of the shoulder: 0.62 m around the aim), never the current pose,
+        // so the distance does not breathe with the motion either
+        let r = this.opts.armFollow ? 0 : 0.62 * ARM_S;
         const reach = (p, pad) => {
           const NW = NEUTRAL_WRIST_M;
           const dx = (p[0] - NW[0]) * ARM_S - f.x, dy = (p[1] - NW[1]) * ARM_S - f.y, dz = (p[2] - NW[2]) * ARM_S - f.z;
           r = Math.max(r, Math.hypot(dx, dy, dz) + pad * ARM_S);
         };
+        if (this.opts.armFollow) {
         reach(i.hand, 0.06);
         reach(i.tip, 0.04);
         reach(i.wrist, 0.05);
         reach(i.elbow, 0.05);
         reach(i.shoulder.map((v, k) => (v + i.elbow[k]) / 2), 0.03);
+        }
         const fv = this._freeView();
         const d = fitSphereDistance(r, fv.fov, fv.aspect,
           { margin: 1.14, min: 6.5, max: 22, fallback: this._tdist });
@@ -1138,9 +1143,18 @@ export class Twin {
     // shoulder so the limb reads; the fingertips sit ~0.1 m past the palm centre
     const vT = this._vT || (this._vT = new THREE.Vector3());
     vT.subVectors(vH, vW).multiplyScalar(1.6).add(vH);
+    // [2026-09-29] ROOM-FIXED aim by default: halfway between the shoulder and
+    // the neutral wrist (the scene origin). A camera that follows the hand
+    // cancels exactly the translation this stage exists to show - the hand
+    // stayed centred and only the grid slid. opts.armFollow keeps the old
+    // hand-following aim for close-up work.
     const focus = this._vF || (this._vF = new THREE.Vector3());
-    focus.set(0, 0, 0).addScaledVector(vS, 0.1).addScaledVector(vE, 0.15)
-      .addScaledVector(vH, 0.35).addScaledVector(vT, 0.4);
+    if (this.opts.armFollow) {
+      focus.set(0, 0, 0).addScaledVector(vS, 0.1).addScaledVector(vE, 0.15)
+        .addScaledVector(vH, 0.35).addScaledVector(vT, 0.4);
+    } else {
+      focus.copy(vS).multiplyScalar(0.5);
+    }
     this._grid.position.set(focus.x, gy, focus.z);
     this._matGrid.uniforms.uCenter.value.set(vH.x, vH.z);
     this._matGrid.uniforms.uOpacity.value = (dark ? 0.2 : 0.22) * k;

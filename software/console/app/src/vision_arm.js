@@ -25,11 +25,24 @@ export function buildVisionArm(cleanups) {
   video.muted = true;
   const cv = el("canvas", { class: "va-cv" });
   const status = el("span", { class: "va-status mono" }, "camera off");
+  // the bridge's verdict: is the twin actually using the camera?
+  const verdict = el("div", { class: "va-verdict mono" }, "");
   const sideBtn = el("button", { type: "button", class: "va-side", title: "Which arm wears the device" }, "");
   const closeBtn = el("button", { type: "button", class: "va-close", title: "Turn the camera off" }, "✕");
   const node = el("div", { class: "va-pip lg", hidden: "" },
     el("div", { class: "va-frame" }, video, cv),
-    el("div", { class: "va-row" }, status, sideBtn, closeBtn));
+    el("div", { class: "va-row" }, status, sideBtn, closeBtn), verdict);
+  cleanups.push(store.onSnap((s) => {
+    if (!on) return;
+    const q = (s.body && s.body.quality) || {};
+    let txt, cls;
+    if (!s.body) { txt = "twin: no body model on this bridge"; cls = "bad"; }
+    else if (q.vision) { txt = `twin: moving with the camera · elevation ${Math.round(q.elevation_deg ?? 0)}°`; cls = "ok"; }
+    else if (!q.vision_rx) { txt = "twin: bridge has received nothing yet"; cls = "bad"; }
+    else if (q.vision_conf != null && q.vision_conf < 0.5) { txt = `twin: ignored, ${side} arm only ${Math.round(q.vision_conf * 100)} % visible`; cls = "warn"; }
+    else { txt = "twin: camera samples stale"; cls = "warn"; }
+    if (verdict.textContent !== txt) { verdict.textContent = txt; verdict.className = "va-verdict mono " + cls; }
+  }));
   const button = el("button", { type: "button", class: "op-dock-btn",
     title: "Camera: track the upper arm with the webcam (moves the twin through space)" },
     svg("svg", { viewBox: "0 0 16 16", width: 15, height: 15 },

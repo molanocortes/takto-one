@@ -661,6 +661,8 @@ class BodyModel:
         self._out = None
         self._fc_reset()
         self._vis = None             # last camera sample {"t","u","conf","f"}
+        self._vis_rx = 0             # camera samples received (diagnostics)
+        self._vis_conf = None        # the last one's visibility
         self.vision_yaw = 0.0        # camera-body frame -> body frame, about up (rad)
         self._vis_yaw_n = 0
         self.events = []             # (kind, payload) for the owner to broadcast
@@ -1165,6 +1167,8 @@ class BodyModel:
             conf = float(conf)
         except (TypeError, ValueError):
             return False
+        self._vis_rx += 1
+        self._vis_conf = conf
         cb = lambda v: [v[0], -v[1], -v[2]]
         ua = vnorm(cb(vsub(e_, s_)), None)
         fa = vnorm(cb(vsub(w_, e_)), None)
@@ -1312,6 +1316,10 @@ class BodyModel:
                 "heading_bleed_deg": round(math.degrees(self.bleed_psi), 2),
                 "elevation_deg": round(math.degrees(vangle(self.u, DOWN)), 1),
                 "vision": self.vision_fresh(),
+                "vision_rx": self._vis_rx,
+                "vision_conf": None if self._vis_conf is None else round(self._vis_conf, 2),
+                "vision_age_s": (None if not self._vis or self.t is None
+                                 else round(self.t - self._vis["t"], 2)),
                 "vision_yaw_deg": round(math.degrees(self.vision_yaw), 1),
             },
         }

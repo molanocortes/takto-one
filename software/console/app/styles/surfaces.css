@@ -676,6 +676,10 @@ a.wordmark:hover { opacity: 0.72; }
 .va-side, .va-close { border: 1px solid var(--lg-line); background: var(--lg-fill-2); color: var(--text-1);
   border-radius: 999px; font: 600 10px/1 var(--font-ui); padding: 4px 8px; cursor: pointer; }
 .va-side:hover, .va-close:hover { color: var(--accent); }
+.va-verdict { font-size: 9.5px; letter-spacing: 0.04em; padding: 0 6px 3px; color: var(--text-2); }
+.va-verdict.ok { color: var(--ok); }
+.va-verdict.warn { color: var(--sim); }
+.va-verdict.bad { color: var(--stop); }
 /* the calibration prompt sits under the bar, centred over the twin */
 .op-full .cp-v-stage { top: 80px; left: var(--free-cx, 50%); }
 .op-full .cp-v-stage.collapsed { left: auto; right: 12px; top: 80px; transform: none; }
