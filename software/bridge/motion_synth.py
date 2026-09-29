@@ -46,12 +46,14 @@ class Pose:
     sagittal plane), shoulder abduction, humeral internal rotation, elbow
     flexion (0 = straight), pronation (0 = palm down at the neutral), wrist
     flexion (+ palm-ward), wrist deviation (+ radial)."""
-    __slots__ = ("sh_flex", "sh_abd", "sh_rot", "elbow", "pro", "wflex", "wdev")
+    __slots__ = ("sh_flex", "sh_abd", "sh_rot", "elbow", "pro", "wflex", "wdev", "shift")
 
     def __init__(self, sh_flex=0.0, sh_abd=0.0, sh_rot=0.0, elbow=math.pi / 2, pro=0.0,
-                 wflex=0.0, wdev=0.0):
+                 wflex=0.0, wdev=0.0, shift=None):
         self.sh_flex, self.sh_abd, self.sh_rot = sh_flex, sh_abd, sh_rot
         self.elbow, self.pro, self.wflex, self.wdev = elbow, pro, wflex, wdev
+        # translation of the whole arm (torso / shoulder girdle), m, body frame
+        self.shift = list(shift) if shift is not None else [0.0, 0.0, 0.0]
 
 
 class Arm:
@@ -82,8 +84,9 @@ class Arm:
         h_imu = vadd(wrist, qrot(q_h, self.hand_imu))
         t_imu = vadd(wrist, qrot(q_h, self.thumb_imu))
         palm = vadd(wrist, qrot(q_h, [0.0, 0.010, 0.055]))
-        return {"elbow": elbow, "wrist": wrist, "palm": palm,
-                "forearm": f_imu, "hand": h_imu, "thumb": t_imu}
+        pts = {"shoulder": [0.0, 0.0, 0.0], "elbow": elbow, "wrist": wrist, "palm": palm,
+               "forearm": f_imu, "hand": h_imu, "thumb": t_imu}
+        return {k: vadd(v, p.shift) for k, v in pts.items()}
 
 
 # ----------------------------------------------------------------------------
@@ -128,6 +131,26 @@ def shoulder_motion(t):
 
 def still(t):
     return Pose()
+
+
+def lift_moves(t):
+    """The whole arm translated with its pose unchanged (up, down, forward,
+    sideways; 1-2 s moves with pauses) - invisible to orientation, only the
+    accelerometers see it - then the same pose ROTATED in place, which must
+    not produce a translation."""
+    p = Pose()
+    s = [0.0, 0.0, 0.0]
+    up = smooth01((t - 3.0) / 1.2) - smooth01((t - 6.0) / 1.2)          # +20 cm, hold, back
+    fwd = smooth01((t - 8.5) / 1.0) - smooth01((t - 11.0) / 1.5)        # +15 cm forward
+    side = smooth01((t - 13.0) / 1.4) - smooth01((t - 16.0) / 1.2)      # 12 cm to the left
+    s[1] += 0.20 * up
+    s[2] += 0.15 * fwd
+    s[0] += 0.12 * side
+    p.shift = s
+    r = bump(t, 18.5, 24.0, ramp=0.8)                                   # rotate in place
+    p.elbow = D(90) + r * D(30) * math.sin(1.6 * (t - 18.5))
+    p.pro = r * D(40) * math.sin(1.1 * (t - 18.5))
+    return p
 
 
 def demo_loop(t):

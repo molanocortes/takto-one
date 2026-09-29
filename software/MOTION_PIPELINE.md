@@ -170,6 +170,29 @@ hand   = wrist + Q_hand * [0, 0.01, 0.055]       palm centre, for the AR
   applied sample as a `#V` line in the raw sidecar, so re-derivation replays
   it. Synthetic check (tests/test_motion.py, 3 cm landmark noise, camera 20 deg
   off-axis): shoulder-reach wrist error 8.8 -> 2.1 cm mean, 20.5 -> 6.8 cm worst.
+- **Translation from the two IMUs** (default on, `cfg.translation`; 2026-09-29).
+  A free translation `d` of the whole arm is added to the jointed-arm model:
+  each IMU's gravity-free acceleration minus the acceleration the model's own
+  rotations imply at that point (from the gyros: `w x lever`, one difference,
+  never twice-differentiated orientations) is what no orientation can show -
+  a lift, a reach from the torso. Noise handling:
+  per-sensor accelerometer bias and noise are learned at every rest (sensor
+  frame); the two IMUs are fused by inverse measured variance; the gate is
+  `k x measured noise` with a horizontal floor that grows with the rotation
+  rate (the BNO085 fusion's tilt leak is horizontal to first order, so up/down
+  is the best-measured direction) and passes real motion unshaved; zero-
+  velocity updates at rests that last long enough for the preceding speed (a
+  smooth move's mid-point is also acceleration-free); end-of-move constant-
+  bias de-drift (`d -= v_end T / 2`); velocity bled hard after 2 s without a
+  pause (travel comes in bursts); `d` bounded to the reach and returned home
+  when the forearm hangs still. The upper arm points at the translated elbow
+  and the radial remainder moves the shoulder (`shoulder_m` is no longer
+  always zero). It stands down while the camera is fresh. Synthetic (bias,
+  noise, static + dynamic tilt leak 0.4-0.8 deg per rad/s): lifts, reaches
+  and side moves 20.1 -> 1.7-2.5 cm worst, 5.0 -> 0.4-0.6 cm mean; shoulder
+  swings 20.5 -> 15.7 worst, 9.0 -> 5.4 cm mean; elbow/wrist exercise 1.1 cm
+  worst (0.3 without); 60 s still 0.2 cm. Bench, both BNO085s at rest:
+  1.7 / 2.0 mg noise, `d` = 0.0 over 25 s.
 - `body.pos_source` = `"arm"`, `"arm+vision"` or `"arm+inertial"`.
 - In the AR, the headset's own hand tracking (when it sees the hand) is the
   absolute position; the bridge fuses it into `world` exactly as before, and

@@ -423,6 +423,31 @@ DEFAULT_CFG = {
     # {"cmd":"body_cfg","inertial":true}; the raw take keeps everything needed
     # to re-derive either way.
     "inertial": False,
+    # [2026-09-29] TRANSLATION from the two IMUs' accelerometers (the owner's
+    # call: no camera, no extra sensor). A free translation d of the whole arm,
+    # added to the jointed-arm model, from the acceleration that model cannot
+    # explain - see _trans_update for the physics and the error budget.
+    "translation": True,
+    "tr_bias_rate": 0.02,              # per rest frame: accelerometer bias learning
+    "tr_noise_k": 3.0,                 # deadband = k x the measured rest noise (per axis)
+    "tr_db_h": 0.05,                   # m/s^2 floor, horizontal (fusion tilt leak lives here)
+    "tr_db_h_per_rad_s": 0.35,         # + this per rad/s of rotation (dynamic tilt leak)
+    "tr_db_v": 0.03,                   # m/s^2 floor, vertical (immune to tilt leak to 1st order)
+    "tr_rest_acc": 0.10,               # m/s^2 and ...
+    "tr_rest_gyr": 0.08,               # ... rad/s: below both for tr_rest_s = at rest
+    "tr_rest_s": 0.20,                 # quiet this long = at rest ...
+    "tr_rest_s_moving": 0.45,          # ... or this long right after fast motion (a smooth
+                                       # move's mid-point has ~zero acceleration too)
+    "tr_smooth_s": 0.03,               # acceleration smoothing before the gate
+    "tr_vel_keep_per_s": 0.92,         # weak velocity leak inside a move ...
+    "tr_long_s": 2.0,                  # ... but a move with no pause for longer than this is
+    "tr_long_keep_per_s": 0.10,        # rotation work, not travel: bleed its velocity hard
+    "tr_dedrift_max_s": 3.0,           # the end-of-move de-drift assumes linear drift: cap T
+    "tr_max_m": 0.60,                  # |d| bound
+    "tr_reach_m": 0.85,                # the wrist never leaves this sphere around the shoulder
+    "tr_hang_elev_deg": -55.0,         # forearm hanging below this ...
+    "tr_hang_s": 1.0,                  # ... and still this long: the arm is at the side
+    "tr_hang_tau_s": 0.8,              # ... so d returns home with this time constant
     # hand-frame self-check: while hand and forearm rotate TOGETHER, their
     # body-frame angular velocities must agree. A hand whose mounting "forward"
     # is backwards agrees about the vertical axis only (yaw right, pitch and roll
@@ -681,6 +706,24 @@ class BodyModel:
         self.last_zupt = None
         self.inertial_active = False
         self._fq_prev_body = None
+        self._tr_reset()
+
+    def _tr_reset(self):
+        """Translation state. The per-IMU bias and noise are sensor properties
+        and survive; the motion state does not."""
+        self.d = [0.0, 0.0, 0.0]            # translation of the arm, body frame, m
+        self.v_t = [0.0, 0.0, 0.0]          # its velocity
+        self._tr_a = [0.0, 0.0, 0.0]        # smoothed, fused unexplained acceleration
+        self._tr_vkin = {}                  # per IMU: the arm model's velocity of that point
+        self._tr_qprev = {}
+        self._tr_rest_since = None
+        self._tr_seg_t0 = None              # start of the current motion segment
+        self._tr_fix = None                 # pending de-drift {"dv", "left"}
+        self.tr_rest = True
+        if not hasattr(self, "tr_bias"):
+            self.tr_bias = {k: [0.0, 0.0, 0.0] for k in ("forearm", "hand")}
+            self.tr_var = {k: [4e-4, 4e-4, 4e-4] for k in ("forearm", "hand")}   # (m/s^2)^2
+            self.tr_nrest = {k: 0 for k in ("forearm", "hand")}
 
     def set_boot(self, boot_id):
         """Tell the model which device boot the frames come from. Returns True
@@ -977,6 +1020,8 @@ class BodyModel:
             self._frame_check(t)
 
         self._arm_update(fr, dt)
+        if cfg.get("translation") and not cfg["inertial"]:
+            self._trans_update(fr, dt)
         self._vision_step(dt)
         self._out = None
 
@@ -1154,6 +1199,201 @@ class BodyModel:
         self.u = self._cone(vnorm(elbow, self.u))
         self._relax(both_still, dt)
 
+    # ---------------- translation from the accelerometers ----------------
+    def _kin_vel(self, fr, dt):
+        """Velocity of each IMU point that the jointed-arm model explains by
+        ROTATION (elbow fixed): forearm IMU = w_f x (p_f - elbow); hand IMU =
+        w_f x (wrist - elbow) + w_h x (p_h - wrist). Angular rates come from
+        the gyros (body frame), never from differentiating orientations:
+        twice-differentiated quaternion noise is ~4 m/s^2 at 100 Hz."""
+        cfg = self.cfg
+        qf = self.seg_quat("forearm")
+        if qf is None:
+            return {}
+        gyr = fr.get("gyr") or {}
+
+        def omega(k):
+            g = valid_vec(gyr.get(k))
+            if g is not None:
+                return qrot(self.sensor_to_body(k), g)
+            prev = self._tr_qprev.get(k)
+            q = self.seg_quat(k)
+            self._tr_qprev[k] = q
+            if prev is None or dt <= 0.0:
+                return [0.0, 0.0, 0.0]
+            return vscale(qrotvec(qmul(q, qconj(prev))), 1.0 / dt)
+
+        elbow = vscale(self.u, cfg["L_ua"])
+        wrist = vadd(elbow, qrot(qf, [0.0, 0.0, cfg["L_fa"]]))
+        wf = omega("forearm")
+        pf = vsub(wrist, qrot(qf, cfg["f_imu_to_wrist"]))
+        out = {"forearm": (vcross(wf, vsub(pf, elbow)), vlen(wf))}
+        qh = self.seg_quat("hand")
+        if qh is not None and self.live["hand"]:
+            wh = omega("hand")
+            ph = vadd(wrist, qrot(qh, cfg["hand_offset"]))
+            out["hand"] = (vadd(vcross(wf, vsub(wrist, elbow)), vcross(wh, vsub(ph, wrist))), vlen(wh))
+        return out
+
+    def _trans_update(self, fr, dt):
+        """Translation of the whole arm from BOTH accelerometers.
+
+        Physics: an IMU feels (gravity-free) a = a_rot + a_trans, where a_rot is
+        what the arm model's rotations imply for that point and a_trans is the
+        motion no orientation can show (a lift, a reach from the torso, walking
+        the arm through the room). a_trans is integrated twice.
+
+        Error budget and what beats it:
+        * accelerometer BIAS (~0.02-0.05 m/s^2): learned per sensor at every
+          rest, in the sensor frame, so it is removed in every orientation;
+        * sensor NOISE: measured at rest per axis; the gate is k x that
+          measured noise, so a noisier sensor is automatically trusted less;
+          the two IMUs are fused by inverse measured variance;
+        * FUSION TILT LEAK (g x tilt error, the BNO085's dominant error): it is
+          horizontal to first order (vertical error ~ g e^2 / 2), so the
+          horizontal gate is higher and grows with the rotation rate, while the
+          vertical gate stays near the noise floor - up/down is the best-
+          measured direction;
+        * integration DRIFT: zero-velocity updates at every rest (both IMUs
+          quiet or the BNO085 stability classifier says stationary) stop it,
+          and the velocity left over at the end of each motion segment - pure
+          error, since the arm is at rest - is removed retroactively
+          (constant-bias de-drift: d -= v_end T / 2), so position never slides
+          at rest;
+        * long-term random walk: d is bounded to the arm's reach and returns
+          home when the forearm hangs still at the side."""
+        cfg = self.cfg
+        if self.neutral is None or dt <= 0.0:
+            self._tr_vkin = {}
+            return
+        if self.vision_fresh():
+            # the camera measures the arm's placement: the inertial estimate of
+            # the same motion stands down instead of counting it twice
+            self.d = vscale(self.d, 1.0 - min(1.0, dt / 0.5))
+            self.v_t = [0.0, 0.0, 0.0]
+            self._tr_vkin = {}
+            return
+        kin = self._kin_vel(fr, dt)
+        accs, rests = [], []
+        for k in ("forearm", "hand"):
+            if not self.live[k] or k not in kin:
+                self._tr_vkin.pop(k, None)
+                continue
+            q_raw = self.raw[k]
+            dv = valid_vec((fr.get("dv") or {}).get(k))
+            dv_n = (fr.get("dv_n") or {}).get(k)
+            lin = valid_vec((fr.get("lin") or {}).get(k))
+            dt_a = self.dt_s[k] if self.dt_s[k] is not None else dt
+            if dt_a <= 0.0:
+                continue                                  # no new sample of this IMU
+            if dv is not None and (dv_n is None or dv_n > 0):
+                a_s = vscale(qrot(qconj(q_raw), dv), 1.0 / dt_a)
+            elif lin is not None:
+                a_s = lin
+            else:
+                continue
+            vk, w = kin[k]
+            b = self.tr_bias[k]
+            e = vsub(a_s, b)
+            quiet = vlen(e) < cfg["tr_rest_acc"] and w < cfg["tr_rest_gyr"]
+            stab = (fr.get("stab") or {}).get(k)
+            rest_k = quiet or stab in (1, 2)
+            rests.append(rest_k)
+            if rest_k and w < 0.03:
+                # at rest: learn the bias and the noise of this sensor
+                r = cfg["tr_bias_rate"] if self.tr_nrest[k] > 50 else 0.2
+                self.tr_bias[k] = [b[i] + (a_s[i] - b[i]) * r for i in range(3)]
+                self.tr_var[k] = [self.tr_var[k][i] + ((a_s[i] - b[i]) ** 2 - self.tr_var[k][i]) * 0.02
+                                  for i in range(3)]
+                self.tr_nrest[k] += 1
+            # the arm model's rotational acceleration of this point (one
+            # difference of a gyro-based velocity)
+            prev = self._tr_vkin.get(k)
+            a_kin = vscale(vsub(vk, prev), 1.0 / dt_a) if prev is not None else [0.0, 0.0, 0.0]
+            self._tr_vkin[k] = vk
+            a_body = qrot(self.sensor_to_body(k), e)
+            var_body = sum(self.tr_var[k]) / 3.0
+            accs.append((vsub(a_body, a_kin), 1.0 / max(var_body, 1e-5), w))
+        if not accs:
+            return
+        wsum = sum(a[1] for a in accs)
+        a_un = [sum(a[0][i] * a[1] for a in accs) / wsum for i in range(3)]
+        w_rot = max(a[2] for a in accs)
+        # fused noise (inverse-variance) -> the gates
+        var_f = 1.0 / wsum
+        sig = math.sqrt(var_f)
+        al = min(1.0, dt / cfg["tr_smooth_s"])
+        self._tr_a = vadd(self._tr_a, vscale(vsub(a_un, self._tr_a), al))
+
+        t = self.t
+        rest = all(rests)
+        if rest:
+            if self._tr_rest_since is None:
+                self._tr_rest_since = t
+        else:
+            self._tr_rest_since = None
+        # a smooth move's mid-point has near-zero acceleration at full speed:
+        # right after fast motion a pause must last longer to count as rest
+        need = cfg["tr_rest_s_moving"] if vlen(self.v_t) > 0.04 else cfg["tr_rest_s"]
+        at_rest = self._tr_rest_since is not None and t - self._tr_rest_since >= need
+        if at_rest:
+            if not self.tr_rest and self._tr_seg_t0 is not None:
+                # end of a motion segment: the velocity left now is error
+                T = min(max(0.0, t - self._tr_seg_t0), cfg["tr_dedrift_max_s"])
+                self._tr_fix = {"dd": vscale(self.v_t, -0.5 * T), "left": 1.0}
+            self.v_t = [0.0, 0.0, 0.0]
+            self._tr_a = [0.0, 0.0, 0.0]
+            self.tr_rest = True
+            self._tr_seg_t0 = None
+        else:
+            if self.tr_rest:
+                self._tr_seg_t0 = t
+            self.tr_rest = False
+            thr_h = max(cfg["tr_noise_k"] * sig, cfg["tr_db_h"]) + cfg["tr_db_h_per_rad_s"] * w_rot
+            thr_v = max(cfg["tr_noise_k"] * sig, cfg["tr_db_v"])
+            sa = self._tr_a
+            mh, mv = math.hypot(sa[0], sa[2]), abs(sa[1])
+            # gate: nothing below the threshold, the FULL signal above twice
+            # it (a soft threshold that subtracts would shave every real move
+            # and the acceleration/braking halves unequally)
+            gh = min(1.0, max(0.0, mh / thr_h - 1.0))
+            gv = min(1.0, max(0.0, mv / thr_v - 1.0))
+            a_eff = [a_un[0] * gh, a_un[1] * gv, a_un[2] * gh]
+            # human translations are bursts between pauses; velocity that has
+            # not met a pause for seconds is integrated error, not travel
+            long_move = self._tr_seg_t0 is not None and t - self._tr_seg_t0 > cfg["tr_long_s"]
+            keep = cfg["tr_long_keep_per_s"] if long_move else cfg["tr_vel_keep_per_s"]
+            self.v_t = vscale(vadd(self.v_t, vscale(a_eff, dt)), keep ** dt)
+            self.d = vadd(self.d, vscale(self.v_t, dt))
+        # the de-drift lands over ~0.25 s, not as a jump
+        fx = self._tr_fix
+        if fx is not None:
+            step = min(fx["left"], dt / 0.25)
+            self.d = vadd(self.d, vscale(fx["dd"], step))
+            fx["left"] -= step
+            if fx["left"] <= 1e-9:
+                self._tr_fix = None
+        # home: the forearm hanging still at the side has one place to be
+        qf = self.seg_quat("forearm")
+        if qf is not None and at_rest:
+            elev = math.degrees(math.asin(max(-1.0, min(1.0, qrot(qf, Z_AXIS)[1]))))
+            if elev < cfg["tr_hang_elev_deg"] and t - self._tr_rest_since >= cfg["tr_hang_s"]:
+                self.d = vscale(self.d, 1.0 - min(1.0, dt / cfg["tr_hang_tau_s"]))
+        # bounds: |d| and the reach sphere
+        n = vlen(self.d)
+        if n > cfg["tr_max_m"]:
+            self.d = vscale(self.d, cfg["tr_max_m"] / n)
+        if qf is not None:
+            wrist0 = vadd(vscale(self.u, cfg["L_ua"]), qrot(qf, [0.0, 0.0, cfg["L_fa"]]))
+            wr = vadd(wrist0, self.d)
+            r = vlen(wr)
+            if r > cfg["tr_reach_m"]:
+                self.d = vsub(vscale(wr, cfg["tr_reach_m"] / r), wrist0)
+                self.v_t = [0.0, 0.0, 0.0]
+
+    def tr_active(self):
+        return bool(self.cfg.get("translation") and not self.cfg["inertial"] and self.neutral is not None)
+
     # ---------------- camera (vision) upper arm ----------------
     def vision_sample(self, shoulder, elbow, wrist, conf=1.0):
         """A camera pose sample, metric, in the CAMERA frame of a webcam facing
@@ -1228,12 +1468,25 @@ class BodyModel:
         elbow = vscale(self.u, cfg["L_ua"])
         wrist = vadd(elbow, qrot(qf, [0.0, 0.0, cfg["L_fa"]]))
         hand = vadd(wrist, qrot(qh, cfg["hand_offset"]))
+        d = getattr(self, "d", None)
+        if d is not None and vlen(d) > 1e-6:
+            elbow, wrist, hand = vadd(elbow, d), vadd(wrist, d), vadd(hand, d)
         return elbow, wrist, hand
 
-    def upperarm_quat(self, qf):
+    def shoulder_and_upper(self):
+        """The translated arm keeps its limb lengths: the upper arm points from
+        the shoulder to the (translated) elbow, and whatever the upper arm
+        cannot reach by turning (the radial part) moves the shoulder along it -
+        a shrug, a lean, a step."""
+        elbow = self.positions()[0]
+        u = vnorm(elbow, self.u)
+        r = vlen(elbow) - self.cfg["L_ua"]
+        return (vscale(u, r) if abs(r) > 1e-6 else [0.0, 0.0, 0.0]), u
+
+    def upperarm_quat(self, qf, u=None):
         """+Z along the upper arm; +X on the elbow hinge axis (f x u), which keeps
         the flexion plane readable; continuity when the elbow is straight."""
-        z = self.u
+        z = u if u is not None else self.u
         f = qrot(qf, Z_AXIS)
         x = vcross(f, z)
         if vlen(x) < 0.2:
@@ -1268,6 +1521,7 @@ class BodyModel:
                                         and self.neutral is not None
                                         and self.neutral["psi"].get("thumb") is not None) else None
         elbow, wrist, hand = self.positions()
+        shoulder, u_disp = self.shoulder_and_upper()
         rel = qmul(qconj(qf), qh)
         fl, dv, tw = wrist_angles(rel)
         pro = self.pronation(qf)
@@ -1287,18 +1541,18 @@ class BodyModel:
             "calibrated": bool(n is not None and not n["provisional"]),
             "provisional": bool(n is not None and n["provisional"]),
             "live": bool(self.live["hand"] and self.live["forearm"]),
-            "shoulder_m": [0.0, 0.0, 0.0],
+            "shoulder_m": r3(shoulder),
             "elbow_m": r3(elbow),
             "wrist_m": r3(wrist),
             "hand_m": r3(hand),
-            "upperarm_quat": r4(self.upperarm_quat(qf)),
+            "upperarm_quat": r4(self.upperarm_quat(qf, u_disp)),
             "forearm_quat": r4(qf),
             "hand_quat": r4(qh),
             "thumb_quat": r4(qt) if qt is not None else None,
             "wrist_deg": {"flex": round(math.degrees(fl), 2), "dev": round(math.degrees(dv), 2),
                           "pro": round(math.degrees(pro), 2)},
             "pos_source": ("arm+vision" if self.vision_fresh()
-                           else "arm+inertial" if self.inertial_active else "arm"),
+                           else "arm+inertial" if (self.inertial_active or self.tr_active()) else "arm"),
             "quality": {
                 "since_neutral_s": None if since is None else round(since, 1),
                 "inertial_conf": round(conf, 2),
@@ -1315,6 +1569,10 @@ class BodyModel:
                 "twist_deg": round(math.degrees(tw), 2),
                 "heading_bleed_deg": round(math.degrees(self.bleed_psi), 2),
                 "elevation_deg": round(math.degrees(vangle(self.u, DOWN)), 1),
+                "translation_m": r3(getattr(self, "d", [0.0, 0.0, 0.0])),
+                "tr_rest": bool(getattr(self, "tr_rest", True)),
+                "acc_noise_mg": {k: round(math.sqrt(sum(v) / 3.0) / 9.81 * 1000.0, 1)
+                                 for k, v in self.tr_var.items()},
                 "vision": self.vision_fresh(),
                 "vision_rx": self._vis_rx,
                 "vision_conf": None if self._vis_conf is None else round(self._vis_conf, 2),
@@ -1354,7 +1612,16 @@ class BodyModel:
         a short pre-roll: heading bleed, upper-arm direction, elbow velocity,
         accelerometer bias. Stored in a take's raw sidecar (#meta state0)."""
         return {"bleed_psi": self.bleed_psi, "u": list(self.u), "v_e": list(self.v_e),
-                "bias_s": list(self.bias_s)}
+                "bias_s": list(self.bias_s),
+                "tr": {"d": list(self.d), "v_t": list(self.v_t), "a": list(self._tr_a),
+                       "bias": {k: list(v) for k, v in self.tr_bias.items()},
+                       "var": {k: list(v) for k, v in self.tr_var.items()},
+                       "nrest": dict(self.tr_nrest), "rest": self.tr_rest,
+                       "rest_since": self._tr_rest_since, "seg_t0": self._tr_seg_t0,
+                       "fix": ({"dd": list(self._tr_fix["dd"]), "left": self._tr_fix["left"]}
+                               if self._tr_fix else None),
+                       "vkin": {k: list(v) for k, v in self._tr_vkin.items()},
+                       "qprev": {k: list(v) for k, v in self._tr_qprev.items() if v is not None}}}
 
     def import_state(self, st):
         if not isinstance(st, dict):
@@ -1366,7 +1633,20 @@ class BodyModel:
                 v = st.get(key)
                 if isinstance(v, list) and len(v) == 3:
                     setattr(self, key, [float(x) for x in v])
-        except (TypeError, ValueError):
+            tr = st.get("tr")
+            if isinstance(tr, dict):
+                f3 = lambda v: [float(x) for x in v]
+                self.d, self.v_t, self._tr_a = f3(tr["d"]), f3(tr["v_t"]), f3(tr["a"])
+                self.tr_bias = {k: f3(v) for k, v in tr["bias"].items()}
+                self.tr_var = {k: f3(v) for k, v in tr["var"].items()}
+                self.tr_nrest = {k: int(v) for k, v in tr["nrest"].items()}
+                self.tr_rest = bool(tr["rest"])
+                self._tr_rest_since, self._tr_seg_t0 = tr["rest_since"], tr["seg_t0"]
+                self._tr_fix = ({"dd": f3(tr["fix"]["dd"]), "left": float(tr["fix"]["left"])}
+                                if tr.get("fix") else None)
+                self._tr_vkin = {k: f3(v) for k, v in (tr.get("vkin") or {}).items()}
+                self._tr_qprev = {k: [float(x) for x in v] for k, v in (tr.get("qprev") or {}).items()}
+        except (TypeError, ValueError, KeyError):
             pass
         self._out = None
 

@@ -46,7 +46,11 @@ def fmt(v, d):
 def _pose_lerp(a, b, w):
     p = ms.Pose()
     for k in ms.Pose.__slots__:
-        setattr(p, k, getattr(a, k) * (1.0 - w) + getattr(b, k) * w)
+        va, vb = getattr(a, k), getattr(b, k)
+        if isinstance(va, list):
+            setattr(p, k, [x * (1.0 - w) + y * w for x, y in zip(va, vb)])
+        else:
+            setattr(p, k, va * (1.0 - w) + vb * w)
     return p
 
 

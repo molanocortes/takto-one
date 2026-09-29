@@ -1154,7 +1154,9 @@ export class Twin {
       focus.set(0, 0, 0).addScaledVector(vS, 0.1).addScaledVector(vE, 0.15)
         .addScaledVector(vH, 0.35).addScaledVector(vT, 0.4);
     } else {
-      focus.copy(vS).multiplyScalar(0.5);
+      // the CALIBRATED shoulder (body origin), not the live one: a lift or a
+      // lean translates the shoulder too, and the view must not follow it
+      focus.set(-NW[0] * ARM_S * 0.5, -NW[1] * ARM_S * 0.5, -NW[2] * ARM_S * 0.5);
     }
     this._grid.position.set(focus.x, gy, focus.z);
     this._matGrid.uniforms.uCenter.value.set(vH.x, vH.z);

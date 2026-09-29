@@ -17,7 +17,7 @@ from motion import (BodyModel, C_WB, IDENTITY, X_AXIS, Y_AXIS, Z_AXIS, mounting_
                     qmul, qconj, qnorm, qrot, qx, qy, qaxis_angle, qangle_between,
                     qaverage, qfrom_mat, wrist_angles, wrist_quat,
                     soft_limit_wrist, vlen, vsub, remap_matrix, solve_neutral, principal_axis)
-from motion_synth import Arm, Sensors, perturb, elbow_only, shoulder_motion, still, Pose
+from motion_synth import Arm, Sensors, perturb, elbow_only, shoulder_motion, still, lift_moves, Pose
 
 # The bridge's bench-calibrated mounting config (IMU_CFG_DEFAULT in teensy_bridge.py)
 BENCH_CFG = {
@@ -191,7 +191,7 @@ def test_elbow_only_motion_accuracy(seed):
     """Shoulder still: the jointed arm model is (near) exact, orientation errors
     come only from mounting perturbation, noise and heading drift."""
     for inertial in (False, True):
-        st, bm, _ = run(elbow_only, seed=seed, cfg={"inertial": inertial})
+        st, bm, _ = run(elbow_only, seed=seed, cfg={"inertial": inertial, "translation": False})
         print("\n[elbow-only seed=%d %s] %s" % (seed, "arm+inertial" if inertial else "arm", fmt(st)))
         assert st["flex"] < 3.0 and st["dev"] < 3.0
         assert st["pro"] < 3.0
@@ -211,7 +211,7 @@ def test_exact_without_noise():
 @pytest.mark.parametrize("dyn_tilt", [0.4, 0.8])
 def test_shoulder_motion_inertial_beats_baseline(seed, dyn_tilt):
     kw = {"tilt_err_dyn_deg": dyn_tilt}
-    base, _, _ = run(shoulder_motion, seed=seed, cfg={"inertial": False}, sensor_kw=kw)
+    base, _, _ = run(shoulder_motion, seed=seed, cfg={"inertial": False, "translation": False}, sensor_kw=kw)
     iner, bm, _ = run(shoulder_motion, seed=seed, cfg={"inertial": True}, sensor_kw=kw)
     print("\n[shoulder seed=%d tilt %.1f deg/(rad/s)] arm only:     %s" % (seed, dyn_tilt, fmt(base)))
     print("[shoulder seed=%d tilt %.1f deg/(rad/s)] arm+inertial: %s" % (seed, dyn_tilt, fmt(iner)))
@@ -303,7 +303,7 @@ def test_provisional_then_device_neutral():
     assert seen_prov is not None and 1.5 <= seen_prov <= 1.8        # 1.5 s still
     b = bm.body()
     assert b["provisional"] is True and b["calibrated"] is False
-    assert b["pos_source"] == "arm"                 # drift-free arm model by default
+    assert b["pos_source"] == "arm+inertial"        # arm model + two-IMU translation
     # the device's own averages (E,neutral,done) make it a real neutral
     q_avg = {k: s.raw_quat(k, t) for k in ("hand", "forearm", "thumb")}
     res = bm.request_device_neutral(t, q_avg=q_avg)
@@ -549,13 +549,12 @@ def test_vision_upper_arm_recovers_shoulder_reach(yaw_off_deg):
             if vision and int(round(t * 100)) % 3 == 0:
                 tr = s.truth(t)["pts"]
                 n = lambda: [rng.gauss(0, 0.03) for _ in range(3)]
-                tr = dict(tr, shoulder=[0.0, 0.0, 0.0])        # the synth arm's shoulder is the origin
                 pts = [vsub(_cam_of(tr[k], yaw_off), n()) for k in ("shoulder", "elbow", "wrist")]
                 bm.vision_sample(*pts, conf=0.9)
             if t > 5.0:
                 e = vlen(vsub(bm.body()["wrist_m"], s.truth(t)["pts"]["wrist"]))
                 stats["worst"] = max(stats["worst"], e); stats["sum"] += e; stats["n"] += 1
-        run(shoulder_motion, seed=8, cfg={"inertial": False}, on_frame=cam)
+        run(shoulder_motion, seed=8, cfg={"inertial": False, "translation": False}, on_frame=cam)
         return stats["worst"], stats["sum"] / stats["n"]
 
     base_w, base_m = go(False)
@@ -564,3 +563,62 @@ def test_vision_upper_arm_recovers_shoulder_reach(yaw_off_deg):
           % (yaw_off_deg, base_w * 100, base_m * 100, vis_w * 100, vis_m * 100))
     assert vis_m < 0.4 * base_m
     assert vis_w < 0.10
+
+
+# --------------------------------------------------------------------------
+# translation from the two IMUs' accelerometers (no camera, no extra sensor)
+# --------------------------------------------------------------------------
+def _tr_run(fn, cfg, seed, dyn=0.4, T=30.0):
+    rng = random.Random(seed)
+    tm = {k: perturb(PRIORS[k], 2.0, rng) for k in PRIORS}
+    heading = {k: rng.uniform(-math.pi, math.pi) for k in PRIORS}
+    s = Sensors(Arm(), fn, tm, heading, seed=seed, tilt_err_dyn_deg=dyn)
+    bm = BodyModel(PRIORS, cfg=cfg)
+    bm.auto_neutral = False
+    t, errs = 0.0, []
+    while t < T - 1e-9:
+        t = round(t + 0.01, 6)
+        bm.update(s.frame(t, 0.01))
+        if abs(t - 2.5) < 1e-9:
+            assert bm.capture_neutral(t_end=t, kind="test")["ok"]
+        if t > 2.6:
+            errs.append(vlen(vsub(bm.body()["wrist_m"], s.truth(t)["pts"]["wrist"])))
+    return max(errs), sum(errs) / len(errs), bm
+
+
+@pytest.mark.parametrize("seed", [3, 7])
+@pytest.mark.parametrize("dyn", [0.4, 0.8])
+def test_translation_lift_reach_side_and_rotation_in_place(seed, dyn):
+    """The whole arm lifted 20 cm, moved 15 cm forward and 12 cm sideways
+    (pose unchanged: no orientation sees it), then rotated in place (must NOT
+    translate). Bias, noise, the fusion's static + dynamic tilt leak."""
+    base_w, base_m, _ = _tr_run(lift_moves, {"translation": False}, seed, dyn)
+    w, m, bm = _tr_run(lift_moves, {}, seed, dyn)
+    print("\n[lift/reach/side + rotate, seed %d, tilt %.1f] arm only: worst %.1f mean %.1f cm"
+          " | + translation: worst %.1f mean %.1f cm" % (seed, dyn, base_w * 100, base_m * 100, w * 100, m * 100))
+    assert base_w > 0.15                        # the arm model alone cannot see it
+    assert w < 0.04 and m < 0.012
+    assert bm.body()["pos_source"] == "arm+inertial"
+
+
+@pytest.mark.parametrize("fn", [elbow_only, shoulder_motion, still])
+def test_translation_never_worse_than_the_arm_model(fn):
+    """Rotations must not become phantom travel, rest must not slide, and
+    shoulder motion (which the arm model cannot see) must improve."""
+    T = 60.0 if fn is still else 30.0
+    base_w, base_m, _ = _tr_run(fn, {"translation": False}, 3, T=T)
+    w, m, _ = _tr_run(fn, {}, 3, T=T)
+    print("\n[%s] arm only: worst %.1f mean %.1f cm | + translation: worst %.1f mean %.1f cm"
+          % (fn.__name__, base_w * 100, base_m * 100, w * 100, m * 100))
+    assert w < max(0.03, base_w * 1.05)
+    assert m <= max(0.012, base_m)
+
+
+def test_translation_stands_down_for_the_camera():
+    bm = BodyModel(PRIORS)
+    bm.t = 1.0
+    bm.neutral = {"t": 0.0}
+    bm.d = [0.1, 0.2, 0.0]
+    assert bm.vision_sample([0, 0, 0], [0, 0.3, 0], [0, 0.3, -0.26], conf=0.9)
+    bm._trans_update({}, 0.5)
+    assert vlen(bm.d) < 1e-9
