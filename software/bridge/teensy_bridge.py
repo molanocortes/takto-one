@@ -4216,6 +4216,8 @@ def handle_line(line):
         except ValueError:
             _fw["version"] = 1
         _fw["explicit_rec"] = _fw["version"] >= 2
+        if SD is not None:
+            SD.chunked = _fw["version"] >= 18     # verifiable chunked SD transfer
         print(f"[serial] firmware v{_fw['version']} "
               f"(record: {'explicit b/e' if _fw['explicit_rec'] else 'legacy r toggle'})")
         # The banner means the device just (re)booted or answered 'v': its RAM

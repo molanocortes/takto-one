@@ -36,6 +36,14 @@
 
 namespace wgfx {
 
+// Called once per pixel row by the heavy per-pixel painters. The sketch points
+// it at its frame scheduler: a full antialiased ring costs ~20 ms, twice the
+// 100 Hz frame period, and a due sensor frame must not wait for a paint (the
+// frame code never touches the framebuffer, so running it mid-paint is safe).
+// The host harness leaves it null.
+static void (*rowHook)() = nullptr;
+static inline int row(int x0) { if (rowHook) rowHook(); return x0; }
+
 // ---------- geometry (identical to the sketch) ----------
 static const int SCX = 120, SCY = 120;
 static const float S_DR = 0.017453292f;
@@ -67,7 +75,7 @@ static inline void aaArc(float r, float hw, float a0, float a1, uint16_t col, fl
   int x0 = SCX-outer < 0 ? 0 : (int)(SCX-outer), x1 = SCX+outer > 239 ? 239 : (int)(SCX+outer);
   int y0 = SCY-outer < 0 ? 0 : (int)(SCY-outer), y1 = SCY+outer > 239 ? 239 : (int)(SCY+outer);
   bool full = (a1 - a0) >= 359.5f;
-  for (int y = y0; y <= y1; y++) for (int x = x0; x <= x1; x++) {
+  for (int y = y0; y <= y1; y++) for (int x = row(x0); x <= x1; x++) {
     float dx = x-SCX, dy = y-SCY, dist = sqrtf(dx*dx+dy*dy), dr = fabsf(dist-r);
     if (dr > hw + glow + 1.0f) continue;
     if (!full) {
@@ -128,7 +136,7 @@ static inline void aaArcSegment(float r, float hw, float a0, float span,
   int y0 = (int)floorf(miny) - 2, y1 = (int)ceilf(maxy) + 2;
   if (x0 < 0) x0 = 0; if (x1 > 239) x1 = 239;
   if (y0 < 0) y0 = 0; if (y1 > 239) y1 = 239;
-  for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x) {
+  for (int y = y0; y <= y1; ++y) for (int x = row(x0); x <= x1; ++x) {
     const float dx = x-SCX, dy = y-SCY, dist = sqrtf(dx*dx+dy*dy), dr = fabsf(dist-r);
     if (dr > hw + glow + 1.0f) continue;
     float ang = atan2f(dy, dx) * 57.29578f + 90.0f;
@@ -150,7 +158,7 @@ static inline void aaDisc(int cx, int cy, float r, uint16_t col, float glow) {
   if (ylo < 0) ylo = 0; if (yhi > 239) yhi = 239;
   if (xlo < 0) xlo = 0; if (xhi > 239) xhi = 239;
   for (int y = ylo; y <= yhi; y++)
-    for (int x = xlo; x <= xhi; x++) {
+    for (int x = row(xlo); x <= xhi; x++) {
       float dx = x-cx, dy = y-cy, dist = sqrtf(dx*dx+dy*dy), cov;
       if (dist <= r-0.5f) cov = 1.0f;
       else if (dist <= r+0.5f) cov = r+0.5f-dist;
@@ -334,7 +342,7 @@ static inline void aaDiscA(float cx, float cy, float r, uint16_t col, uint8_t al
   if (ylo < 0) ylo = 0; if (yhi > 239) yhi = 239;
   if (xlo < 0) xlo = 0; if (xhi > 239) xhi = 239;
   for (int y = ylo; y <= yhi; y++)
-    for (int x = xlo; x <= xhi; x++) {
+    for (int x = row(xlo); x <= xhi; x++) {
       float dx = x-cx, dy = y-cy, dist = sqrtf(dx*dx+dy*dy), cov;
       if (dist <= r-0.5f) cov = 1.0f;
       else if (dist <= r+0.5f) cov = r+0.5f-dist;
@@ -352,7 +360,7 @@ static inline void aaCircleA(float cx, float cy, float r, float lw, uint16_t col
   if (ylo < 0) ylo = 0; if (yhi > 239) yhi = 239;
   if (xlo < 0) xlo = 0; if (xhi > 239) xhi = 239;
   for (int y = ylo; y <= yhi; y++)
-    for (int x = xlo; x <= xhi; x++) {
+    for (int x = row(xlo); x <= xhi; x++) {
       float dx = x-cx, dy = (y-cy)/ysq, dist = sqrtf(dx*dx+dy*dy), dr = fabsf(dist-r);
       if (dr > hw + 0.5f) continue;
       float cov = dr <= hw-0.5f ? 1.0f : (hw+0.5f-dr);
@@ -372,7 +380,7 @@ static inline void aaArcA(float cx, float cy, float r, float lw, float a0, float
   float span = a1 - a0;
   bool full = span >= TAUf - 0.001f;
   for (int y = ylo; y <= yhi; y++)
-    for (int x = xlo; x <= xhi; x++) {
+    for (int x = row(xlo); x <= xhi; x++) {
       float dx = x-cx, dy = y-cy, dist = sqrtf(dx*dx+dy*dy), dr = fabsf(dist-r);
       if (dr > hw + 0.5f) continue;
       if (!full) {
@@ -397,7 +405,7 @@ static inline void aaSegA(float x0, float y0, float x1, float y1, float lw,
   if (xlo < 0) xlo = 0; if (xhi > 239) xhi = 239;
   float vx = x1-x0, vy = y1-y0, vv = vx*vx + vy*vy;
   for (int y = ylo; y <= yhi; y++)
-    for (int x = xlo; x <= xhi; x++) {
+    for (int x = row(xlo); x <= xhi; x++) {
       float px = x-x0, py = y-y0;
       float u = vv > 0 ? (px*vx + py*vy) / vv : 0;
       if (u < 0) u = 0; if (u > 1) u = 1;
@@ -518,7 +526,7 @@ static inline void aaEllipseA(float cx, float cy, float rx, float ry, float rot,
   if (xlo < 0) xlo = 0; if (xhi > 239) xhi = 239;
   float cr = cosf(rot), sr = sinf(rot);
   for (int y = ylo; y <= yhi; y++)
-    for (int x = xlo; x <= xhi; x++) {
+    for (int x = row(xlo); x <= xhi; x++) {
       float dx = x-cx, dy = y-cy;
       float u = (dx*cr + dy*sr) / rx, v = (-dx*sr + dy*cr) / ry;
       float d = sqrtf(u*u + v*v);

@@ -208,7 +208,10 @@ const uint8_t  EMG_PIN     = 14;       // MyoWare ENVELOPE output on A0; oversam
 // [MERGE] v6: the S-line finally carries the servo telemetry v5 documented, plus
 // crown_live. Both are APPENDED, so every pre-existing field index is unchanged
 // and an old host simply does not look at them.
-const uint8_t  FW_VERSION  = 17;       // v17: research timing - frame t_us, per-IMU
+const uint8_t  FW_VERSION  = 18;       // v18: chunked, CRC-verified SD transfer
+                                       // (F,get,<path>,<off>,<max> / F,crc) and
+                                       // flow-controlled USB writes
+                                       // v17: research timing - frame t_us, per-IMU
                                        // quaternion age on the sensor clock, encoder
                                        // sweep duration (MOTION_PIPELINE.md s.8)
                                        // v16: motion capture (100 Hz, dv, stability,
@@ -228,6 +231,7 @@ const uint8_t  FW_VERSION  = 17;       // v17: research timing - frame t_us, per
                                        // v8: watch-face/display changes of 2026-08-10;
                                        // bumped so the host can tell this build from v7
 const uint8_t  N_IMU       = 3;        // hand, forearm, thumb tip
+const uint32_t IMU_IDLE_POLL_US = 2000;  // after an empty poll, leave the hub alone this long
 const uint32_t IMU_STALE_MS = 500;     // no rotation report this long = the sensor silently died
 
 // Crown potentiometer (pin 27 = A13, same wiring + calibrated active band as
@@ -286,7 +290,7 @@ float    imuRotAcc[3] = {0, 0, 0};     // rotation-vector heading accuracy, rad
 uint32_t imuFreshMs[3] = {0, 0, 0};    // last rotation report (staleness watchdog)
 uint32_t imuSvcMs = 0;                 // last imuService pass (self-stall forgiveness)
 bool     sdOK = false;
-File     recFile;
+FsFile   recFile;                     // SdFat file: preallocated, see recStartTake
 bool     recording = false;
 uint32_t recStart = 0, recRows = 0;
 uint16_t recSeq = 1;                   // next TAKES/TKnnnnn number (collision-free names)
@@ -326,6 +330,14 @@ bool     neutralHave = false;          // a neutral exists for this boot
 uint32_t neutralAtMs = 0;
 float    neutralQ[3][4];               // its averaged game quaternions (hand, forearm, thumb)
 uint32_t lastSample = 0;
+const uint32_t FRAME_PERIOD_MS = (uint32_t)(1000.0f / SAMPLE_HZ);
+// [BENCH 2026-09-29] The frame is the measurement: it must never wait behind
+// housekeeping. The profiler showed IMU packet reads taking up to 6 ms per pass
+// and a paint 2-4 ms, which delayed due frames by up to 17 ms (p99 31 ms
+// frame spacing). The IMU drain and the paint now yield as soon as a frame is due.
+// (a macro, not a function: the Arduino prototype generator would otherwise
+// hoist every sketch prototype above this line, before the face-engine types)
+#define frameDue() ((uint32_t)(millis() - lastSample) >= FRAME_PERIOD_MS)
 bool     streaming = false;            // live serial stream for the web-console bridge
 // EMG (MyoWare envelope on pin 14): oversampled ~1 kHz between 50 Hz frames, reduced
 // to mean (envelope) + RMS and appended to the S-line. The host runs the
@@ -416,6 +428,11 @@ uint32_t      paintLastUs = 0, paintMaxUs = 0, paintCount = 0, paintSumUs = 0;
 uint32_t      loopPasses = 0, statsT0 = 0;
 // where the loop's time goes (us per stats window), printed by 'T'
 uint32_t      perfImu = 0, perfScreen = 0, perfFrame = 0, perfUi = 0, perfPanel = 0, perfSvc = 0;
+uint32_t      perfSerial = 0, perfSd = 0, mxSd = 0;
+// worst single pass per section (us) and the worst frame lateness: the totals
+// hide the one 30 ms block that delays a frame, the maxima name it
+uint32_t      mxImu = 0, mxScreen = 0, mxFrame = 0, mxUi = 0, mxPanel = 0, mxSvc = 0, mxSerial = 0, mxLate = 0;
+static inline void perfAdd(uint32_t &sum, uint32_t &mx, uint32_t d) { sum += d; if (d > mx) mx = d; }
 uint32_t      scLastSig = 0xFFFFFFFF;
 WatchPresentationCadence screenCadence;
 WatchPresentationFilter  screenFilter;
@@ -430,6 +447,7 @@ uint32_t      screenDeferredBusy = 0;              // due frames held for cohere
 // enough once a function is used above its definition inside another function.
 void motorService();
 void screenService();
+void frameTick();
 void recEvent(const char* fmt, ...);
 void neutralStart();
 
@@ -1693,7 +1711,25 @@ void imuService() {
   imuSvcMs = now;
   for (uint8_t i = 0; i < N_IMU; i++) {
     if (!imuLive[i]) continue;
-    for (uint8_t k = 0; k < 4 && bno[i].poll(); k++) motorService();  // drain up to 4 packets;
+    // [BENCH 2026-09-29] NEVER HAMMER A BNO085. The hub answers I2C from the
+    // same core that runs its fusion; polled for an empty FIFO thousands of
+    // times a second it stops reporting (bench: ~2 000 empty polls/s killed the
+    // forearm IMU; 6 000/s killed both repeatedly; ~680/s was healthy). After an
+    // empty poll the sensor is left alone for IMU_IDLE_POLL_US; with data
+    // waiting it is drained at once. Reports arrive every 10 ms, so this adds
+    // at most 2 ms of latency.
+    static uint32_t nextPollUs[3] = {0, 0, 0};
+    if ((int32_t)(micros() - nextPollUs[i]) < 0) goto skipPoll;
+    {
+      bool got = false;
+      for (uint8_t k = 0; k < 4 && (k == 0 || !frameDue()); k++) {   // >= 1 read, more if no frame waits
+        if (!bno[i].poll()) break;
+        got = true;
+        motorService();
+      }
+      nextPollUs[i] = got ? micros() : micros() + IMU_IDLE_POLL_US;
+    }
+    skipPoll:
                                                     // each read blocks ~1 ms: keep the servo tick
     if (bno[i].fresh) {
       bno[i].fresh = false;          // read-and-clear: "new since last service"
@@ -1797,9 +1833,52 @@ void calibrate() {
 // Every row is checked; the file is flushed every REC_FLUSH_ROWS (1 s), so a
 // pulled card or a brownout loses at most a second. A row is built in RAM and
 // written in one call (~1 kB at 100 Hz is ~100 kB/s, easy for the SDIO card).
-const uint16_t REC_FLUSH_ROWS = 100;
+// [BENCH 2026-09-29] measured on the rig: every flush is a ~30 ms stall of the
+// loop (directory entry + card busy), and the first card used had 512-byte
+// clusters, so plain appends allocated a cluster and rewrote the FAT every
+// 512 bytes (stalls up to 349 ms in a standalone take). Takes are now
+// PREALLOCATED as one contiguous region, so writing never touches the FAT,
+// and flushed every 2 s; the file is trimmed to its real length on close.
+const uint16_t REC_FLUSH_ROWS = 200;
+const uint64_t REC_PREALLOC_BYTES = 256ull * 1024 * 1024;   // ~40 min at 100 Hz; grows past it if needed
 static char rowBuf[2600];
 static size_t rowLen = 0;
+// Rows and #E events go through ONE RAM buffer that is written to the card in
+// ~16 KB blocks. [BENCH 2026-09-29] Writing each 1.1 KB row straight to the
+// card cost a small blocking card transaction every frame and some waited on
+// the card: 173 frames > 20 ms late in 30 s with the bridge recording (p99
+// 30 ms) versus none without card writing. One large write every ~0.15 s is
+// both faster and rarer. At most one block (~0.15 s) sits in RAM on power loss.
+static uint8_t recBuf[65536];                 // ~0.6 s of rows: rides out card pauses
+static size_t recBufLen = 0;
+
+
+static bool recFlushBuf() {
+  if (!recBufLen) return true;
+  const size_t wrote = recFile.write(recBuf, recBufLen);
+  const bool ok = (wrote == recBufLen) && !recFile.getWriteError();
+  recBufLen = 0;
+  return ok;
+}
+// Write at most one 512-byte sector from the front of the buffer. Called from
+// the loop only while no frame is due, so the card's slow writes (this card:
+// ~0.6 MB/s, i.e. a 12 KB block blocked ~20 ms) are spread thinly between
+// frames instead of delaying one. 110 kB/s of rows needs ~2 sectors per frame
+// period; the loop offers many more slots than that.
+static bool recWriteSlice() {
+  if (recBufLen < 512) return true;
+  const size_t wrote = recFile.write(recBuf, 512);
+  if (wrote != 512 || recFile.getWriteError()) return false;
+  memmove(recBuf, recBuf + 512, recBufLen - 512);
+  recBufLen -= 512;
+  return true;
+}
+static bool recAppend(const char* p, size_t n) {
+  if (recBufLen + n > sizeof(recBuf) && !recFlushBuf()) return false;
+  if (n > sizeof(recBuf)) return recFile.write((const uint8_t*)p, n) == n;
+  memcpy(recBuf + recBufLen, p, n); recBufLen += n;
+  return true;
+}
 
 static void ap(const char* fmt, ...) {
   if (rowLen >= sizeof(rowBuf) - 1) return;
@@ -1832,7 +1911,9 @@ void recEvent(const char* fmt, ...) {
   va_list va; va_start(va, fmt);
   vsnprintf(b, sizeof(b), fmt, va);
   va_end(va);
-  recFile.printf("#E,%lu,%s\n", (unsigned long)millis(), b);
+  char line[200];
+  const int n = snprintf(line, sizeof(line), "#E,%lu,%s\n", (unsigned long)millis(), b);
+  if (n > 0) recAppend(line, min((size_t)n, sizeof(line) - 1));   // in order with the rows
 }
 
 static void recNeutralFields(char* out, size_t n) {
@@ -1853,8 +1934,12 @@ void recStartTake(bool fromDevice) {
     recSeq++;
   }
   if (!freeName) { Serial.println(F("# no free take name - clear old takes off the card")); recFail("full"); return; }
-  recFile = SD.open(name, FILE_WRITE);
+  recFile = SD.sdfs.open(name, O_WRONLY | O_CREAT | O_EXCL);
   if (!recFile) { Serial.println(F("Could not open file.")); recFail("open"); return; }
+  // contiguous preallocation (falls back to plain appends if the card has no
+  // single free region that large: slower, never wrong)
+  if (!recFile.preAllocate(REC_PREALLOC_BYTES))
+    Serial.println(F("# take: no contiguous space to preallocate - writing unallocated"));
   recTake = recSeq++;
   strncpy(recPath, name, sizeof(recPath) - 1);
   recFromDevice = fromDevice;
@@ -1891,6 +1976,7 @@ void recStartTake(bool fromDevice) {
   if (recFile.getWriteError()) {
     recFile.close(); recFail("write"); return;
   }
+  recBufLen = 0;                         // nothing from a previous take may leak in
   recording = true;
   Serial.printf(">>> RECORDING to %s\n", recPath);
   Serial.printf("E,rec,start,%u,%s\n", recTake, fromDevice ? "device" : "host");
@@ -1904,7 +1990,11 @@ void recStartTake(bool fromDevice) {
 void recStopTake() {
   if (!recording) return;
   const uint32_t ms = millis() - recStart;
-  recFile.printf("# end rows=%lu ms=%lu\n", (unsigned long)recRows, (unsigned long)ms);
+  char endl_[64];
+  const int ne = snprintf(endl_, sizeof(endl_), "# end rows=%lu ms=%lu\n", (unsigned long)recRows, (unsigned long)ms);
+  recAppend(endl_, (size_t)ne);
+  recFlushBuf();
+  recFile.truncate();                   // give back the unused preallocation
   recFile.flush();
   recFile.close();
   recording = false;
@@ -1947,11 +2037,12 @@ void recWrite(uint32_t t) {
   ap(",%u,%u,%u", imuStab[0], imuStab[1], imuStab[2]);
   ap(",%lu,%lu,%lu,%lu,%lu\n", (unsigned long)frameUs, (unsigned long)frameQAgeUs[0],
      (unsigned long)frameQAgeUs[1], (unsigned long)frameQAgeUs[2], (unsigned long)frameEncUs);
-  const size_t wrote = recFile.write((const uint8_t*)rowBuf, rowLen);
+  bool ok = recAppend(rowBuf, rowLen);   // the loop drains it in sector slices (recService)
   // A card that stopped accepting data must stop the take loudly, not keep
   // counting rows.
-  if (wrote != rowLen || recFile.getWriteError()) {
+  if (!ok) {
     recFile.clearWriteError();
+    recFile.truncate();
     recFile.close();
     recording = false; recTake = 0;
     Serial.printf("# SD WRITE FAILED after %lu rows - recording stopped\n", (unsigned long)recRows);
@@ -1960,7 +2051,7 @@ void recWrite(uint32_t t) {
   }
   recRows++;
   if (recRows % REC_FLUSH_ROWS == 0) {
-    recFile.flush();     // ~1 s of exposure; a pulled card loses only that
+    recFile.flush();     // ~2 s of exposure (+ what is still buffered); a pulled card loses only that
     motorService();      // flush() can stall for milliseconds: tick right after it
   }
 }
@@ -2012,6 +2103,29 @@ static void fileListDir(const char* dir, const char* prefix, uint16_t &count) {
   d.close();
 }
 
+// Write everything, waiting for USB buffer space instead of letting the core's
+// ~120 ms transmit timeout DROP data. [BENCH 2026-09-29] The first real SD
+// import delivered 1.5 of 6.1 MB: whenever the host paused to parse, whole
+// chunks vanished (the CRC caught it). Now the device waits for the host; only
+// a host that stops reading for 3 s aborts the transfer.
+static bool serialWriteAll(const uint8_t* p, size_t n) {
+  uint32_t lastProgress = millis();
+  while (n) {
+    const int room = Serial.availableForWrite();
+    if (room > 0) {
+      const size_t k = min((size_t)room, n);
+      Serial.write(p, k);
+      p += k; n -= k;
+      lastProgress = millis();
+    } else {
+      if (millis() - lastProgress > 3000) return false;
+      motorService();
+      yield();
+    }
+  }
+  return true;
+}
+
 static void fileGet(const char* path) {
   if (!sdEnsure()) { Serial.println(F("F,err,nosd")); return; }
   if (recording && strcmp(path, recPath) == 0) { Serial.println(F("F,err,busy")); return; }
@@ -2030,7 +2144,13 @@ static void fileGet(const char* path) {
       const uint8_t b = chunk[k];
       crc = crcAdd(crc, b); total++;
       if (b == '\n') {
-        Serial.write("F,d,", 4); Serial.write((const uint8_t*)line, ll); Serial.write('\n');
+        if (!serialWriteAll((const uint8_t*)"F,d,", 4) ||
+            !serialWriteAll((const uint8_t*)line, ll) ||
+            !serialWriteAll((const uint8_t*)"\n", 1)) {
+          f.close();
+          Serial.println(F("F,err,stall"));             // the host stopped reading
+          return;
+        }
         ll = 0;
         if ((++lines & 63) == 0) { motorService(); sfx::service(); }
       } else if (b != '\r') {
@@ -2038,9 +2158,80 @@ static void fileGet(const char* path) {
       }
     }
   }
-  if (ll) { Serial.write("F,d,", 4); Serial.write((const uint8_t*)line, ll); Serial.write('\n'); }
+  if (ll) {
+    serialWriteAll((const uint8_t*)"F,d,", 4);
+    serialWriteAll((const uint8_t*)line, ll);
+    serialWriteAll((const uint8_t*)"\n", 1);
+  }
   f.close();
   Serial.printf("F,done,%s,%lu,%08lx\n", path, (unsigned long)total, (unsigned long)(crc ^ 0xFFFFFFFFu));
+}
+
+// Chunked, verifiable transfer (v17). [BENCH 2026-09-29] macOS's USB-serial
+// driver drops bytes when the reading application falls behind a 5 MB/s burst
+// (the first real SD import lost 36-75 % of a 6 MB file; the CRC caught it), and
+// USB CDC gives the device no backpressure through that buffer. So the host asks
+// for one chunk at a time and verifies each:
+//   F,get,<path>,<offset>,<maxbytes> -> F,begin,<path>,<filesize>
+//                                       F,d,<line> ... (whole lines from <offset>)
+//                                       F,chunk,<path>,<offset>,<end>,<crc32 of offset..end>
+//   F,crc,<path>                     -> F,crc,<path>,<filesize>,<crc32 of the whole file>
+// Offsets are always line starts (the host only ever passes 0 or a returned <end>).
+static void fileGetChunk(const char* path, uint32_t offset, uint32_t maxBytes) {
+  if (!sdEnsure()) { Serial.println(F("F,err,nosd")); return; }
+  if (recording && strcmp(path, recPath) == 0) { Serial.println(F("F,err,busy")); return; }
+  File f = SD.open(path, FILE_READ);
+  if (!f || f.isDirectory()) { Serial.println(F("F,err,nofile")); if (f) f.close(); return; }
+  const uint32_t size = f.size();
+  if (offset > size || !f.seek(offset)) { f.close(); Serial.println(F("F,err,offset")); return; }
+  Serial.printf("F,begin,%s,%lu\n", path, (unsigned long)size);
+  static char line[3072];
+  static uint8_t chunk[1024];
+  size_t ll = 0;
+  uint32_t crc = 0xFFFFFFFFu, pos = offset;
+  bool stop = false;
+  while (!stop) {
+    const int n = f.read(chunk, sizeof(chunk));
+    if (n <= 0) break;
+    for (int k = 0; k < n; k++) {
+      const uint8_t b = chunk[k];
+      crc = crcAdd(crc, b); pos++;
+      if (b == '\n') {
+        if (!serialWriteAll((const uint8_t*)"F,d,", 4) || !serialWriteAll((const uint8_t*)line, ll) ||
+            !serialWriteAll((const uint8_t*)"\n", 1)) {
+          f.close(); Serial.println(F("F,err,stall")); return;
+        }
+        ll = 0;
+        if (pos - offset >= maxBytes) { stop = true; break; }   // end on a line boundary
+      } else if (b != '\r') {
+        if (ll < sizeof(line)) line[ll++] = (char)b;
+      }
+    }
+  }
+  if (ll) {                                    // a last line without '\n' (end of file)
+    serialWriteAll((const uint8_t*)"F,d,", 4); serialWriteAll((const uint8_t*)line, ll);
+    serialWriteAll((const uint8_t*)"\n", 1);
+  }
+  f.close();
+  Serial.printf("F,chunk,%s,%lu,%lu,%08lx\n", path, (unsigned long)offset, (unsigned long)pos,
+                (unsigned long)(crc ^ 0xFFFFFFFFu));
+}
+
+static void fileCrc(const char* path) {
+  if (!sdEnsure()) { Serial.println(F("F,err,nosd")); return; }
+  File f = SD.open(path, FILE_READ);
+  if (!f || f.isDirectory()) { Serial.println(F("F,err,nofile")); if (f) f.close(); return; }
+  static uint8_t chunk[4096];
+  uint32_t crc = 0xFFFFFFFFu, total = 0;
+  for (;;) {
+    const int n = f.read(chunk, sizeof(chunk));
+    if (n <= 0) break;
+    for (int k = 0; k < n; k++) crc = crcAdd(crc, chunk[k]);
+    total += n;
+    motorService();
+  }
+  f.close();
+  Serial.printf("F,crc,%s,%lu,%08lx\n", path, (unsigned long)total, (unsigned long)(crc ^ 0xFFFFFFFFu));
 }
 
 void handleFileLine(const char* line) {
@@ -2051,7 +2242,20 @@ void handleFileLine(const char* line) {
     fileListDir("/", "", count);                  // legacy REC*.CSV at the root
     Serial.printf("F,end,%u\n", count);
   } else if (strncmp(line, "F,get,", 6) == 0) {
-    fileGet(line + 6);
+    // F,get,<path>                      -> the whole file in one burst (legacy)
+    // F,get,<path>,<offset>,<maxbytes>  -> one verifiable chunk
+    char path[64];
+    const char* a = line + 6;
+    const char* c1 = strchr(a, ',');
+    if (!c1) { fileGet(a); return; }
+    const size_t L = min((size_t)(c1 - a), sizeof(path) - 1);
+    memcpy(path, a, L); path[L] = 0;
+    const uint32_t off = strtoul(c1 + 1, nullptr, 10);
+    const char* c2 = strchr(c1 + 1, ',');
+    const uint32_t mx = c2 ? strtoul(c2 + 1, nullptr, 10) : 32768;
+    fileGetChunk(path, off, mx ? mx : 32768);
+  } else if (strncmp(line, "F,crc,", 6) == 0) {
+    fileCrc(line + 6);
   } else if (strncmp(line, "F,auto", 6) == 0) {
     if (line[6] == ',') { autoRecord = (atoi(line + 7) != 0); autoSave(); }
     Serial.printf("F,auto,%d\n", autoRecord ? 1 : 0);
@@ -2628,6 +2832,9 @@ void setup() {
   uiIn.begin(POT_PIN, BTN_PIN, PZ_PIN);           // crown pot / button / piezo
   uiIn.toneBusy = []() { return sfx::busy() || standby; };   // clicks never chop a cue
   uiIn.clickFn = sfx::click;                      // soft struck clicks, not square beeps
+  // long paints yield to due frames AND keep the IMUs drained (both are safe
+  // mid-paint: neither touches the framebuffer; the IMU poll is rate-limited)
+  wgfx::rowHook = []() { frameTick(); imuService(); };
   watchLoad();                                    // the face chosen last session
   FB = cv.getBuffer();
   memset(FB, 0, 240 * 240 * 2);
@@ -2649,6 +2856,7 @@ void loop() {
   // Drain everything pending (a backlog builds during the deliberate blocking
   // commands). Line-oriented input (D/W/M) is buffered as a unit so payload
   // bytes can never alias the single-letter menu commands.
+  const uint32_t pser = micros();
   while (Serial.available()) {
     char c = Serial.read();
     if (discardLine) { if (c == '\n') discardLine = false; continue; }
@@ -2709,38 +2917,64 @@ void loop() {
                       (unsigned long)bno[i].stUs);
         bno[i].stPolls = bno[i].stPackets = bno[i].stBytes = bno[i].stBig = bno[i].stUs = 0;
       }
-      perfImu = perfSvc = perfUi = perfScreen = perfPanel = perfFrame = 0;
+      Serial.printf("# worst pass us: imu=%lu svc=%lu ui=%lu screen=%lu panel=%lu frame=%lu serial=%lu sd=%lu | worst frame lateness %lu us  (sd total %lu us)\n",
+                    (unsigned long)mxImu, (unsigned long)mxSvc, (unsigned long)mxUi, (unsigned long)mxScreen,
+                    (unsigned long)mxPanel, (unsigned long)mxFrame, (unsigned long)mxSerial, (unsigned long)mxSd,
+                    (unsigned long)mxLate, (unsigned long)perfSd);
+      mxImu = mxSvc = mxUi = mxScreen = mxPanel = mxFrame = mxSerial = mxSd = mxLate = 0; perfSd = 0;
+      perfImu = perfSvc = perfUi = perfScreen = perfPanel = perfFrame = perfSerial = 0;
       paintMaxUs = 0; paintCount = 0; paintSumUs = 0; loopPasses = 0;
       screenSamples = 0; screenDeferredBusy = 0;
       statsT0 = millis();
     }
   }
+  perfAdd(perfSerial, mxSerial, micros() - pser);
   motorService();   // keep the control tick alive after draining a serial backlog
   loopPasses++;
   uint32_t pt = micros();
   imuService();
   imuRecoverService();                    // v16: a dead IMU is restarted by the device
-  perfImu += micros() - pt; pt = micros();
+  perfAdd(perfImu, mxImu, micros() - pt); pt = micros();
   linkService();                          // host / standalone / auto take
   neutralService();                       // countdown + still hold
   motorCueService();                      // sounds for motor connect / torque / fault
   sfx::service();                         // the buzzer's note sequencer
-  perfSvc += micros() - pt; pt = micros();
+  perfAdd(perfSvc, mxSvc, micros() - pt); pt = micros();
   Ev ev = uiIn.poll();                    // crown + button (detents tick the piezo)
   if (ev != Ev::NONE) uiHandleEvent(ev);
-  perfUi += micros() - pt; pt = micros();
+  perfAdd(perfUi, mxUi, micros() - pt); pt = micros();
   if (standby) {                          // standby: one dark frame, then nothing
     if (!standbyPainted && uiR.idle()) {
       FB = cv.getBuffer(); memset(FB, 0, 240 * 240 * 2);
       uiR.forceFullRepaint(); standbyPainted = true;
     }
-  } else {
+  } else if (!frameDue()) {
     screenService();                      // presentation <=7.7 Hz (crown <=9.6 Hz)
   }
-  perfScreen += micros() - pt; pt = micros();
+  perfAdd(perfScreen, mxScreen, micros() - pt); pt = micros();
   uiR.task();                             // ships <=1 coherent synchronous run per pass
-  perfPanel += micros() - pt;
+  perfAdd(perfPanel, mxPanel, micros() - pt);
+  // the take's rows go to the card one sector at a time, never while a frame waits
+  pt = micros();
+  const bool sliceOk = !(recording && !frameDue()) || recWriteSlice();
+  perfAdd(perfSd, mxSd, micros() - pt);
+  if (!sliceOk) {
+    recFile.clearWriteError(); recFile.truncate(); recFile.close();
+    recording = false; recTake = 0;
+    Serial.printf("# SD WRITE FAILED after %lu rows - recording stopped\n", (unsigned long)recRows);
+    recFail("write");
+  }
   motorService();
+  frameTick();
+}
+
+// The measurement frame (100 Hz): EMG oversample, then when due the encoder
+// sweep, dv, SD row and S-line. Called from loop() AND from inside long paints
+// (wgfx::rowHook), so a repaint can never delay a frame. Re-entry is refused.
+void frameTick() {
+  static bool inFrame = false;
+  if (inFrame) return;
+  inFrame = true;
   // oversample the MyoWare envelope (pin 14) at ~1 kHz between the 50 Hz frames
   uint32_t nowU = micros();
   if (nowU - emgLastU >= 1000) {
@@ -2748,10 +2982,11 @@ void loop() {
     uint16_t v = analogRead(EMG_PIN);
     emgSum += v; emgSumSq += (uint32_t)v * v; emgCount++;
   }
-  const uint32_t PERIOD_MS = (uint32_t)(1000.0f / SAMPLE_HZ);
+  const uint32_t PERIOD_MS = FRAME_PERIOD_MS;
   uint32_t now = millis();
   if (now - lastSample >= PERIOD_MS) {
     const uint32_t pf = micros();
+    { const uint32_t late = (now - lastSample) * 1000u; if (late > mxLate) mxLate = late; }
     // Advance by the period so the average rate is exactly SAMPLE_HZ (a plain
     // `lastSample = now` slips by the loop latency every frame). After a real
     // stall (SD flush, calibrate) resync instead of bursting catch-up frames:
@@ -2789,6 +3024,7 @@ void loop() {
     if (recording) recWrite(now);
     if (streaming) emitStream(now);
     motorService();
-    perfFrame += micros() - pf;
+    perfAdd(perfFrame, mxFrame, micros() - pf);
   }
+  inFrame = false;
 }

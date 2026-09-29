@@ -140,6 +140,8 @@ class SdClient:
     """Host side of the F protocol. `write(bytes)` sends a line to the device."""
 
     LIST_TIMEOUT_S = 4.0
+    CHUNK_BYTES = 32768           # firmware v18: verifiable chunks (see get())
+    CHUNK_RETRIES = 5
     BEGIN_TIMEOUT_S = 4.0
     IDLE_TIMEOUT_S = 3.0          # silence inside a transfer -> abort
 
@@ -150,6 +152,10 @@ class SdClient:
         self.last_list = None     # [(name, bytes)] from the latest successful list
         self.auto = None          # device's standalone auto-record setting, once known
         self.last_get = None      # {"name", "bytes", "crc"} of the last verified download
+        # Firmware v18+ serves F,get,<path>,<offset>,<max> chunks and F,crc. The
+        # bridge sets this from the version banner; older firmware keeps the
+        # single-burst transfer.
+        self.chunked = False
 
     # ---- state for the snapshot ---------------------------------------------
     @property
@@ -198,6 +204,31 @@ class SdClient:
                     except ValueError:
                         op["items"].append((rest, None))
                 elif line.startswith("F,end"):
+                    op["done"] = True
+                    self._cv.notify_all()
+                return True
+            if op["kind"] == "crc":
+                if line.startswith("F,crc,"):
+                    parts = line[6:].rsplit(",", 2)
+                    if len(parts) == 3:
+                        op["size"], op["crc"] = parts[1], parts[2].strip()
+                    op["done"] = True
+                    self._cv.notify_all()
+                return True
+            if op["kind"] == "chunk":
+                if line.startswith("F,begin,"):
+                    op["began"] = True
+                    try:
+                        op["total"] = int(line[8:].rpartition(",")[2])
+                    except ValueError:
+                        op["total"] = None
+                elif line.startswith("F,d,"):
+                    if op.get("began"):
+                        op["lines"].append(line[4:])
+                elif line.startswith("F,chunk,"):
+                    parts = line[8:].rsplit(",", 3)
+                    if len(parts) == 4:
+                        op["c_start"], op["c_end"], op["c_crc"] = parts[1], parts[2], parts[3].strip()
                     op["done"] = True
                     self._cv.notify_all()
                 return True
@@ -268,9 +299,81 @@ class SdClient:
         finally:
             self._finish()
 
+    def _wait(self, op, limit):
+        with self._cv:
+            ok = self._cv.wait_for(lambda: op["done"] or op["error"], limit)
+            if op["error"]:
+                raise SdError(op["error"])
+            if not ok:
+                raise SdError("timeout: the device did not answer")
+
+    def _get_chunked(self, name, progress=None):
+        """[BENCH 2026-09-29] One 32 KB chunk at a time, each verified by its own
+        CRC-32 and re-requested if damaged, then the whole file against F,crc.
+        The single-burst transfer lost 36-75 % of a 6 MB file on macOS (the USB
+        serial driver drops bytes when the reader falls behind; nothing tells
+        the device). Chunks keep every burst small enough to be read in time,
+        and a damaged one costs one retry instead of the whole import."""
+        lines, offset, total, crc_all, retries = [], 0, None, 0, 0
+        attempt = 0                                     # tries of THIS chunk
+        while total is None or offset < total:
+            op = {"kind": "chunk", "name": name, "lines": [], "began": False, "total": None}
+            self._start(op, "F,get,%s,%d,%d\n" % (name, offset, self.CHUNK_BYTES))
+            try:
+                self._wait(op, self.IDLE_TIMEOUT_S + self.BEGIN_TIMEOUT_S)
+            except SdError as e:
+                if "timeout" not in str(e) or attempt >= self.CHUNK_RETRIES:
+                    raise
+                retries += 1; attempt += 1
+                continue
+            finally:
+                self._finish()
+            try:
+                start, end, want = int(op["c_start"]), int(op["c_end"]), int(op["c_crc"], 16)
+            except (KeyError, TypeError, ValueError):
+                start, end, want = -1, -1, -1
+            total = op["total"] if op["total"] is not None else total
+            got = [ln.encode("latin-1", "replace") for ln in op["lines"]]
+            ok = False
+            if start == offset and end >= start:
+                # the device sends every line with '\n'; the file's very last
+                # line may have had none, so try both for the final chunk only
+                for tail in ((True,) if total is None or end < total else (True, False)):
+                    data = b"".join(g + b"\n" for g in got)
+                    if not tail and data.endswith(b"\n"):
+                        data = data[:-1]
+                    if len(data) == end - start and (zlib.crc32(data) & 0xFFFFFFFF) == want:
+                        ok = True
+                        crc_all = zlib.crc32(data, crc_all)
+                        break
+            if not ok:
+                retries += 1; attempt += 1
+                if attempt > self.CHUNK_RETRIES:
+                    raise SdError("chunk at %d failed its CRC %d times" % (offset, attempt))
+                continue
+            attempt = 0
+            lines.extend(op["lines"])
+            offset = end
+            if progress:
+                progress(offset, total)
+            if end == start:                           # an empty file / nothing more
+                break
+        op = {"kind": "crc", "name": name}
+        self._start(op, "F,crc,%s\n" % name)
+        try:
+            self._wait(op, self.IDLE_TIMEOUT_S + 10.0)   # the device reads the whole file
+        finally:
+            self._finish()
+        if int(op.get("size", -1)) != offset or int(op.get("crc", "0"), 16) != (crc_all & 0xFFFFFFFF):
+            raise SdError("whole-file CRC mismatch after chunked transfer")
+        self.last_get = {"name": name, "bytes": offset, "crc": op["crc"], "chunk_retries": retries}
+        return lines
+
     def get(self, name, progress=None):
         """Download one file; verifies the byte count and the CRC-32. Returns
         the file's lines (no newlines). `progress(got, total)` is called ~5x/s."""
+        if self.chunked:
+            return self._get_chunked(name, progress)
         op = {"kind": "get", "name": name, "lines": [], "got": 0, "total": None, "began": False}
         self._start(op, "F,get,%s\n" % name)
         try:

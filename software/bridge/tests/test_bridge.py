@@ -408,3 +408,42 @@ def test_enc_map_validate_and_apply():
     finally:
         tb.ENC_DOF.clear(); tb.ENC_DOF.update(saved[0])
         tb.ENC_FINGER.clear(); tb.ENC_FINGER.update(saved[1])
+
+
+# ---- chunked, verified SD transfer (firmware v18) -------------------------------
+def test_sd_chunked_transfer_retries_damaged_chunks():
+    """A fake v18 device that corrupts the first answer for every other chunk:
+    the client must re-request those and still return the exact file."""
+    import zlib as _z
+    content = "".join("row %05d,%s\n" % (i, "x" * (i % 37)) for i in range(4000)).encode()
+    client = sdcard.SdClient(lambda b: None)
+    client.chunked = True
+    client.CHUNK_BYTES = 4096
+    damaged = set()
+
+    def device(raw):
+        line = raw.decode().strip()
+        def reply():
+            if line.startswith("F,crc,"):
+                client.feed("F,crc,%s,%d,%08x" % (line[6:], len(content), _z.crc32(content) & 0xFFFFFFFF))
+                return
+            _, _, path, off, mx = line.split(",")
+            off, mx = int(off), int(mx)
+            client.feed("F,begin,%s,%d" % (path, len(content)))
+            end = off
+            while end < len(content) and end - off < mx:
+                nl = content.index(b"\n", end) + 1
+                end = nl
+            chunk = content[off:end]
+            sent = chunk.decode().split("\n")[:-1]
+            if (off // 4096) % 2 == 0 and off not in damaged:   # drop a line once
+                damaged.add(off)
+                sent = sent[1:]
+            for ln in sent:
+                client.feed("F,d," + ln)
+            client.feed("F,chunk,%s,%d,%d,%08x" % (path, off, end, _z.crc32(chunk) & 0xFFFFFFFF))
+        threading.Timer(0.001, reply).start()
+    client._write = device
+    lines = client.get("TAKES/TK00009.CSV")
+    assert ("\n".join(lines) + "\n").encode() == content
+    assert client.last_get["chunk_retries"] == len(damaged) > 0
