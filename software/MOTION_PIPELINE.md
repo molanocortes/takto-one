@@ -308,3 +308,14 @@ Numbers are rounded to 4 decimals (positions 0.1 mm). Clients render the twin fr
 - Take rows gain raw columns: `enc_raw_00..13` (unfiltered encoder degrees, -1 absent), `hq_raw_w..z`, `fq_raw_w..z` (raw game quaternions), `t_us`.
 - Take metadata gains `quality`: `{frames, rate_hz, dropped, max_gap_ms, imu_live_pct:{hand,forearm}, enc_live:[ch...], neutral:{kind, age_s, spread_deg}, pos_source_pct:{arm, arm+inertial, vision}, latency_ms:{median,p95}}` and `provenance`: `{fw, boot_id, bridge_version, enc_map, imu_mounting, body_params}`.
 - Export (web): a take downloads as a research package: `take.csv` (rows, SI units, header documented), `take.json` (metadata, quality, provenance, column dictionary), and the raw stream.
+
+### Section 8 as implemented (bridge, 2026-09-29)
+
+- `{"cmd":"stream","pose":true|false}` is acked with `{"kind":"ack","event":"stream","pose":bool,"hz":100.0}`.
+- Snapshot `link` gains `latency_ms{median,p95,n,window_s}`, `pose_hz`, `pose_clients`, `pose_coalesced` (stale pose frames replaced by a newer one for a slow client), `frame_hz`, `serial_jitter_ms{median,p95}`, `imu_age_ms{hand,forearm,thumb}`, `enc_sweep_ms`.
+- Raw take columns in practice: `t_us`, `rx_ms`, `enc_raw_00..13`, `hq_raw_*`, `fq_raw_*`, `tq_raw_*`, `h/f/t_qage_us`, `enc_us` (91 columns per row).
+- The raw sidecar also carries `#meta` lines (provenance at start) and `#N,<a|b>,...` annotation lines besides `<rx_ms>\t<line>`.
+- `{"cmd":"take_file","id","what":"raw"|"meta"|"csv"}` streams `{"kind":"take_file","id","what","name","mime","bytes","seq","last","data":<base64 <= 192 KiB>}`; errors come back as `{"kind":"ack","event":"error","cmd":"take_file",...}`.
+- The research CSV uses SI units and names (rad, m, s); the column dictionary is in `take.json`.
+- `software/bridge/rederive.py <take.raw.txt.gz | SD .CSV>` re-runs the pipeline offline with the provenance recorded in the take; on a live take it reproduces the live rows to their rounding.
+- Measured on the development Mac with `--sim`: pose lane 100.0 Hz, bridge latency (line in to socket) p50 0.5 ms, p95 about 1.4 ms; bridge CPU 15-18 %.
