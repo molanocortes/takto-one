@@ -18,6 +18,10 @@ N_CH = 14
 IMU_NAMES = ("hand", "forearm", "thumb")
 
 
+EMG19_COLS = ["emg_n", "env_mv", "env_sd_mv", "raw_present", "raw_rms_mv", "raw_mav_mv",
+              "raw_wl_mv", "raw_zc", "mnf_hz", "mdf_hz", "line50_pct", "emg_sat", "emg_ovr"]
+
+
 def sd_columns():
     """The firmware v17 take header (recStartTake), generated the same way.
     (A v16 file simply lacks the five timing columns: consumers index by name.)"""
@@ -38,6 +42,8 @@ def sd_columns():
              "h_stab", "f_stab", "t_stab"]
     # v17: device timing (MOTION_PIPELINE.md s.8)
     cols += ["t_us", "h_qage_us", "f_qage_us", "t_qage_us", "enc_us"]
+    # v19: sEMG features per frame (firmware emg.h; MOTION_PIPELINE.md s.9)
+    cols += EMG19_COLS
     return cols
 
 

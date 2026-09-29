@@ -747,30 +747,59 @@ _fw = {"explicit_rec": False, "version": 0, "thumb_capable": False}
 ACT_ABSENT = {"present": False, "level": 0.0, "direction": 0, "fatigue": 0.0,
               "onset": False, "quality": "none"}
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-try:
-    from fable_activation import FableActivation
-    _fa = FableActivation(fs=100.0)    # firmware v16+: one EMG envelope per 100 Hz frame
-    print("[emg] Fable activation module loaded (bayes=%s)" % _fa.have_bayes)
-except Exception as _e:
-    _fa = None
-    print("[emg] activation module unavailable:", _e)
-_emg_recal = False
+import emg_engine                     # noqa: E402  (research-grade sEMG; see its docstring)
+
+_EMG_FILE = os.path.join(STATE_DIR, ".takto_emg.json")
 
 
-def run_activation(emg_env, emg_present):
-    """Advance the Fable activation filter once per real EMG sample."""
-    global _emg_recal
-    if _fa is None or not emg_present:
-        return dict(ACT_ABSENT)
-    if _emg_recal:
-        _fa.recalibrate()
-        _emg_recal = False
-    return _fa.update(emg_env, emg_present)
+def _emg_cal_load():
+    try:
+        with open(_EMG_FILE) as f:
+            d = json.load(f)
+        return d.get("cal") if isinstance(d, dict) else None
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        print("[emg] calibration file unreadable (%s): ignored" % e)
+        return None
+
+
+EMG = emg_engine.EmgEngine(cal=_emg_cal_load())
+print("[emg] engine ready (%s)" % ("MVC calibrated %.3f mV" % EMG.cal["mvc_mv"] if EMG.cal
+                                  else "not calibrated: automatic rest/peak scale"))
+
+
+def emg_frame_input(fr):
+    """The engine's input from a parsed frame: the v19 features when the
+    firmware sends them, else the v3..v18 envelope (10-bit counts)."""
+    e = fr.get("emg19")
+    if e:
+        return {"present": bool(fr.get("emg_present")), "raw_present": e["raw_present"],
+                "env_mv": e["env_mv"], "env_sd_mv": e["env_sd_mv"], "raw_rms_mv": e["raw_rms_mv"],
+                "mnf_hz": e["mnf_hz"], "mdf_hz": e["mdf_hz"], "line50_pct": e["line50_pct"],
+                "sat": e["sat"], "n": e["n"]}
+    return {"present": bool(fr.get("emg_present")),
+            "env_mv": (fr.get("emg_env") or 0.0) * emg_engine.MV_PER_COUNT10}
+
+
+def run_activation(fr):
+    """Advance the EMG engine once per device frame (serial thread)."""
+    act = EMG.update(emg_frame_input(fr))
+    for kind, res in EMG.pop_events():
+        if kind == "emg_cal":
+            if res.get("phase") == "done":
+                try:
+                    _write_json_atomic(_EMG_FILE, {"cal": EMG.cal})
+                except Exception as e:
+                    print("[emg] could not save the calibration:", e)
+            print("[emg] calibration: %s" % res)
+            _emit(dict({"kind": "ack", "event": "emg_cal"}, **res))
+    return act
 
 
 def trigger_emg_recal():
-    global _emg_recal
-    _emg_recal = True
+    """Start the guided MVC calibration (rest, then three maximal contractions)."""
+    EMG.start_calibration()
 
 
 def quat_to_rpy(w, x, y, z):
@@ -3676,6 +3705,9 @@ def _sim_line(line):
 # ----------------------------------------------------------------------------
 V16_BASE = SEA_STATE_IDX + 1          # 121: fw_flags (MOTION_PIPELINE.md s.5)
 V17_BASE = V16_BASE + 19              # 140: t_us, qage x3, enc_us (MOTION_PIPELINE.md s.8)
+V19_BASE = V17_BASE + 5               # 145: sEMG features (MOTION_PIPELINE.md s.9)
+EMG19_KEYS = ("n", "env_mv", "env_sd_mv", "raw_present", "raw_rms_mv", "raw_mav_mv", "raw_wl_mv",
+              "raw_zc", "mnf_hz", "mdf_hz", "line50_pct", "sat", "ovr")
 
 
 def parse_s_line(line):
@@ -3785,6 +3817,12 @@ def parse_s_line(line):
                       "enc_us": int(float(p[V17_BASE + 4]))}
         fr["timing"] = timing
         fr["t_dev_us"] = research.unwrap_us(fr["t"], timing["t_us"] if timing else None)
+        # ---- v19: sEMG features of the frame ----
+        emg19 = None
+        if len(p) >= V19_BASE + len(EMG19_KEYS):
+            emg19 = {k: float(p[V19_BASE + i]) for i, k in enumerate(EMG19_KEYS)}
+            emg19["raw_present"] = emg19["raw_present"] > 0.5
+        fr["emg19"] = emg19
     except (ValueError, IndexError):
         return None
     return fr
@@ -4351,7 +4389,7 @@ def ingest_frame(fr, now, line=None):
         if q is not None:
             _last_raw[k] = q
     il = [int(live_map["hand"]), int(live_map["forearm"])]
-    act = run_activation(fr["emg_env"], fr["emg_present"])
+    act = run_activation(fr)
     # Strapdown integration (legacy `inertial` block), on the firmware clock.
     # Each IMU on its own sample clock (v17: frame time - qage), so a frame
     # that re-reports an old sample integrates nothing.
@@ -5618,6 +5656,15 @@ def sd_row_frame(r, idx, boot=None):
           "tq": vec(["t_qw", "t_qx", "t_qy", "t_qz"]),
           "emg_env": g("emg_env") or 0.0, "emg_rms": g("emg_rms") or 0.0,
           "emg_present": bool(g("emg_present")), "motors_fw": None}
+    # v19 sEMG features (SD columns of the same names as the S-line tail)
+    if g("env_mv") is not None:
+        fr["emg19"] = {"n": g("emg_n"), "env_mv": g("env_mv"), "env_sd_mv": g("env_sd_mv"),
+                       "raw_present": bool(g("raw_present")), "raw_rms_mv": g("raw_rms_mv"),
+                       "raw_mav_mv": g("raw_mav_mv"), "raw_wl_mv": g("raw_wl_mv"), "raw_zc": g("raw_zc"),
+                       "mnf_hz": g("mnf_hz"), "mdf_hz": g("mdf_hz"), "line50_pct": g("line50_pct"),
+                       "sat": g("emg_sat"), "ovr": g("emg_ovr")}
+    else:
+        fr["emg19"] = None
     live = {}
     for k in IMU_KEYS:
         lv = g(_SHORT[k] + "_live")
@@ -6494,7 +6541,11 @@ def handle_command(c, raw):
             res = finish_joint_sweep()
             _ack(c, event="calibrated", travel=res)
         elif what == "emg":
-            trigger_emg_recal()   # forget rest/MVC; next rest + max contraction re-scale
+            trigger_emg_recal()   # guided MVC: rest 3 s, then 3 x (squeeze 3 s, relax 3 s)
+            _ack(c, event="emg_cal", phase="requested")
+        elif what == "emg_cancel":
+            EMG.cancel_calibration()
+            _ack(c, event="emg_cal", phase="cancelled")
         else:
             _ack(c, event="error", error="unknown calibration")
         return

@@ -343,15 +343,57 @@ export function mountOperator(rootHost) {
       el("span", { class: "frames-head-right" }, framesZero, framesRate)),
     el("div", { class: "vital-rows" }, fHand.node, fFore.node));
 
-  // effort ring = EMG activation (Fable module: BayesianAmplitude + auto MVC)
+  // effort ring = EMG activation (bridge emg_engine: 2 kHz sEMG features,
+  // Sanger Bayesian amplitude, % of a measured MVC, CUSUM onset, MDF fatigue)
   const effortGauge = ringGauge(96, 5);
   const effortVal = el("div", { class: "effort-val num" }, "0 %");
+  const effortUnit = el("div", { class: "effort-unit" }, "");
   const effortTag = el("span", { class: "effort-tag" }, "EMG");
   const effortFoot = el("div", { class: "vital-foot num effort-foot" }, "no EMG");
-  const vEffort = el("div", { class: "card vital vital-effort", title: "A calm, display-only view of normalized EMG activity. It does not affect assistance control." },
-    el("div", { class: "vital-krow effort-krow" }, el("span", { class: "kicker" }, "Effort"), effortTag),
-    el("div", { class: "effort-wrap" }, effortGauge.node, effortVal),
+  const effortQDot = el("span", { class: "dot" });
+  const effortQ = el("span", { class: "effort-q" }, "");
+  const fatigueFill = el("div", { class: "blend-fill fatigue-fill" });
+  const fatigueRow = el("div", { class: "effort-fatigue", title: "Median-frequency drop within the current contraction (25 % = full scale)" },
+    el("span", { class: "vital-k" }, "fatigue"), el("div", { class: "blend-track" }, fatigueFill));
+  fatigueRow.style.display = "none";
+  const emgCalBtn = el("button", { type: "button", class: "frames-zero emg-cal-btn",
+    title: "Guided MVC calibration: relax 3 s, then three maximal squeezes" }, "calibrate");
+  const emgCalMsg = el("div", { class: "emg-cal-msg" }, "");
+  emgCalMsg.style.display = "none";
+  emgCalBtn.addEventListener("click", () => {
+    if (!store.send({ cmd: "calibrate", what: "emg" })) { toast("Link down - not sent", { tone: "warn" }); return; }
+    emgCalMsg.style.display = "";
+    emgCalMsg.textContent = "Relax your hand completely…";
+  });
+  const vEffort = el("div", { class: "card vital vital-effort", title: "Muscle activation from the forearm sEMG. Display only: it does not affect assistance control." },
+    el("div", { class: "vital-krow effort-krow" }, el("span", { class: "kicker" }, "Effort"),
+      el("span", { class: "frames-head-right" }, effortTag, emgCalBtn)),
+    el("div", { class: "effort-wrap" }, effortGauge.node, el("div", { class: "effort-val num" }, effortVal, effortUnit)),
+    emgCalMsg,
+    el("div", { class: "vital-row effort-qrow" }, effortQDot, effortQ),
+    fatigueRow,
     effortFoot);
+  // the guided calibration speaks through the card
+  cleanups.push(store.onAck((a) => {
+    if (a.event !== "emg_cal") return;
+    const say = {
+      requested: "Relax your hand completely…",
+      rest: "Relax your hand completely…",
+      squeeze: `SQUEEZE as hard as you can · ${a.rep || 1} of ${a.reps || 3}`,
+      relax: "Relax…",
+      done: `Calibrated · MVC ${(a.mvc_mv ?? 0).toFixed(2)} mV · SNR ${a.snr_db ?? "–"} dB`,
+      failed: `Calibration failed: ${a.reason || "no signal"}`,
+      cancelled: "Calibration cancelled",
+    }[a.phase];
+    if (!say) return;
+    emgCalMsg.style.display = "";
+    emgCalMsg.textContent = say;
+    emgCalMsg.dataset.phase = a.phase;
+    if (a.phase === "done" || a.phase === "failed" || a.phase === "cancelled") {
+      setTimeout(() => { emgCalMsg.style.display = "none"; }, a.phase === "done" ? 5000 : 8000);
+    }
+  }));
+
 
   // EMG is sampled quickly so the control system can remain responsive.  The
   // person wearing the device should not have to watch a nervous 50–60 Hz
@@ -371,7 +413,11 @@ export function mountOperator(rootHost) {
     }
     const dt = Math.min(250, Math.max(0, now - calmEffort.lastT));
     calmEffort.lastT = now;
-    const alpha = 1 - Math.exp(-dt / 1600);
+    // [2026-09-30] the bridge's Bayesian amplitude filter now does the
+    // smoothing properly; a 1.6 s display lag on top made a squeeze look
+    // sluggish. The ring follows within ~150 ms; the NUMBER stays calm
+    // (5 % steps, at most 4 Hz).
+    const alpha = 1 - Math.exp(-dt / 150);
     calmEffort.value += (target - calmEffort.value) * alpha;
     const pct = Math.round(clamp(calmEffort.value, 0, 1) * 20) * 5;
     const paint = pct !== calmEffort.shownPct && now - calmEffort.lastPaintT >= 250;
@@ -844,8 +890,31 @@ export function mountOperator(rootHost) {
 
     // effort = EMG activation (Fable module output); onset flashes the card
     const act = s.activation || {};
-    effortFoot.textContent = act.present ? ("EMG · " + (act.quality || "live")) : "no EMG (pin 14)";
+    effortTag.textContent = act.present ? (act.source === "raw" ? "RAW" : "ENV") : "EMG";
+    effortTag.title = act.source === "raw" ? "MyoWare RAW on pin 15: band-passed 20-450 Hz, 2 kHz"
+      : "MyoWare envelope on pin 14 (wire RAW to pin 15 for spectrum, fatigue and contact quality)";
     effortTag.classList.toggle("on", !!act.present);
+    emgCalBtn.style.display = act.present ? "" : "none";
+    effortUnit.textContent = act.present ? (act.calibrated ? "MVC" : "auto") : "";
+    effortUnit.title = act.calibrated ? "percent of your measured maximal voluntary contraction"
+      : "automatic scale (calibrate for % of your MVC)";
+    if (act.present) {
+      const sqi = act.sqi ?? 1;
+      effortQDot.className = "dot " + (sqi >= 0.8 ? "ok" : sqi >= 0.5 ? "warn" : "stop");
+      const bits = [act.quality || "live"];
+      if (act.snr_db != null) bits.push(`SNR ${act.snr_db} dB`);
+      if (act.source === "raw" && act.mdf_hz) bits.push(`MDF ${Math.round(act.mdf_hz)} Hz`);
+      effortQ.textContent = bits.join(" · ");
+      effortFoot.textContent = `${(act.amp_mv ?? 0).toFixed(act.source === "raw" ? 3 : 1)} mV` +
+        (act.active ? " · active" : "");
+      fatigueRow.style.display = act.fatigue_available ? "" : "none";
+      fatigueFill.style.width = `${Math.round((act.fatigue || 0) * 100)}%`;
+    } else {
+      effortQDot.className = "dot";
+      effortQ.textContent = "";
+      effortFoot.textContent = "no EMG (pin 14)";
+      fatigueRow.style.display = "none";
+    }
     // Raw onset can flicker around a threshold; only the calm presentation
     // below changes the visual state.
 
@@ -931,7 +1000,7 @@ export function mountOperator(rootHost) {
       const calm = presentEffort(sm.activation.level, performance.now());
       effortGauge.set(calm.value);
       if (calm.paint) effortVal.textContent = `${calm.pct} %`;
-      vEffort.classList.toggle("onset", calm.value >= 0.6);
+      vEffort.classList.toggle("onset", !!(store.snap && store.snap.activation && store.snap.activation.onset) || calm.value >= 0.6);
 
       // encoder board: raw channel lights + live angles
       let encLive = 0;

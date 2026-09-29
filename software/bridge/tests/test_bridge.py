@@ -42,8 +42,11 @@ def test_parse_v16_v15_v6_lines():
     dev.streaming = True
     line, fr = sline(dev, 1.0)
     p = line.split(",")
-    assert len(p) == 145                                   # 0..144 per the contract (v17)
-    v17 = tb.parse_s_line(line)
+    assert len(p) == 158                                   # 0..157 per the contract (v19)
+    v19 = tb.parse_s_line(line)
+    assert v19["emg19"]["raw_present"] is True and v19["emg19"]["mdf_hz"] > 50
+    v17 = tb.parse_s_line(",".join(p[:145]))
+    assert v17["emg19"] is None
     assert v17["timing"]["t_us"] == 1000000
     assert v17["timing"]["qage_us"] == fr["qage_us"]
     assert 1800 <= v17["timing"]["enc_us"] <= 3200
@@ -347,7 +350,7 @@ def test_sd_import_offline_matches_truth(monkeypatch, device_neutral):
     text = "\n".join(dev.files["TAKES/TK00077.CSV"]) + "\n"
     parsed = sdcard.parse_take_csv(text)
     assert parsed["cols"] == sdcard.SD_COLUMNS and len(parsed["rows"]) == 1000
-    assert len(sdcard.parse_row(parsed["rows"][0], len(parsed["cols"]))) == 129
+    assert len(sdcard.parse_row(parsed["rows"][0], len(parsed["cols"]))) == 142      # v19: + 13 sEMG columns
     assert (parsed["neutral"] is None) == device_neutral
     body_before = dict(tb.state.get("derived") or {})
     take = tb.import_sd_take(text, "TAKES/TK00077.CSV", "take_7777")

@@ -303,7 +303,7 @@ def test_sd_import_quality_provenance_and_rederive(sim_bridge, tmp_path):
     # drop two rows as a damaged card would
     lines = lines[:300] + lines[302:]
     header = next(ln for ln in lines if ln.startswith("t_ms,"))
-    assert header.endswith(",t_us,h_qage_us,f_qage_us,t_qage_us,enc_us")
+    assert ",t_us,h_qage_us,f_qage_us,t_qage_us,enc_us," in header and header.endswith(",emg_ovr")
     take = tb.import_sd_take(lines, "TAKES/TK00077.CSV", "take_7701")
     q = take["quality"]
     assert q["frames"] == 798 and q["dropped"] == 2 and q["clock"] == "t_us"

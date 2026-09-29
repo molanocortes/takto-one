@@ -385,3 +385,63 @@ Numbers are rounded to 4 decimals (positions 0.1 mm). Clients render the twin fr
 - The research CSV uses SI units and names (rad, m, s); the column dictionary is in `take.json`.
 - `software/bridge/rederive.py <take.raw.txt.gz | SD .CSV>` re-runs the pipeline offline with the provenance recorded in the take; on a live take it reproduces the live rows to their rounding.
 - Measured on the development Mac with `--sim`: pose lane 100.0 Hz, bridge latency (line in to socket) p50 0.5 ms, p95 about 1.4 ms; bridge CPU 15-18 %.
+
+## 9. Surface EMG (firmware v19, 2026-09-30)
+
+The MyoWare 2.0 has three outputs; the device reads two. **ENV** (the analog
+envelope: rectified and smoothed on the sensor) goes to **pin 14 (A0)**;
+**RAW** (the amplified, band-limited EMG centred on Vs/2) to **pin 15 (A1)**,
+optional but required for the spectrum, fatigue and contact quality. Power the
+sensor from **3.3 V** (the Teensy's analog inputs are not 5 V tolerant).
+
+### Acquisition (firmware `emg.h`)
+
+- A 2 kHz `IntervalTimer` samples both pins on **ADC1** (12 bit, 4x hardware
+  averaging; ISR measured at 39 us worst case). The crown pot (pin 27) has no
+  ADC1 channel and stays on ADC2 through the core `analogRead`, so the ISR and
+  the loop never share a converter; the ISR spins on the conversion flag
+  itself (the core `analogRead` yields and must not run in an interrupt).
+- Both pins are pulled down: an unconnected output reads ~0, so `present`
+  (ENV above ~6.5 mV, RAW centred mid-rail) is a measurement.
+- RAW chain per sample: 4th-order Butterworth high-pass 20 Hz, notches at 50
+  and 100 Hz (Q 25), 2nd-order Butterworth low-pass 450 Hz. Before the notches
+  a Goertzel detector measures the 50 Hz share of the band over 200 ms (10
+  mains periods): the electrode-contact indicator.
+- Per 10 ms frame: RAW RMS, MAV, waveform length, zero crossings (adaptive
+  hysteresis), clipping count of connected channels; ENV mean and SD.
+- A 256-point real FFT (CMSIS-DSP, Hann window, 64 ms hop) of the filtered RAW
+  gives the mean and median frequency of 20-450 Hz.
+
+### Wire (append-only)
+
+S-line fields 145..157 and SD columns of the same names:
+`emg_n, env_mv, env_sd_mv, raw_present, raw_rms_mv, raw_mav_mv, raw_wl_mv,
+raw_zc, mnf_hz, mdf_hz, line50_pct, emg_sat, emg_ovr` (mV at the pin; the
+spectral and mains fields are 0 without RAW). The v3 fields `emg_env`,
+`emg_rms` (ENV in 10-bit counts) and `emg_present` keep their meaning.
+
+### Activation (bridge `emg_engine.py`)
+
+- Amplitude: RAW RMS when RAW is present, else the ENV mean.
+- **Guided MVC calibration** (`{"cmd":"calibrate","what":"emg"}`, the Effort
+  card's *calibrate*): rest 3 s, then three maximal contractions of 3 s with
+  3 s rests. Rest = median, noise = MAD x 1.4826, MVC = the highest 500 ms
+  moving mean (SENIAM), SNR = 20 log10((MVC - rest) / noise); refused below
+  6 noise SDs. Persisted in `.takto_emg.json`; dropped if the wiring changes
+  source. Before it: an automatic rest floor / peak tracker with a physical
+  minimum span (80 mV ENV), reported as `calibrated: false`, `quality: "no
+  contraction yet"` until a real contraction sets the scale.
+- `level` = fraction of MVC after Sanger's Bayesian amplitude posterior (the
+  Fable estimator, `fable_activation.BayesianAmplitude`, ported to pure
+  Python); `pct_mvc` = level x 100.
+- Onset / offset: Page's CUSUM on the log energy standardized by the rest
+  statistics (k 1.2, h 10); `active` carries the contraction state, `onset`
+  holds 150 ms.
+- Fatigue (RAW only): median-frequency drop within a contraction bout against
+  its value 1 s in; 25 % = 1.0. `fatigue_available` says when it is real.
+- Quality: `sqi` 0..1 and a reason: mains share > 20 % (fair) / > 50 % (poor
+  contact), clipping, a flat line, SNR < 20 dB.
+- Synthetic checks (`tests/test_emg_engine.py`): MVC within 5 %, onset within
+  60 ms of a 20 % MVC contraction, no false onset in 20 s of rest, fatigue
+  > 0.7 for a 22 % MDF drop, rest reads 0 before calibration. Bench (ENV
+  only): 20.6 mV rest, ISR 39 us, rest level 0.

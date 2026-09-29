@@ -373,6 +373,17 @@ class SimDevice:
         out += ["3", "3", "0", "0.0000"]
         return out
 
+    def _emg19(self, emg, t):
+        """v19 sEMG fields from the sim's envelope (10-bit ENV counts): RAW is
+        wired, its RMS follows the drive, the spectrum sits at a fresh
+        muscle's ~95 Hz median, mains pickup a few percent."""
+        env_mv = emg * 3300.0 / 1023.0
+        drive = max(0.0, (emg - 90.0) / 420.0)
+        rms = 0.012 + 0.55 * drive + 0.002 * math.sin(t * 91.0)
+        return [str(20), fmt(env_mv, 2), fmt(0.4 + 3.0 * drive, 3), "1", fmt(rms, 4),
+                fmt(rms * 0.8, 4), fmt(rms * 9.0, 3), str(int(4 + 30 * drive)),
+                fmt(112.0 - 4.0 * drive, 1), fmt(96.0 - 4.0 * drive, 1), "3.0", "0", "0"]
+
     def _row(self, t_ms, fr, t):
         """One SD row, firmware recWrite() layout."""
         enc, emg = self._fingers(t)
@@ -389,6 +400,7 @@ class SimDevice:
             f += [fmt(v, 5) for v in fr["dv"][k]]
         f += [str(fr["stab"][k]) for k in ms.KEYS]
         f += self._timing_fields(fr, t)                                  # v17
+        f += self._emg19(emg, t)                                         # v19
         return ",".join(f)
 
     def _sline(self, t_ms, fr, t):
@@ -410,6 +422,7 @@ class SimDevice:
         f += [str(fr["stab"][k]) for k in ms.KEYS]
         f += [str(fr["dv_n"][k]) for k in ms.KEYS]
         f += self._timing_fields(fr, t)                                  # v17: 140..144
+        f += self._emg19(emg, t)                                         # v19: 145..157
         return ",".join(f)
 
     # ---- the device loop ----------------------------------------------------

@@ -752,6 +752,17 @@ a.wordmark:hover { opacity: 0.72; }
 .effort-tag { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-2); }
 .effort-tag.on { color: var(--accent); }
 .effort-foot { margin-top: 2px; }
+.effort-val { flex-direction: column; gap: 0; line-height: 1; }
+.effort-unit { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-2); margin-top: 3px; }
+.effort-qrow { width: 100%; font-size: 11px; }
+.effort-q { color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.effort-fatigue { width: 100%; display: flex; align-items: center; gap: 8px; }
+.effort-fatigue .blend-track { flex: 1; }
+.fatigue-fill { background: linear-gradient(90deg, var(--accent), var(--warn)); }
+.emg-cal-msg { width: 100%; text-align: center; font-size: 12px; font-weight: 600; color: var(--accent);
+  padding: 6px 8px; border-radius: 10px; background: var(--accent-glow-12); }
+.emg-cal-msg[data-phase="squeeze"] { color: #fff; background: var(--accent); animation: cphold 1s var(--ease) infinite; }
+.emg-cal-msg[data-phase="failed"] { color: var(--stop); background: transparent; }
 .op-vitals .vital-effort { justify-content: space-between; }
 .vital-effort { transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
 .vital-effort.onset { border-color: color-mix(in srgb, var(--accent) 55%, transparent);

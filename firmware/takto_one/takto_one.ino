@@ -49,14 +49,16 @@
  *              Serial1 (pins 0/1), direction on pin 7 (HIGH = transmit).
  *   Display  : GC9A01A 240x240 round panel on SPI0, CS 10 / DC 9 / RST 8.
  *   HMI      : crown pot pin 27 (A13), button pin 5, piezo pin 2.
- *   EMG      : MyoWare envelope on pin 14 (A0).
+ *   EMG      : MyoWare 2.0 ENV on pin 14 (A0) and RAW on pin 15 (A1), both
+ *              sampled at 2 kHz by a timer on ADC1 (emg.h). RAW is optional.
  *   SD       : Teensy 4.1 built-in socket (BUILTIN_SDCARD, SDIO - not SPI).
  *
  * PIN MAP - checked for conflicts across the merge (this is the whole board):
  *   0,1   Serial1 RX/TX (Dynamixel)      | 2   piezo
  *   5     button                          | 7   74HC241 direction
  *   8,9,10 display RST/DC/CS              | 11,12,13 SPI0 MOSI/MISO/SCK
- *   14    EMG (A0)                        | 16,17 Wire1 SCL/SDA (hand + thumb)
+ *   14    EMG ENV (A0)                    | 16,17 Wire1 SCL/SDA (hand + thumb)
+ *   15    EMG RAW (A1, optional)          |
  *   18,19 Wire SDA/SCL (encoder muxes)    | 24,25 Wire2 SCL/SDA (forearm)
  *   27    crown pot (A13)                 | SDIO built-in SD
  *   No pin is claimed twice. SPI0 carries the panel only; SD is SDIO.
@@ -139,6 +141,9 @@
  *   v16 appends: <fw_flags>,<take>,<rows>,<boot_id>,<dv hand xyz>,<dv forearm xyz>,
  *     <dv thumb xyz>,<stab h,f,t>,<n_lin h,f,t>  (MOTION_PIPELINE.md section 5)
  *   v17 appends: <t_us>,<qage_us hand,forearm,thumb>,<enc_us>  (section 8)
+ *   v19 appends: <emg_n>,<env_mv>,<env_sd_mv>,<raw_present>,<raw_rms_mv>,
+ *     <raw_mav_mv>,<raw_wl_mv>,<raw_zc>,<mnf_hz>,<mdf_hz>,<line50_pct>,<emg_sat>,
+ *     <emg_ovr>  (MOTION_PIPELINE.md section 9)
  * (fields are append-only across firmware versions: v3 ended at crown, v4
  *  appends the thumb-tip quaternion + live flag, v5 DOCUMENTED servo telemetry,
  *  v6 actually EMITS it and appends crown_live, v7 the full IMU set, v9 the
@@ -172,6 +177,7 @@
 #include <Fonts/FreeSans9pt7b.h>
 #include "firmware_ui.h"   // dirty-tile + DMA panel push, crown/button/piezo HMI
 #include "sfx.h"           // the buzzer's sound vocabulary (non-blocking)
+#include "emg.h"           // v19: 2 kHz timer-driven sEMG, band-pass, features, spectrum
 
 // ---- configuration ---------------------------------------------------------
 #define MUX_BUS      Wire          // encoders' mux main bus (pins 18/19)
@@ -208,7 +214,7 @@ const uint8_t  EMG_PIN     = 14;       // MyoWare ENVELOPE output on A0; oversam
 // [MERGE] v6: the S-line finally carries the servo telemetry v5 documented, plus
 // crown_live. Both are APPENDED, so every pre-existing field index is unchanged
 // and an old host simply does not look at them.
-const uint8_t  FW_VERSION  = 18;       // v18: chunked, CRC-verified SD transfer
+const uint8_t  FW_VERSION  = 19;       // v19: research-grade sEMG (emg.h); v18: chunked SD transfer
                                        // (F,get,<path>,<off>,<max> / F,crc) and
                                        // flow-controlled USB writes
                                        // v17: research timing - frame t_us, per-IMU
@@ -342,9 +348,6 @@ bool     streaming = false;            // live serial stream for the web-console
 // EMG (MyoWare envelope on pin 14): oversampled ~1 kHz between 50 Hz frames, reduced
 // to mean (envelope) + RMS and appended to the S-line. The host runs the
 // activation module (effort_control BayesianAmplitude + normalization) on this.
-uint32_t emgSum = 0, emgSumSq = 0;
-uint16_t emgCount = 0;
-uint32_t emgLastU = 0;
 float    emgEnv = 0.0f, emgRms = 0.0f;
 bool     emgHave = false;
 float    crownFilt = -1.0f;            // EMA of the crown pot, 0..1000 (-1 = absent/unknown)
@@ -1972,7 +1975,9 @@ void recStartTake(bool fromDevice) {
   recFile.print(",h_live,f_live,t_live,emg_present"
                 ",h_dvx,h_dvy,h_dvz,f_dvx,f_dvy,f_dvz,t_dvx,t_dvy,t_dvz"
                 ",h_stab,f_stab,t_stab"
-                ",t_us,h_qage_us,f_qage_us,t_qage_us,enc_us\n");
+                ",t_us,h_qage_us,f_qage_us,t_qage_us,enc_us"
+                ",emg_n,env_mv,env_sd_mv,raw_present,raw_rms_mv,raw_mav_mv,raw_wl_mv,raw_zc"
+                ",mnf_hz,mdf_hz,line50_pct,emg_sat,emg_ovr\n");
   if (recFile.getWriteError()) {
     recFile.close(); recFail("write"); return;
   }
@@ -2035,8 +2040,15 @@ void recWrite(uint32_t t) {
   for (uint8_t i = 0; i < N_IMU; i++)
     ap(",%.5f,%.5f,%.5f", frameDv[i][0], frameDv[i][1], frameDv[i][2]);
   ap(",%u,%u,%u", imuStab[0], imuStab[1], imuStab[2]);
-  ap(",%lu,%lu,%lu,%lu,%lu\n", (unsigned long)frameUs, (unsigned long)frameQAgeUs[0],
+  ap(",%lu,%lu,%lu,%lu,%lu", (unsigned long)frameUs, (unsigned long)frameQAgeUs[0],
      (unsigned long)frameQAgeUs[1], (unsigned long)frameQAgeUs[2], (unsigned long)frameEncUs);
+  {
+    const emg::Frame &e = emg::fr;
+    const float k = emg::MV_PER_COUNT;
+    ap(",%u,%.2f,%.3f,%d,%.4f,%.4f,%.3f,%u,%.1f,%.1f,%.1f,%u,%lu\n",
+       e.n, e.envMean * k, e.envSd * k, e.rawPresent ? 1 : 0, e.rawRms * k, e.rawMav * k,
+       e.rawWl * k, e.rawZc, e.mnf, e.mdf, e.linePct, e.sat, (unsigned long)e.overruns);
+  }
   bool ok = recAppend(rowBuf, rowLen);   // the loop drains it in sector slices (recService)
   // A card that stopped accepting data must stop the take loudly, not keep
   // counting rows.
@@ -2487,6 +2499,14 @@ void emitStream(uint32_t t) {
   Serial.print(','); Serial.print(frameUs);
   for (uint8_t i = 0; i < N_IMU; i++) { Serial.print(','); Serial.print(frameQAgeUs[i]); }
   Serial.print(','); Serial.print(frameEncUs);
+  // v19: sEMG features of this frame (emg.h), mV at the pin
+  {
+    const emg::Frame &e = emg::fr;
+    const float k = emg::MV_PER_COUNT;
+    Serial.printf(",%u,%.2f,%.3f,%d,%.4f,%.4f,%.3f,%u,%.1f,%.1f,%.1f,%u,%lu",
+                  e.n, e.envMean * k, e.envSd * k, e.rawPresent ? 1 : 0, e.rawRms * k, e.rawMav * k,
+                  e.rawWl * k, e.rawZc, e.mnf, e.mdf, e.linePct, e.sat, (unsigned long)e.overruns);
+  }
   Serial.print('\n');
 }
 
@@ -2807,7 +2827,7 @@ void setup() {
   Wire1.begin();  Wire1.setClock(400000);   // hand 0x4A + thumb tip 0x4B (pins 17/16)
   Wire2.begin();  Wire2.setClock(400000);   // forearm 0x4B, own bus (pins 25/24)
   for (uint8_t i = 0; i < 2; i++) muxDisable(MUX_ADDR[i]);
-  pinMode(EMG_PIN, INPUT);             // MyoWare envelope on A0 (analog in)
+  // EMG pins are configured by emg::begin() (pulled down, ADC1, 2 kHz timer)
   for (uint8_t ch = 0; ch < N_CHANNELS; ch++) {
     frameDeg[ch] = -1.0f; romLo[ch] = 1e9f; romHi[ch] = -1e9f;
   }
@@ -2819,6 +2839,7 @@ void setup() {
   // A boot id that differs on every power-up: the host keys the IMU neutral to
   // it. ADC noise on the floating EMG/crown pins plus the boot time in micros.
   randomSeed((uint32_t)analogRead(EMG_PIN) * 2654435761u ^ (uint32_t)analogRead(POT_PIN) ^ micros());
+  emg::begin();                        // after the seed read: it re-owns ADC1 for the 2 kHz timer
   bootId = (uint16_t)random(1, 65536);
   for (uint8_t i = 0; i < N_IMU; i++) for (uint8_t k = 0; k < 3; k++) frameDv[i][k] = 0.0f;
   Serial.println(F("\ntakto_one - TAKTO ONE device firmware, Teensy 4.1"));
@@ -2921,6 +2942,11 @@ void loop() {
                     (unsigned long)mxImu, (unsigned long)mxSvc, (unsigned long)mxUi, (unsigned long)mxScreen,
                     (unsigned long)mxPanel, (unsigned long)mxFrame, (unsigned long)mxSerial, (unsigned long)mxSd,
                     (unsigned long)mxLate, (unsigned long)perfSd);
+      Serial.printf("# emg: timer %s, isr max %lu us, overruns %lu, env %.1f mV (present %d), raw present %d, line50 %.1f %%\n",
+                    emg::running ? "2 kHz" : "OFF", (unsigned long)emg::isrMaxUs, (unsigned long)emg::fr.overruns,
+                    emg::fr.envMean * emg::MV_PER_COUNT, emg::fr.envPresent ? 1 : 0, emg::fr.rawPresent ? 1 : 0,
+                    emg::fr.linePct);
+      emg::isrMaxUs = 0;
       mxImu = mxSvc = mxUi = mxScreen = mxPanel = mxFrame = mxSerial = mxSd = mxLate = 0; perfSd = 0;
       perfImu = perfSvc = perfUi = perfScreen = perfPanel = perfFrame = perfSerial = 0;
       paintMaxUs = 0; paintCount = 0; paintSumUs = 0; loopPasses = 0;
@@ -2975,13 +3001,6 @@ void frameTick() {
   static bool inFrame = false;
   if (inFrame) return;
   inFrame = true;
-  // oversample the MyoWare envelope (pin 14) at ~1 kHz between the 50 Hz frames
-  uint32_t nowU = micros();
-  if (nowU - emgLastU >= 1000) {
-    emgLastU = nowU;
-    uint16_t v = analogRead(EMG_PIN);
-    emgSum += v; emgSumSq += (uint32_t)v * v; emgCount++;
-  }
   const uint32_t PERIOD_MS = FRAME_PERIOD_MS;
   uint32_t now = millis();
   if (now - lastSample >= PERIOD_MS) {
@@ -2997,13 +3016,15 @@ void frameTick() {
     // (>= 3 frames: calibrate, a file transfer) resyncs. Every frame carries
     // its own t_ms and dv, so a late frame is exact, just late.
     if (now - lastSample >= 3 * PERIOD_MS) lastSample = now;
-    // reduce the EMG oversample to envelope (mean) + RMS, then reset the accumulator
-    emgHave = (emgCount > 0);
-    if (emgHave) {
-      emgEnv = (float)emgSum / (float)emgCount;
-      emgRms = sqrtf((float)emgSumSq / (float)emgCount);
-    } else { emgEnv = 0.0f; emgRms = 0.0f; }
-    emgSum = 0; emgSumSq = 0; emgCount = 0;
+    // v19: the 2 kHz sEMG since the last frame (emg.h). The v3 fields keep
+    // their meaning for every older host: the ENV mean and RMS in 10-bit
+    // counts, and "present" - now a measurement (pulled-down pins read ~0).
+    {
+      const emg::Frame &ef = emg::frame();
+      emgHave = ef.envPresent || ef.rawPresent;
+      emgEnv = ef.envMean / 4.0f;
+      emgRms = sqrtf(ef.envMean * ef.envMean + ef.envSd * ef.envSd) / 4.0f;
+    }
     crownSample();                  // presence-gated, carousel-arbitrated blend
     // ONE sensor acquisition per frame, shared by the SD row, the S-line AND the
     // faces. [MERGE] the sweep now runs whenever anything consumes it - and the
