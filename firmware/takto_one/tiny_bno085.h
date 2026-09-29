@@ -161,6 +161,20 @@ struct TinyBNO085 {
     return sendPacket(2, p, sizeof(p)); // channel 2 = SH-2 control
   }
 
+  // SH-2 Command Request 0x07, "Configure ME Calibration" (SH-2 ref. 6.4.6):
+  // P0 accelerometer, P1 gyroscope, P2 magnetometer dynamic calibration,
+  // P3 subcommand 0 = configure, P4 planar accel. [BENCH 2026-09-29] both
+  // IMUs reported calibration accuracy 0 on every report and the hand's game
+  // rotation vector drifted 0.92 deg/min lying still: the gyro zero-rate
+  // offset was never being learned. The magnetometer stays OFF - next to the
+  // encoder magnets it would learn the magnets.
+  uint8_t seqCmd = 0;
+  bool configureCalibration(bool accel, bool gyro, bool mag) {
+    uint8_t p[12] = { 0xF2, seqCmd++, 0x07, (uint8_t)accel, (uint8_t)gyro, (uint8_t)mag,
+                      0x00, 0x00, 0, 0, 0, 0 };
+    return sendPacket(2, p, sizeof(p));
+  }
+
   // Back-compat shim: the old one-report entry point.
   bool enableRotationVector(uint32_t interval_us = 10000) {
     return enableReport(rotReport, interval_us);
@@ -219,6 +233,9 @@ struct TinyBNO085 {
       else lastFeatureFail = ids[i];
       delay(2);                               // pacing between control writes
     }
+    // learn accelerometer + gyro offsets in the background (see above)
+    for (uint8_t attempt = 0; attempt < 3 && !configureCalibration(true, true, false); attempt++) delay(4);
+    delay(2);
     // Success is defined by the ORIENTATION report alone. A missing gravity or
     // magnetometer row is a degraded sensor, not a dead one, and marking it dead
     // stops poll() entirely - which loses the quaternion too. The host reads

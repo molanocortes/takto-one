@@ -621,7 +621,7 @@ export function mountOperator(rootHost) {
   // ============ life ============
   const COCKPIT_FRAMING = {
     orbit: true, idle: true, autoFrame: true, armView: true,
-    yaw: -0.75, pitch: 0.34, dist: 6.4, targetY: -0.1, targetZ: 0.1,
+    yaw: Math.PI + 0.7, pitch: 0.62, dist: 7.6, targetY: -0.1, targetZ: 0.6,   // behind + above the hand: the wearer's own view
     autoFrameMinDist: 4.8, autoFrameMaxDist: 9.2, autoFrameMargin: 1.18,
   };
   const twin = Twin.acquire(stage, COCKPIT_FRAMING);
@@ -782,9 +782,12 @@ export function mountOperator(rootHost) {
       const r = motorRows[m.id];
       r.mode.textContent = m.mode;
       r.torque.className = "dot " + (m.torque_on ? "ok" : "");
-      r.pos.textContent = m.pos_deg.toFixed(1);
-      r.cur.textContent = m.current_ma.toFixed(0);
-      r.temp.textContent = m.temp_c.toFixed(0);
+      // real servos report no temperature (the bridge sends null): show a dash,
+      // never a number the device did not measure
+      const num = (v, d) => (typeof v === "number" && isFinite(v)) ? v.toFixed(d) : "\u2014";
+      r.pos.textContent = num(m.pos_deg, 1);
+      r.cur.textContent = num(m.current_ma, 0);
+      r.temp.textContent = num(m.temp_c, 0);
     }
   });
   cleanups.push(offSnap);

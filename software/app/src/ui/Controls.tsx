@@ -137,7 +137,7 @@ export function NeutralCard() {
       ) : (
         <>
           <T size={12} color={C.ink2} style={{ marginTop: 10 }}>
-            Forearm roughly horizontal and pointing forward, palm down, wrist straight, fingers extended. The device counts 3-2-1 and asks you to hold still for 2 s.
+            Point your forearm at the screen (roughly level), palm down, wrist straight, fingers extended. The device counts 3-2-1 and asks you to hold still for 2 s.
           </T>
           {recent && <M size={10} color={C.green} style={{ marginTop: 10 }}>Captured</M>}
           {(n.phase === 'abort' || n.phase === 'error') && (

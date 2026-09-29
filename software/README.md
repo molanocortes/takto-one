@@ -49,7 +49,7 @@ For the phone app or the Quest on the same Wi-Fi, add `--ws-host 0.0.0.0` and co
 ### First thing every session: the neutral pose
 
 The IMUs' heading reference changes at every power-up, so the twin needs one neutral
-capture per power-up: forearm forward and level, **palm down, wrist straight, fingers
+capture per power-up: forearm level and pointing at the screen, **palm down, wrist straight, fingers
 extended**, hold still. Start it from any surface (the Calibrate prompt), or on the device
 (crown carousel: Calibrate). The device counts 3-2-1 with a chime and checks that you
 really are still. Until then the twin runs on a provisional neutral and says so.

@@ -56,7 +56,8 @@ Q_seg(t) = H_s * C * q_s(t) * M_s
 
 ### Neutral capture (every power-up; required)
 
-Pose: forearm roughly horizontal and pointing forward, **palm down, wrist
+Pose: forearm roughly horizontal and **pointing at the screen** (that direction becomes the
+twin's forward, and the twin's camera looks along it), **palm down, wrist
 straight, fingers extended**, hold still for 2 s.
 
 Triggers: the device (button / crown carousel "calibrate"), the bridge command

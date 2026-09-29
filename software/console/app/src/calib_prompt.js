@@ -14,7 +14,7 @@
 import { el, toast } from "./ui.js";
 import { store } from "./store.js";
 
-const INSTR = "Forearm forward, palm down, wrist straight, fingers extended. Hold still.";
+const INSTR = "Point your forearm at the screen, palm down, wrist straight, fingers extended. Hold still.";
 const ABORT_WHY = {
   moving: "the arm kept moving (no still 2 s window)",
   imu: "a main IMU dropped out",

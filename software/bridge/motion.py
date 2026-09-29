@@ -389,6 +389,12 @@ DEFAULT_CFG = {
     "neutral_window_s": 2.0,
     "neutral_max_spread_deg": 8.0,     # a "hold" that moved more than this is refused
     "level_forearm": True,             # the neutral pose DEFINES the forearm as level + palm down
+    # [BENCH 2026-09-29] OFF by default. The bleed assumes hand and forearm
+    # cannot twist relative to each other; whenever they really do (the modules
+    # handled off the arm, a forearm strap that does not follow pronation) it
+    # rotates the hand heading to "fix" a real pose: measured on the rig as a
+    # steady 1.8 deg/min fake drift of a hand lying still (raw chip: 0.9).
+    "heading_bleed": False,
     "heading_bleed_tau_s": 30.0,       # axial-twist bleed time constant (contract)
     "heading_bleed_clamp_deg": 20.0,   # twist beyond this is a pose, not drift: cap the gradient
     # inertial elbow estimate
@@ -408,7 +414,15 @@ DEFAULT_CFG = {
     "relax_after_s": 4.0,              # still this long -> upper arm relaxes to hanging
     "relax_tau_s": 8.0,
     "max_elev_deg": 170.0,             # anatomical cone around hanging
-    "inertial": True,
+    # [BENCH 2026-09-29] OFF by default: position comes from the jointed-arm
+    # model alone, which moves the wrist only through MEASURED rotations and
+    # cannot drift. With the inertial elbow on, rotating the device by hand
+    # (up to ~70 deg) swung the estimated elbow by 45-54 cm on the rig - the
+    # double-integration drift physics predicts for a BNO085 (tilt error x g),
+    # amplified when the device is not worn. Research use: switch it on with
+    # {"cmd":"body_cfg","inertial":true}; the raw take keeps everything needed
+    # to re-derive either way.
+    "inertial": False,
     "gap_s": 0.25,                     # a frame gap larger than this resets integration
     "history_s": 8.0,
 }
@@ -884,7 +898,7 @@ class BodyModel:
 
         # heading-drift bleed (hand vs forearm axial twist -> hand heading)
         both = self.live["hand"] and self.live["forearm"]
-        if self.neutral is not None and both and dt > 0.0:
+        if cfg.get("heading_bleed") and self.neutral is not None and both and dt > 0.0:
             qf = self.seg_quat("forearm")
             qh = self.seg_quat("hand")
             rel = qmul(qconj(qf), qh)

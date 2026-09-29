@@ -6955,6 +6955,13 @@ def handle_command(c, raw):
             _ack(c, event="error", error="unknown env", id=env_id)
         return
 
+    if name == "body_cfg":        # research switches of the body model (live, per session)
+        for k in ("inertial", "heading_bleed"):
+            if k in cmd:
+                BODY.cfg[k] = bool(cmd[k])
+        _ack(c, event="body_cfg", ok=True,
+             cfg={k: bool(BODY.cfg.get(k)) for k in ("inertial", "heading_bleed")})
+        return
     if name == "enc_map":         # which finger / DOF each encoder channel measures
         if cmd.get("action") == "set":
             try:

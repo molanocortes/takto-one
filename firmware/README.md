@@ -41,7 +41,7 @@ calibrated twin later.
 | Hold 0.6 s | Back to home |
 | Hold 3 s | Standby: the take is closed safely and the screen goes dark. Press to wake. Unplug only in standby or with no take running |
 
-Neutral pose: forearm forward and roughly level, **palm down, wrist straight, fingers
+Neutral pose: forearm roughly level and pointing at the screen (or straight ahead when standalone), **palm down, wrist straight, fingers
 extended**. The screen counts 3-2-1 (one beep per second) and then asks you to hold still
 for 2 s; moving restarts the hold, and after 7 s without a still window the capture is
 abandoned rather than calibrating a moving arm.

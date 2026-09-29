@@ -303,7 +303,7 @@ def test_provisional_then_device_neutral():
     assert seen_prov is not None and 1.5 <= seen_prov <= 1.8        # 1.5 s still
     b = bm.body()
     assert b["provisional"] is True and b["calibrated"] is False
-    assert b["pos_source"] == "arm+inertial"
+    assert b["pos_source"] == "arm"                 # drift-free arm model by default
     # the device's own averages (E,neutral,done) make it a real neutral
     q_avg = {k: s.raw_quat(k, t) for k in ("hand", "forearm", "thumb")}
     res = bm.request_device_neutral(t, q_avg=q_avg)
@@ -372,7 +372,7 @@ def test_heading_drift_bleeds_when_observable():
 
     def twist_after(fn, T):
         s = Sensors(Arm(), fn, tm, heading, seed=4, noise=False)
-        bm = BodyModel(PRIORS, cfg={"inertial": False})
+        bm = BodyModel(PRIORS, cfg={"inertial": False, "heading_bleed": True})
         bm.auto_neutral = False
         t = 0.0
         while t < T - 1e-9:

@@ -28,7 +28,11 @@ const ARM_S = MODEL_SCALE * 1000;   // m -> scene units (13 units per metre)
 // neutral arm sits exactly where the pinned twin always stood.
 const FLOOR_Y_M = -0.70;            // reference grid, below a hanging arm + hand
 const VIEW_KEY = "takto.twin.view"; // remembered "arm" | "hand" choice
-const ARM_FRAMING = { yaw: -1.2, pitch: 0.3, dist: 10.5 };
+// Behind the wearer's right shoulder, looking forward along the arm (body +Z):
+// the twin turns the way the wearer sees their own arm turn. [2026-09-29] The
+// first framing (yaw -1.2) sat at the wearer's right, slightly IN FRONT and
+// looking back: a roll made clockwise looked counterclockwise on screen.
+const ARM_FRAMING = { yaw: Math.PI + 0.8, pitch: 0.62, dist: 12.5 };
 const FINGER_GHOST_OPACITY = 0.26;  // a finger whose encoder channel is dead
 
 const HAND_ASSET_VERSION = 20;   // bump when zero_hand.glb is rebuilt (busts HTTP
