@@ -56,6 +56,17 @@
   /* glass */
   --glass: rgba(250, 248, 242, 0.82);
 
+  /* liquid glass: floating instruments over a full-screen stage. A thin
+     fill, a strong blur with extra saturation, a bright specular edge on
+     top and a soft contact shadow; the twin stays visible through it. */
+  --lg-fill:   rgba(255, 255, 255, 0.46);
+  --lg-fill-2: rgba(255, 255, 255, 0.38);
+  --lg-edge:   rgba(255, 255, 255, 0.78);
+  --lg-line:   rgba(28, 40, 60, 0.09);
+  --lg-spec:   linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0) 42%);
+  --lg-shadow: 0 1px 2px rgba(20, 32, 52, 0.05), 0 18px 50px rgba(20, 32, 52, 0.16);
+  --lg-blur:   blur(26px) saturate(185%);
+
   /* SIMULATED DATA: a true amber, deliberately outside the sapphire system so
      simulated data can never be mistaken for a live state */
   --sim:      #9A5B0C;
@@ -96,6 +107,13 @@
   --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.42), 0 28px 72px rgba(0, 0, 0, 0.56);
 
   --glass: rgba(13, 20, 32, 0.84);
+
+  --lg-fill:   rgba(18, 26, 40, 0.44);
+  --lg-fill-2: rgba(210, 228, 250, 0.05);
+  --lg-edge:   rgba(210, 228, 250, 0.16);
+  --lg-line:   rgba(210, 228, 250, 0.08);
+  --lg-spec:   linear-gradient(180deg, rgba(210, 228, 250, 0.11) 0%, rgba(210, 228, 250, 0) 42%);
+  --lg-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 22px 60px rgba(0, 0, 0, 0.5);
 
   --sim:      #F0B45A;
   --sim-glow: rgba(240, 180, 90, 0.13);

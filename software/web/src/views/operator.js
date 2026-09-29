@@ -418,14 +418,32 @@ export function mountOperator(rootHost) {
       stageFix.textContent = "Correct the twin";
     }, 1200);
   });
-  stage.append(stageTag, stageHint, stageFix, stageFixNote);
+  stage.append(stageFix, stageFixNote);
   // Arm in space (body frame, translating, limb + floor grid) or the classic
   // pinned hand (orientation only). The twin remembers the choice.
   const viewArm = el("button", { type: "button", title: "The whole arm, moving through space (body model)" }, "Arm in space");
   const viewHand = el("button", { type: "button", title: "The device pinned in place: orientation only" }, "Hand only");
   const viewSeg = el("div", { class: "seg seg-sm stage-view" }, viewArm, viewHand);
   const stageNote = el("div", { class: "stage-note mono" }, "");
-  stage.append(viewSeg, stageNote);
+  // camera presets, named from the wearer's side of the arm (twin.cameraPreset)
+  const CAMS = [["wearer", "Wearer", "Behind your shoulder, looking along the arm: turns the way you see your own arm turn"],
+    ["side", "Side", "From your right"], ["top", "Top", "From above, forward pointing up the screen"],
+    ["front", "Front", "Facing you, like a mirror: rotations read reversed"]];
+  const camBtns = new Map();
+  const camSeg = el("div", { class: "seg seg-sm op-cam" });
+  let camNow = "wearer";
+  const paintCam = () => { for (const [k, b] of camBtns) b.classList.toggle("on", k === camNow); };
+  for (const [key, label, tip] of CAMS) {
+    const b = el("button", { type: "button", title: tip }, label);
+    b.addEventListener("click", () => { camNow = key; twin.cameraPreset(key); paintCam(); });
+    camBtns.set(key, b);
+    camSeg.append(b);
+  }
+  const recenterBtn = el("button", { type: "button", class: "op-dock-btn", title: "Recenter the twin (double-click the stage)" },
+    svg("svg", { viewBox: "0 0 16 16", width: 15, height: 15 },
+      svg("circle", { cx: 8, cy: 8, r: 2.2, fill: "currentColor" }),
+      svg("path", { d: "M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3", stroke: "currentColor", "stroke-width": 1.5, "stroke-linecap": "round" })));
+  recenterBtn.addEventListener("click", () => twin.recenter());
   const calibPrompt = buildCalibPrompt(cleanups, { variant: "stage" });
   stage.append(calibPrompt.node);
 
@@ -562,7 +580,82 @@ export function mountOperator(rootHost) {
   // full-width copy beneath the grid: it was the element covering the lower
   // cards on shorter desktop viewports.
   const motorStrip = el("div", { class: "op-motorstrip card" });
-  const liveGrid = el("div", { class: "op-live" }, vitals, stage, charts);
+  // ---- full-screen twin, instruments in liquid-glass drawers ----
+  // [2026-09-29, owner's call] The twin IS the page. The two instrument
+  // columns float over it as glass drawers that slide away to a pull tab
+  // ([ and ] toggle one, \ toggles both, remembered), and the camera centres
+  // the twin in whatever the drawers leave free (twin.setInsets).
+  const PANELS_KEY = "takto.op.panels";
+  const panels = { left: window.innerWidth >= 900, right: window.innerWidth >= 1200 };
+  try { Object.assign(panels, JSON.parse(localStorage.getItem(PANELS_KEY) || "null") || {}); } catch (_) {}
+  const chevron = () => svg("svg", { viewBox: "0 0 10 16", width: 10, height: 16 },
+    svg("path", { d: "M3 3l4 5-4 5", fill: "none", stroke: "currentColor", "stroke-width": 1.8,
+      "stroke-linecap": "round", "stroke-linejoin": "round" }));
+  const drawers = {};
+  const mkDrawer = (side, content, label, key) => {
+    const pull = el("button", { type: "button", class: "op-pull lg", title: `${label} (${key})`, "aria-label": label }, chevron());
+    const node = el("aside", { class: `op-float lg ${side}`, "aria-label": label },
+      el("div", { class: "op-float-scroll" }, content), pull);
+    pull.addEventListener("click", () => setPanel(side, !panels[side]));
+    drawers[side] = node;
+    return node;
+  };
+  const leftDrawer = mkDrawer("left", vitals, "Status panel", "[");
+  const rightDrawer = mkDrawer("right", charts, "Instruments panel", "]");
+  const panelsBtn = el("button", { type: "button", class: "op-dock-btn", title: "Show / hide the panels (\\)" },
+    svg("svg", { viewBox: "0 0 16 16", width: 15, height: 15 },
+      svg("rect", { x: 1.5, y: 2.5, width: 13, height: 11, rx: 2.5, fill: "none", stroke: "currentColor", "stroke-width": 1.4 }),
+      svg("path", { d: "M5.5 2.5v11M10.5 2.5v11", stroke: "currentColor", "stroke-width": 1.4 })));
+  panelsBtn.addEventListener("click", () => {
+    const show = !(panels.left || panels.right);
+    setPanel("left", show, false); setPanel("right", show);
+  });
+  const dock = el("div", { class: "op-dock lg", title: "drag to orbit · wheel to zoom · double-click to recenter" },
+    el("div", { class: "op-dock-tag" }, stageTag, stageNote),
+    viewSeg, camSeg, recenterBtn, panelsBtn);
+  const liveGrid = el("div", { class: "op-live" }, stage, leftDrawer, rightDrawer, dock);
+
+  function syncInsets() {
+    if (!twin) return;
+    const W = window.innerWidth, gap = 12;
+    const r = (n) => n.getBoundingClientRect();
+    const left = panels.left ? r(leftDrawer).width + gap * 2 : 0;
+    const right = panels.right ? r(rightDrawer).width + gap * 2 : 0;
+    // the calibration prompt counts as covered while it is open over the stage
+    const cp = calibPrompt.node;
+    const cpOpen = !cp.hidden && !cp.classList.contains("collapsed") && cp.offsetParent !== null;
+    const top = tab === "live" ? Math.max(r(bar).bottom, cpOpen ? r(cp).bottom : 0) + gap : 0;
+    const bottom = r(dock).height + gap * 3;
+    const fits = W - left - right > 260;          // narrow screens: drawers overlay
+    twin.setInsets(fits ? { left, right, top, bottom } : { top, bottom });
+    root.style.setProperty("--free-cx", `${fits ? (left + (W - right)) / 2 : W / 2}px`);
+  }
+  function setPanel(side, open, sync = true) {
+    panels[side] = !!open;
+    drawers[side].classList.toggle("closed", !open);
+    panelsBtn.classList.toggle("on", panels.left || panels.right);
+    try { localStorage.setItem(PANELS_KEY, JSON.stringify(panels)); } catch (_) {}
+    if (sync) syncInsets();
+  }
+  const onKey = (e) => {
+    if (tab !== "live" || e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    if (e.key === "[") setPanel("left", !panels.left);
+    else if (e.key === "]") setPanel("right", !panels.right);
+    else if (e.key === "\\") { const show = !(panels.left || panels.right); setPanel("left", show, false); setPanel("right", show); }
+    else return;
+    e.preventDefault();
+  };
+  window.addEventListener("keydown", onKey);
+  // the prompt opens, collapses and changes height on its own
+  const cpWatch = new ResizeObserver(() => syncInsets());
+  cpWatch.observe(calibPrompt.node);
+  const cpMut = new MutationObserver(() => syncInsets());
+  cpMut.observe(calibPrompt.node, { attributes: true, attributeFilter: ["class", "hidden"] });
+  cleanups.push(() => { cpWatch.disconnect(); cpMut.disconnect(); });
+  window.addEventListener("resize", syncInsets);
+  cleanups.push(() => { window.removeEventListener("keydown", onKey); window.removeEventListener("resize", syncInsets); });
 
   // ============ HEALTH tab ============
   const healthSummary = el("h2", { class: "health-summary" }, "All streams healthy");
@@ -586,6 +679,7 @@ export function mountOperator(rootHost) {
 
   const body = el("main", { class: "surf-body" }, liveGrid);
   root.append(bar, body);
+  root.classList.add("op-full");
 
   // ============ tab switching ============
   let tab = "live";
@@ -594,7 +688,11 @@ export function mountOperator(rootHost) {
     tab = t;
     segLive.classList.toggle("on", t === "live");
     segHealth.classList.toggle("on", t === "health");
-    const swap = () => { body.replaceChildren(t === "live" ? liveGrid : healthWrap); };
+    const swap = () => {
+      body.replaceChildren(t === "live" ? liveGrid : healthWrap);
+      root.classList.toggle("op-full", t === "live");
+      if (t === "live") requestAnimationFrame(syncInsets);
+    };
     document.startViewTransition ? document.startViewTransition(swap) : swap();
   }
   segLive.addEventListener("click", () => setTab("live"));
@@ -621,8 +719,10 @@ export function mountOperator(rootHost) {
   // ============ life ============
   const COCKPIT_FRAMING = {
     orbit: true, idle: true, autoFrame: true, armView: true,
-    yaw: Math.PI + 0.7, pitch: 0.62, dist: 7.6, targetY: -0.1, targetZ: 0.6,   // behind + above the hand: the wearer's own view
-    autoFrameMinDist: 4.8, autoFrameMaxDist: 9.2, autoFrameMargin: 1.18,
+    // behind + above the right shoulder, high enough that the forearm module
+    // does not hide the hand: the wearer's own view (twin.cameraPreset "wearer")
+    yaw: Math.PI + 0.9, pitch: 0.78, dist: 7.6, targetY: -0.1, targetZ: 0.6,
+    autoFrameMinDist: 4.8, autoFrameMaxDist: 12.5, autoFrameMargin: 1.3,
   };
   const twin = Twin.acquire(stage, COCKPIT_FRAMING);
   cleanups.push(() => twin.dispose());
@@ -632,9 +732,15 @@ export function mountOperator(rootHost) {
     viewHand.classList.toggle("on", v === "hand");
     stage.classList.toggle("arm-view", v === "arm");
   };
-  viewArm.addEventListener("click", () => { twin.setView("arm"); paintView(); });
-  viewHand.addEventListener("click", () => { twin.setView("hand"); paintView(); });
+  viewArm.addEventListener("click", () => { twin.setView("arm"); paintView(); camNow = "wearer"; paintCam(); });
+  viewHand.addEventListener("click", () => { twin.setView("hand"); paintView(); camNow = "wearer"; paintCam(); });
   paintView();
+  paintCam();
+  setPanel("left", panels.left, false);
+  setPanel("right", panels.right, false);
+  requestAnimationFrame(syncInsets);
+  // the drawers slide; re-measure once they land
+  for (const d of [leftDrawer, rightDrawer]) d.addEventListener("transitionend", (e) => { if (e.target === d) syncInsets(); });
 
   let motorRows = {};
   const frameKin = { prevT: null, prevHand: null, prevFore: null, rate: 0,

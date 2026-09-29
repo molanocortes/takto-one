@@ -75,6 +75,8 @@ const shadowDiscTexture = () => radialTexture([
 // That removes the mount hitch that made surface transitions feel laggy.
 let _shared = null;
 
+const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
 export class Twin {
   static acquire(container, opts = {}) {
     if (!_shared) _shared = new Twin(container, opts);
@@ -165,6 +167,10 @@ export class Twin {
     };
     this._manualCameraUntil = 0;
     this._autoFrameNext = 0;
+    // screen insets (px) covered by floating UI: the camera centres the twin in
+    // what is left. A surface that sets none gets the whole canvas.
+    this._insT = { left: 0, right: 0, top: 0, bottom: 0 };
+    if (!this._ins) this._ins = { ...this._insT };
     this._frameBaseView = { yaw: this.opts.yaw, pitch: this.opts.pitch, dist: this.opts.dist };
     this._camByView = {};
     this._followInit = false;
@@ -747,7 +753,7 @@ export class Twin {
       if (!this._dragging) return;
       this._tyaw += (e.clientX - this._px) * 0.006;
       if (this.opts.orbit) {   // spin mode is yaw-only: a simple turntable
-        this._tpitch = clamp(this._tpitch + (e.clientY - this._py) * 0.005, -0.15, 1.1);
+        this._tpitch = clamp(this._tpitch + (e.clientY - this._py) * 0.005, -0.15, 1.38);
       }
       this._px = e.clientX; this._py = e.clientY;
       this._manualCameraUntil = performance.now();
@@ -759,11 +765,12 @@ export class Twin {
       if (this.opts.orbit || this.opts.spin) c.style.cursor = "grab";
     };
     c.addEventListener("pointerup", up);
+    c.addEventListener("dblclick", () => { if (this.opts.orbit) this.recenter(); });
     c.addEventListener("pointercancel", up);
     c.addEventListener("wheel", (e) => {
       if (!this.opts.orbit) return;
       e.preventDefault();
-      this._tdist = clamp(this._tdist + e.deltaY * 0.004, 3.0, this._armActive() ? 22 : 9.5);
+      this._tdist = clamp(this._tdist + e.deltaY * 0.004, 3.0, this._armActive() ? 22 : Math.max(9.5, this.opts.autoFrameMaxDist || 0));
       if (this._armActive()) this._armZoomManual = true;
       this._manualCameraUntil = performance.now() + 450;
       this._autoFrameNext = 0;
@@ -955,7 +962,8 @@ export class Twin {
         reach(i.wrist, 0.05);
         reach(i.elbow, 0.05);
         reach(i.shoulder.map((v, k) => (v + i.elbow[k]) / 2), 0.03);
-        const d = fitSphereDistance(r, this.camera.fov, this.camera.aspect,
+        const fv = this._freeView();
+        const d = fitSphereDistance(r, fv.fov, fv.aspect,
           { margin: 1.14, min: 6.5, max: 22, fallback: this._tdist });
         this._tdist = this._followInit ? lerp(this._tdist, d, 0.35) : d;
         if (!this._followInit) this._dist = d;
@@ -974,8 +982,9 @@ export class Twin {
         this.opts.targetX = clamp(centre.x, base.x - shift, base.x + shift);
         this.opts.targetY = clamp(centre.y, base.y - shift, base.y + shift);
         this.opts.targetZ = clamp(centre.z, base.z - shift, base.z + shift);
+        const fv = this._freeView();
         this._tdist = fitSphereDistance(
-          this._frameSphere.radius, this.camera.fov, this.camera.aspect,
+          this._frameSphere.radius, fv.fov, fv.aspect,
           { margin: this.opts.autoFrameMargin ?? 1.16,
             min: this.opts.autoFrameMinDist ?? Math.max(3, base.dist * 0.76),
             max: this.opts.autoFrameMaxDist ?? Math.min(9.5, base.dist * 1.48),
@@ -997,6 +1006,7 @@ export class Twin {
     this._aimX = lerp(this._aimX, this.opts.targetX, k);
     this._aimY = lerp(this._aimY, this.opts.targetY, k);
     this._aimZ = lerp(this._aimZ, this.opts.targetZ, k);
+    this._applyInsets(k);
     const cy = Math.cos(this._pitch), sy = Math.sin(this._pitch);
     this.camera.position.set(
       this._aimX + Math.sin(this._yaw) * cy * this._dist,
@@ -1153,6 +1163,73 @@ export class Twin {
       tip: [0, 1, 2].map((i) => B.hand[i] + (B.hand[i] - B.wrist[i]) * 1.6),
       focus, k,
     };
+  }
+
+  /** Screen insets (px) covered by floating panels. The projection centre
+   *  moves to the middle of the free area and the auto-fit sizes the twin for
+   *  it, so opening or hiding a panel glides the twin rather than covering it. */
+  setInsets({ left = 0, right = 0, top = 0, bottom = 0 } = {}) {
+    const n = (v) => Math.max(0, Number(v) || 0);
+    this._insT = { left: n(left), right: n(right), top: n(top), bottom: n(bottom) };
+    this._autoFrameNext = 0;
+  }
+
+  // the free area as a camera: vertical fov and aspect of the uncovered region
+  _freeView() {
+    const W = this.container ? this.container.clientWidth : 0;
+    const H = this.container ? this.container.clientHeight : 0;
+    const i = this._insT || { left: 0, right: 0, top: 0, bottom: 0 };
+    const wf = W - i.left - i.right, hf = H - i.top - i.bottom;
+    if (!(W > 2 && H > 2 && wf > 80 && hf > 80)) return { fov: this.camera.fov, aspect: this.camera.aspect };
+    const v = this.camera.fov * Math.PI / 180;
+    const fov = 2 * Math.atan(Math.tan(v / 2) * hf / H) * 180 / Math.PI;
+    return { fov, aspect: wf / hf };
+  }
+
+  _applyInsets(k) {
+    const W = this.container ? this.container.clientWidth : 0;
+    const H = this.container ? this.container.clientHeight : 0;
+    if (!(W > 2 && H > 2)) return;
+    const a = this._ins, b = this._insT;
+    let moved = false;
+    for (const key of ["left", "right", "top", "bottom"]) {
+      const v = Math.abs(b[key] - a[key]) < 0.5 ? b[key] : lerp(a[key], b[key], k);
+      if (v !== a[key]) { a[key] = v; moved = true; }
+    }
+    const dx = (a.left - a.right) / 2, dy = (a.top - a.bottom) / 2;
+    const key = `${W}x${H}:${dx.toFixed(1)},${dy.toFixed(1)}`;
+    if (!moved && key === this._insKey) return;
+    this._insKey = key;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) this.camera.clearViewOffset();
+    else this.camera.setViewOffset(W, H, -dx, -dy, W, H);
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Camera presets, named from the wearer's side of the arm:
+   *  wearer = behind the right shoulder, looking along the arm (the twin
+   *  turns the way the wearer sees their own arm turn); side = from the
+   *  wearer's right; top = from above, forward up the screen; front = facing
+   *  the wearer (a mirror: rotations read reversed, as in any mirror). */
+  cameraPreset(name) {
+    const arm = this._armActive();
+    const P = {
+      wearer: arm ? { yaw: ARM_FRAMING.yaw, pitch: ARM_FRAMING.pitch } : { yaw: Math.PI + 0.9, pitch: 0.78 },
+      side:   { yaw: -Math.PI / 2, pitch: 0.22 },
+      top:    { yaw: Math.PI, pitch: 1.36 },
+      front:  { yaw: 0.45, pitch: 0.34 },
+    }[name];
+    if (!P) return false;
+    this._tyaw = this._yaw + wrapPi(P.yaw - this._yaw);    // turn the short way round
+    this._tpitch = P.pitch;
+    this.recenter();
+    return true;
+  }
+
+  /** Drop any manual zoom and re-fit on the next frame. */
+  recenter() {
+    this._armZoomManual = false;
+    this._manualCameraUntil = 0;
+    this._autoFrameNext = 0;
   }
 
   setFraming({ yaw, pitch, dist, targetX, targetY, targetZ } = {}) {
