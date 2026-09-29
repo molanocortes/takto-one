@@ -423,9 +423,21 @@ DEFAULT_CFG = {
     # {"cmd":"body_cfg","inertial":true}; the raw take keeps everything needed
     # to re-derive either way.
     "inertial": False,
+    # hand-frame self-check: while hand and forearm rotate TOGETHER, their
+    # body-frame angular velocities must agree. A hand whose mounting "forward"
+    # is backwards agrees about the vertical axis only (yaw right, pitch and roll
+    # mirrored); enough co-rotation votes for that decide and correct it.
+    "frame_check": True,
+    "frame_check_min_rad_s": 0.35,     # both segments turning at least this fast
+    "frame_check_votes": 40,           # decisive samples before a verdict (~1-2 s of motion)
+    "frame_check_share": 0.85,         # the verdict needs this share of the votes
     "gap_s": 0.25,                     # a frame gap larger than this resets integration
     "history_s": 8.0,
 }
+
+
+# 180 deg about the segment's up axis: distal and lateral reversed, up kept
+FLIP_UP = [0.0, 0.0, 1.0, 0.0]
 
 
 def _now_or(t, default):
@@ -577,15 +589,40 @@ class BodyModel:
     }
     """
 
-    def __init__(self, priors, cfg=None, wrist_axis=None):
+    def __init__(self, priors, cfg=None, wrist_axis=None, hand_flip=False):
         self.cfg = dict(DEFAULT_CFG)
         if cfg:
             self.cfg.update(cfg)
-        self.prior = {k: qnorm(priors[k]) for k in KEYS}
+        self.prior_base = {k: qnorm(priors[k]) for k in KEYS}
+        self.hand_flip = bool(hand_flip)
+        self.prior = self._priors()
         self.wrist_axis = vnorm(wrist_axis) if wrist_axis is not None else None
         self.auto_neutral = True
         self.boot_id = None
         self.reset_boot(None)
+
+    def _priors(self):
+        p = dict(self.prior_base)
+        if self.hand_flip:
+            p["hand"] = qnorm(qmul(p["hand"], FLIP_UP))
+        return p
+
+    def set_hand_flip(self, flip):
+        """Turn the hand's mounting 180 deg about its up axis (or back) and
+        re-solve the current neutral from its raw averages. A measured wrist
+        axis flips with it: its sign was chosen against the old mounting."""
+        flip = bool(flip)
+        if flip == self.hand_flip:
+            return False
+        self.hand_flip = flip
+        self.prior = self._priors()
+        if self.wrist_axis is not None:
+            self.wrist_axis = vscale(self.wrist_axis, -1.0)
+        n = self.neutral
+        if n is not None:
+            self.capture_neutral(t_end=n["t"], kind=n["kind"], q_avg=n["q0"],
+                                 provisional=n["provisional"])
+        return True
 
     # ---------------- lifecycle ----------------
     def reset_boot(self, boot_id):
@@ -609,6 +646,7 @@ class BodyModel:
         self._pro_prev = 0.0
         self._ua_x_prev = list(X_AXIS)
         self._out = None
+        self._fc_reset()
         self.events = []             # (kind, payload) for the owner to broadcast
 
     def _reset_arm(self):
@@ -734,6 +772,7 @@ class BodyModel:
         self._reset_arm()
         self._pro_prev = 0.0
         self._out = None
+        self._fc_reset()
         return {"ok": True, "kind": kind, "provisional": provisional, "t": t_end,
                 "report": sol["report"], "spread_deg": spread}
 
@@ -916,8 +955,61 @@ class BodyModel:
         if self._wa is not None:
             self._wa_step()
 
+        if cfg.get("frame_check") and self.neutral is not None and both and not gap:
+            self._frame_check(t)
+
         self._arm_update(fr, dt)
         self._out = None
+
+    # ---------------- hand-frame self-check ----------------
+    def _fc_reset(self):
+        self._fc = {"state": "checking", "same": 0, "flipped": 0, "ref": None}
+
+    def _frame_check(self, t):
+        """Vote, from co-rotation, whether the hand's heading agrees with the
+        forearm's or is 180 deg off. Body-frame angular velocities over ~30 ms:
+        a hand frame 180 deg off shows the forearm's rotation mirrored about the
+        vertical (x, z negated). Samples where the wrist itself moves fit neither
+        and are skipped, as are rotations about the vertical, which fit both."""
+        fc = self._fc
+        if fc["state"] != "checking":
+            return
+        qf, qh = self.seg_quat("forearm"), self.seg_quat("hand")
+        ref = fc["ref"]
+        if ref is None or t - ref[0] > 0.1:
+            fc["ref"] = (t, qf, qh)
+            return
+        dt = t - ref[0]
+        if dt < 0.03:
+            return
+        fc["ref"] = (t, qf, qh)
+        wf = vscale(qrotvec(qmul(qf, qconj(ref[1]))), 1.0 / dt)
+        wh = vscale(qrotvec(qmul(qh, qconj(ref[2]))), 1.0 / dt)
+        mf, mh = vlen(wf), vlen(wh)
+        lo = self.cfg["frame_check_min_rad_s"]
+        if mf < lo or mh < lo or not (0.7 < mh / mf < 1.4):
+            return
+        e0 = vlen(vsub(wh, wf))
+        e1 = vlen(vsub(wh, [-wf[0], wf[1], -wf[2]]))
+        if min(e0, e1) > 0.35 * mf or abs(e0 - e1) < 0.3 * mf:
+            return
+        fc["same" if e0 < e1 else "flipped"] += 1
+        n = fc["same"] + fc["flipped"]
+        if n < self.cfg["frame_check_votes"]:
+            return
+        share = self.cfg["frame_check_share"]
+        votes = {"same": fc["same"], "flipped": fc["flipped"]}
+        if fc["flipped"] >= share * n:
+            self.set_hand_flip(not self.hand_flip)      # resets the check: it re-verifies
+            self.events.append(("hand_frame", {"ok": True, "corrected": True,
+                                               "hand_flip": self.hand_flip, "votes": votes}))
+        elif fc["same"] >= share * n:
+            fc["state"] = "verified"
+            self.events.append(("hand_frame", {"ok": True, "corrected": False,
+                                               "hand_flip": self.hand_flip, "votes": votes}))
+        elif n >= 4 * self.cfg["frame_check_votes"]:
+            fc["same"] //= 2                             # mixed evidence: keep a moving window
+            fc["flipped"] //= 2
 
     # ---------------- arm model + inertial elbow ----------------
     def _arm_update(self, fr, dt):
@@ -1149,6 +1241,9 @@ class BodyModel:
                 "neutral_kind": n["kind"] if n else None,
                 "boot_id": self.boot_id,
                 "wrist_axis": self.wrist_axis is not None,
+                "hand_frame": self._fc["state"],
+                "hand_frame_votes": [self._fc["same"], self._fc["flipped"]],
+                "hand_flip": self.hand_flip,
                 "twist_deg": round(math.degrees(tw), 2),
                 "heading_bleed_deg": round(math.degrees(self.bleed_psi), 2),
                 "elevation_deg": round(math.degrees(vangle(self.u, DOWN)), 1),

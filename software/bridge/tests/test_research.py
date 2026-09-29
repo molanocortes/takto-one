@@ -84,7 +84,7 @@ def test_unwrap_us_is_stateless_and_crosses_the_wrap():
 def test_t_us_wrap_through_the_bridge(sim_bridge):
     """A device that has been up 71.6 min: micros() wraps mid-stream. The body
     model's clock, the frame rate and a take's rows never notice."""
-    dev = sim_device.SimDevice(tb.body_priors(), seed=21, preload=False)
+    dev = sim_device.SimDevice(tb.rig_mountings(), seed=21, preload=False)
     t0 = WRAP_S - 3.0
     feed(dev, t0, t0 + 2.0)
     tb.record_start("wrap", "wrap", "")
@@ -188,7 +188,7 @@ def test_quality_grades():
 
 
 def test_live_take_quality_sees_dropped_frames(sim_bridge):
-    dev = sim_device.SimDevice(tb.body_priors(), seed=22, preload=False)
+    dev = sim_device.SimDevice(tb.rig_mountings(), seed=22, preload=False)
     feed(dev, 0.0, 2.0)
     tb.record_start("q", "gaps", "")
     feed(dev, 2.0, 5.0, skip={40, 41, 42, 150})             # 3 + 1 frames lost on the wire
@@ -213,7 +213,7 @@ def test_live_take_quality_sees_dropped_frames(sim_bridge):
 # raw sidecar -> rederive.py == live rows
 # --------------------------------------------------------------------------
 def test_raw_sidecar_rederive_equals_live_rows(sim_bridge, tmp_path):
-    dev = sim_device.SimDevice(tb.body_priors(), seed=11, preload=False)
+    dev = sim_device.SimDevice(tb.rig_mountings(), seed=11, preload=False)
     feed(dev, 0.0, 3.0)                          # provisional neutral happens here
     take_id, _ = tb.record_start("rt", "roundtrip", "")
     feed(dev, 3.0, 4.0)
@@ -297,7 +297,7 @@ def test_truncated_raw_stream_is_still_readable(tmp_path):
 # SD import: same quality/provenance, and the card file kept as the raw stream
 # --------------------------------------------------------------------------
 def test_sd_import_quality_provenance_and_rederive(sim_bridge, tmp_path):
-    dev = sim_device.SimDevice(tb.body_priors(), seed=9, preload=False)
+    dev = sim_device.SimDevice(tb.rig_mountings(), seed=9, preload=False)
     dev._synth_take("TAKES/TK00077.CSV", 77, ms.shoulder_motion, dur=8.0, device_neutral=True)
     lines = dev.files["TAKES/TK00077.CSV"]
     # drop two rows as a damaged card would
@@ -334,7 +334,7 @@ def test_sd_import_quality_provenance_and_rederive(sim_bridge, tmp_path):
 # the pose-lane message
 # --------------------------------------------------------------------------
 def test_pose_message_shape(sim_bridge):
-    dev = sim_device.SimDevice(tb.body_priors(), seed=23, preload=False)
+    dev = sim_device.SimDevice(tb.rig_mountings(), seed=23, preload=False)
     feed(dev, 0.0, 2.0)
     fr = dev.frame_at(2.01, 0.01)
     line = dev._sline(2010, fr, 2.01)

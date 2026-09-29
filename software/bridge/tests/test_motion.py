@@ -429,3 +429,70 @@ def test_principal_axis():
     v, planarity = principal_axis(samples, seed=[1, 0, 0])
     assert abs(sum(v[i] * ax[i] for i in range(3))) > 0.999
     assert planarity > 0.98
+
+
+# --------------------------------------------------------------------------
+# hand-frame self-check (co-rotation)
+# --------------------------------------------------------------------------
+def rigid_wrist(t):
+    """The modules handled together (the bench video of 2026-09-29): the arm
+    moves through space, the wrist does not."""
+    p = shoulder_motion(t)
+    p.wflex = p.wdev = 0.0
+    return p
+
+
+def _frame_run(fn, true_hand, hand_flip, T=26.0, seed=4):
+    rng = random.Random(seed)
+    tm = {k: perturb(PRIORS[k], 2.0, rng) for k in PRIORS}
+    tm["hand"] = true_hand(tm["hand"])
+    s = Sensors(Arm(), fn, tm, {k: rng.uniform(-math.pi, math.pi) for k in PRIORS}, seed=seed)
+    bm = BodyModel(PRIORS, cfg={"inertial": False}, hand_flip=hand_flip)
+    bm.auto_neutral = False
+    events, t = [], 0.0
+    while t < T - 1e-9:
+        t = round(t + 0.01, 6)
+        bm.update(s.frame(t, 0.01))
+        if abs(t - 2.5) < 1e-9:
+            assert bm.capture_neutral(t_end=t, kind="test")["ok"]
+        events += [r for k, r in bm.pop_events() if k == "hand_frame"]
+    err = D(qangle_between(bm.body()["hand_quat"], s.truth(t)["q"]["hand"]))
+    return bm, events, err
+
+
+FLIPPED = lambda q: qnorm(qmul(q, [0.0, 0.0, 1.0, 0.0]))
+SAME = lambda q: q
+
+
+@pytest.mark.parametrize("fn", [rigid_wrist, shoulder_motion])
+def test_hand_frame_backwards_is_detected_and_corrected(fn):
+    """A hand module whose mounting 'forward' is backwards looks right at the
+    neutral (the fold absorbs it) but pitches and rolls mirrored. Moving the arm
+    is enough for the self-check to see it and turn the frame around."""
+    bm, events, err = _frame_run(fn, FLIPPED, hand_flip=False)
+    print("\n[hand frame backwards, %s] events %s, final hand error %.2f deg"
+          % (fn.__name__, events, err))
+    assert events and events[0]["corrected"] is True and bm.hand_flip is True
+    assert err < 4.0
+    assert bm.body()["quality"]["hand_frame"] in ("checking", "verified")
+
+
+@pytest.mark.parametrize("fn", [rigid_wrist, shoulder_motion, elbow_only])
+@pytest.mark.parametrize("hand_flip", [False, True])
+def test_hand_frame_correct_is_never_corrected(fn, hand_flip):
+    """No false alarm: a correct frame (either convention) is verified, not
+    flipped, including motions where the wrist moves on its own."""
+    true_hand = FLIPPED if hand_flip else SAME
+    bm, events, err = _frame_run(fn, true_hand, hand_flip=hand_flip)
+    assert not any(e["corrected"] for e in events), events
+    assert bm.hand_flip is hand_flip
+    assert err < 4.0
+
+
+def test_hand_flip_re_solves_neutral_and_wrist_axis():
+    bm = BodyModel(PRIORS)
+    bm.wrist_axis = [1.0, 0.0, 0.0]
+    assert bm.set_hand_flip(True) is True
+    assert bm.wrist_axis == [-1.0, 0.0, 0.0]
+    assert qrot(bm.prior["hand"], Z_AXIS) == pytest.approx([0, 1, 0], abs=1e-9)
+    assert bm.set_hand_flip(True) is False

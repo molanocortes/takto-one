@@ -21,7 +21,7 @@ import sdcard
 import sim_device
 import teensy_bridge as tb
 
-PRIORS = tb.body_priors()
+PRIORS = tb.rig_mountings()
 
 
 def make_dev(seed=1):

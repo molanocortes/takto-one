@@ -91,6 +91,26 @@ the hand sensor frame) is the anatomical flexion axis, i.e. segment +X. It
 replaces the CAD guess for the hand mounting (gravity at neutral fixes -Y).
 Persisted, because mounting is physical and survives power cycles.
 
+### Hand-frame self-check (automatic)
+
+The neutral absorbs every mounting error except one: which way the hand
+module's "forward" points. A hand frame that is 180 deg off looks right at the
+neutral, turns correctly side to side, and pitches and rolls **mirrored**. The
+bridge checks it continuously from co-rotation: whenever hand and forearm turn
+together (both >= 0.35 rad/s, rates within 30 %), their body-frame angular
+velocities must agree; a backwards hand agrees only about the vertical (x and z
+negated). Samples where the wrist moves by itself fit neither and are skipped.
+After 40 decisive votes with an 85 % majority the check either verifies the
+frame or turns it around (`hand_flip`), re-solves the neutral, and persists it.
+Surfaces see `body.quality.hand_frame` (`checking` / `verified`) and an ack
+`{"event":"hand_frame","corrected":bool,"votes":{...}}`.
+
+[BENCH 2026-09-29] The rig's hand module is 180 deg from the legacy prior
+(co-rotation votes 351 flipped vs 7 same over two sessions; in the video
+replay a forearm pitch of +13 deg showed the hand at -15 deg). `hand_flip`
+therefore defaults to true; takes record it in their provenance, and takes
+recorded before the fix re-derive without it.
+
 ### Heading drift
 
 The two game rotation vectors drift independently (typically < 1 deg/min).
