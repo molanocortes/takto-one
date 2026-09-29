@@ -749,7 +749,7 @@ ACT_ABSENT = {"present": False, "level": 0.0, "direction": 0, "fatigue": 0.0,
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from fable_activation import FableActivation
-    _fa = FableActivation(fs=50.0)
+    _fa = FableActivation(fs=100.0)    # firmware v16+: one EMG envelope per 100 Hz frame
     print("[emg] Fable activation module loaded (bayes=%s)" % _fa.have_bayes)
 except Exception as _e:
     _fa = None
