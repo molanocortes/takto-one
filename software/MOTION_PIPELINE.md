@@ -271,3 +271,40 @@ How surfaces use it:
 - Old keys (`hand`, `forearm`, `rel`, `world`, `inertial`) stay for
   compatibility; `rel.quat` is derived from the body model when calibrated so
   every view agrees.
+
+## 8. Timing, the fast pose lane, and research-grade takes (firmware v17)
+
+### Device timing (S-line fields 140..144, SD columns of the same names)
+
+| idx | SD column | field |
+| --- | --- | --- |
+| 140 | `t_us` | device `micros()` at the start of this frame (32-bit, wraps every 71.6 min); `t_ms` stays for compatibility |
+| 141..143 | `h_qage_us,f_qage_us,t_qage_us` | age of each IMU's latest game quaternion at frame start, on the sensor's own clock (SH-2 timebase + report delay); 0 = no quaternion yet |
+| 144 | `enc_us` | duration of the encoder sweep of this frame (the encoders were sampled over `[t_us, t_us + enc_us]`, in channel order) |
+
+The orientation in a frame is therefore the one at `t_us - qage_us`, not at `t_us`. At 100 Hz reports the age is 0..10 ms plus bus latency; a host that time-aligns IMU and encoders subtracts it.
+
+### The fast pose lane (bridge to clients)
+
+The 60 Hz `snap` carries everything. For the twin, a client may additionally ask for the pose lane with `{"cmd":"stream","pose":true}`; the bridge then sends, **once per device frame (100 Hz)**, a compact message built in the ingest thread the moment the line arrives:
+
+```jsonc
+{"kind":"pose", "t":<device t_ms>, "us":<device t_us>, "seq":<frame counter>,
+ "rx":<bridge wall-clock ms when the S-line arrived>, "tx":<bridge wall ms when sent>,
+ "cal":0|1|2,                      // body neutral: none / provisional / calibrated
+ "live":true,                      // hand + forearm IMUs live
+ "e":[x,y,z], "w":[x,y,z], "h":[x,y,z],          // elbow, wrist, palm (m, body frame)
+ "fq":[w,x,y,z], "hq":[w,x,y,z],                  // forearm, hand segment quats (body frame)
+ "wd":[flex,dev,pro],                             // wrist degrees
+ "j":[12 x deg|null],             // joints in JOINT order index_mcp,index_pip,index_dip,middle_...,pinky_dip (wire names; null = channel not live)
+ "tq":[w,x,y,z]|null}             // thumb relative quat
+```
+
+Numbers are rounded to 4 decimals (positions 0.1 mm). Clients render the twin from the newest `pose` and use `snap` for everything else. Latency: `rx - (device frame time)` is the serial leg; clients on the bridge machine measure `Date.now() - rx` for the rest; the bridge reports `link.latency_ms` = median (`tx - rx`) and the pose-lane rate.
+
+### Research-grade takes
+
+- Every take (live or imported) keeps its **raw device stream**: the bridge appends each raw S/E line with its receive time to `<take>.raw.txt.gz` (`<rx_ms>\t<line>`); SD takes keep the original CSV. Derived rows can always be recomputed with the importer.
+- Take rows gain raw columns: `enc_raw_00..13` (unfiltered encoder degrees, -1 absent), `hq_raw_w..z`, `fq_raw_w..z` (raw game quaternions), `t_us`.
+- Take metadata gains `quality`: `{frames, rate_hz, dropped, max_gap_ms, imu_live_pct:{hand,forearm}, enc_live:[ch...], neutral:{kind, age_s, spread_deg}, pos_source_pct:{arm, arm+inertial, vision}, latency_ms:{median,p95}}` and `provenance`: `{fw, boot_id, bridge_version, enc_map, imu_mounting, body_params}`.
+- Export (web): a take downloads as a research package: `take.csv` (rows, SI units, header documented), `take.json` (metadata, quality, provenance, column dictionary), and the raw stream.
