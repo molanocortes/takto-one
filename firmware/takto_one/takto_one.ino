@@ -1258,12 +1258,20 @@ void motorTick() {
   if (el > mc.worstUs) mc.worstUs = el;
 }
 
+static uint32_t mcLateMax = 0, mcLate2ms = 0;   // tick lateness: worst, and ticks > 2 ms late
 void motorService() {
   if (!mc.taken) return;
+  // [2026-09-30] callable from inside a paint (wgfx::rowHook) and from the
+  // frame; never nested into itself
+  static bool inSvc = false;
+  if (inSvc) return;
+  struct Guard { bool &f; Guard(bool &x) : f(x) { f = true; } ~Guard() { f = false; } } guard(inSvc);
   uint32_t now = micros();
   if ((int32_t)(now - mc.nextTick) < 0) return;
   int32_t late = (int32_t)(now - mc.nextTick);           // how late this tick arrived
   if ((uint32_t)late > mc.tickUs / 2) mc.nOverrun++;
+  if ((uint32_t)late > mcLateMax) mcLateMax = (uint32_t)late;
+  if (late > 2000) mcLate2ms++;
   if (late > (int32_t)BUS_WATCHDOG_US && mc.torque)      // a stall this long may have latched the
     mc.wdRearm = true;                                   // servo Bus Watchdog: re-arm on the next tick
   mc.nextTick += mc.tickUs;
@@ -1311,6 +1319,8 @@ void motorStats() {
                 "%lu overruns, %lu missed reads\n",
                 (unsigned long)mc.nTicks, (unsigned long)mc.tickUs, (unsigned long)mean,
                 (unsigned long)mc.worstUs, (unsigned long)mc.nOverrun, (unsigned long)mc.nMiss);
+  Serial.printf("# motor tick lateness: worst %lu us, %lu ticks > 2 ms late\n",
+                (unsigned long)mcLateMax, (unsigned long)mcLate2ms);
   Serial.printf("# dxl bus: %lu tx, %lu timeouts, %lu crc, %lu hw-err\n",
                 (unsigned long)dxl.txCount, (unsigned long)dxl.rxTimeouts,
                 (unsigned long)dxl.crcErrors, (unsigned long)dxl.errStatus);
@@ -1326,6 +1336,7 @@ void motorStats() {
                 (unsigned long)mc.recoverDirect);
   mc.nTicks = mc.nMiss = mc.nOverrun = mc.worstUs = 0;
   mc.sumUs = 0;
+  mcLateMax = mcLate2ms = 0;
 }
 
 int motorIdIndex(int id) {
@@ -2855,7 +2866,9 @@ void setup() {
   uiIn.clickFn = sfx::click;                      // soft struck clicks, not square beeps
   // long paints yield to due frames AND keep the IMUs drained (both are safe
   // mid-paint: neither touches the framebuffer; the IMU poll is rate-limited)
-  wgfx::rowHook = []() { frameTick(); imuService(); };
+  // [2026-09-30] the servo tick rides the paint too: a 20 ms repaint used to
+  // hold the 2 kHz control loop off for its whole length
+  wgfx::rowHook = []() { motorService(); frameTick(); imuService(); };
   watchLoad();                                    // the face chosen last session
   FB = cv.getBuffer();
   memset(FB, 0, 240 * 240 * 2);
