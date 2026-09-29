@@ -152,7 +152,25 @@ hand   = wrist + Q_hand * [0, 0.01, 0.055]       palm centre, for the AR
 - When still for more than 4 s, `u` relaxes toward hanging with an 8 s time
   constant (the most likely resting posture; bounded, visible error if the arm
   is actually held raised).
-- `body.pos_source` = `"arm"` or `"arm+inertial"`.
+- **Camera upper arm** (`{"cmd":"vision"}`, 2026-09-29). The two IMUs measure
+  the forearm and the hand; nothing on the device measures the upper arm, and
+  double-integrating a BNO085 drifts by tens of cm in a second (section 1), so
+  a reach made from the shoulder with the forearm angle unchanged is
+  invisible. A webcam facing the wearer fills exactly that gap: the web
+  operator's camera button runs MediaPipe's pose model in the browser and
+  streams the arm's shoulder, elbow and wrist (metric world landmarks, about
+  30 Hz; the video never leaves the browser). The bridge maps them to a
+  camera-body frame (up = up, +Z toward the camera, i.e. toward the screen
+  the neutral points at), learns the remaining heading offset by comparing
+  the camera's forearm direction with the IMU forearm (horizontal parts, 4 s
+  time constant), and steers `u` toward the camera's upper-arm direction
+  with a 0.12 s time constant. Forearm and hand stay IMU (100 Hz, far more
+  precise than the camera). Samples older than 0.5 s or below 0.5 visibility
+  are ignored, and the arm then holds, then relaxes as above. Takes record every
+  applied sample as a `#V` line in the raw sidecar, so re-derivation replays
+  it. Synthetic check (tests/test_motion.py, 3 cm landmark noise, camera 20 deg
+  off-axis): shoulder-reach wrist error 8.8 -> 2.1 cm mean, 20.5 -> 6.8 cm worst.
+- `body.pos_source` = `"arm"`, `"arm+vision"` or `"arm+inertial"`.
 - In the AR, the headset's own hand tracking (when it sees the hand) is the
   absolute position; the bridge fuses it into `world` exactly as before, and
   the AR places the body model under that anchor when tracking is lost.

@@ -546,6 +546,24 @@ def neutral_line(phase, t_dev_s, kind, provisional, q0):
                                           q4("hand"), q4("forearm"), q4("thumb"))
 
 
+def vision_line(shoulder, elbow, wrist, conf):
+    """The `#V` annotation: one camera pose sample (webcam frame, metric), in
+    stream order, so a re-derivation applies it exactly where the live model
+    did (before the next S-line)."""
+    return "#V," + ",".join("%.4f" % v for v in list(shoulder) + list(elbow) + list(wrist)) + ",%.3f" % conf
+
+
+def parse_vision_line(line):
+    p = line.split(",")
+    if len(p) != 11 or p[0] != "#V":
+        return None
+    try:
+        v = [float(x) for x in p[1:]]
+    except ValueError:
+        return None
+    return {"shoulder": v[0:3], "elbow": v[3:6], "wrist": v[6:9], "conf": v[9]}
+
+
 def parse_neutral_line(line):
     p = line.split(",")
     if len(p) < 17 or p[0] != "#N" or p[1] not in ("a", "b"):

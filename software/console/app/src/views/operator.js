@@ -11,6 +11,7 @@ import { DeviceScreen, MODES, MODE_LABEL } from "../device_screen.js";
 import { sourceBadges } from "../sim_badge.js";
 import { buildCalibPrompt } from "../calib_prompt.js";
 import { forearmElevationDeg, wristAnglesDeg, qValid } from "../arm_model.js";
+import { buildVisionArm } from "../vision_arm.js";
 
 const FINGERS = ["index", "middle", "ring", "pinky"];
 const SEGS = ["mcp", "pip", "dip"];
@@ -602,10 +603,12 @@ export function mountOperator(rootHost) {
     const show = !(panels.left || panels.right);
     setPanel("left", show, false); setPanel("right", show);
   });
+  // the webcam measures the upper arm the IMUs cannot see (vision_arm.js)
+  const visionArm = buildVisionArm(cleanups);
   const dock = el("div", { class: "op-dock lg", title: "drag to orbit · wheel to zoom · double-click to recenter" },
     el("div", { class: "op-dock-tag" }, stageTag, stageNote),
-    viewSeg, camSeg, recenterBtn, panelsBtn);
-  const liveGrid = el("div", { class: "op-live" }, stage, leftDrawer, rightDrawer, dock);
+    viewSeg, camSeg, recenterBtn, visionArm.button, panelsBtn);
+  const liveGrid = el("div", { class: "op-live" }, stage, leftDrawer, rightDrawer, dock, visionArm.node);
 
   function syncInsets() {
     if (!twin) return;
@@ -621,6 +624,7 @@ export function mountOperator(rootHost) {
     const fits = W - left - right > 260;          // narrow screens: drawers overlay
     twin.setInsets(fits ? { left, right, top, bottom } : { top, bottom });
     root.style.setProperty("--free-cx", `${fits ? (left + (W - right)) / 2 : W / 2}px`);
+    root.style.setProperty("--free-l", `${fits ? left : gap}px`);
   }
   function setPanel(side, open, sync = true) {
     panels[side] = !!open;
@@ -920,7 +924,8 @@ export function mountOperator(rootHost) {
           : !info ? ""
           : info.synthetic ? "arm synthesised · no body model from the bridge"
           : sm.body && !sm.body.live ? "arm held · an IMU dropped out"
-          : `arm · ${info.posSource === "arm+inertial" ? "arm model + inertial" : "arm model"}`;
+          : `arm · ${info.posSource === "arm+vision" ? "arm model + camera"
+              : info.posSource === "arm+inertial" ? "arm model + inertial" : "arm model"}`;
         if (stageNote.textContent !== txt) stageNote.textContent = txt;
       }
       const calm = presentEffort(sm.activation.level, performance.now());

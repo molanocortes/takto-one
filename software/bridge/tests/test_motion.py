@@ -523,3 +523,44 @@ def test_forearm_flip_tracks_a_backwards_forearm_mount():
         return worst
     assert go(True) < 3.0
     assert go(False) > 30.0
+
+
+# --------------------------------------------------------------------------
+# camera upper arm (vision): the degree of freedom the IMUs cannot see
+# --------------------------------------------------------------------------
+def _cam_of(p_body, yaw_off):
+    """body frame -> webcam frame (MediaPipe world: x right, y down, z away),
+    for a camera facing the wearer, turned yaw_off from straight ahead."""
+    v = qrot(qy(-yaw_off), p_body)
+    return [v[0], -v[1], -v[2]]
+
+
+@pytest.mark.parametrize("yaw_off_deg", [0.0, 20.0])
+def test_vision_upper_arm_recovers_shoulder_reach(yaw_off_deg):
+    """Reaching with the shoulder while the forearm keeps its angle moves the
+    wrist tens of cm; the IMUs alone cannot see it. A noisy 30 Hz camera pose
+    (3 cm landmark noise, heading offset unknown to the model) restores it."""
+    rng = random.Random(8)
+    yaw_off = math.radians(yaw_off_deg)
+
+    def go(vision):
+        stats = {"worst": 0.0, "sum": 0.0, "n": 0}
+        def cam(t, bm, s):
+            if vision and int(round(t * 100)) % 3 == 0:
+                tr = s.truth(t)["pts"]
+                n = lambda: [rng.gauss(0, 0.03) for _ in range(3)]
+                tr = dict(tr, shoulder=[0.0, 0.0, 0.0])        # the synth arm's shoulder is the origin
+                pts = [vsub(_cam_of(tr[k], yaw_off), n()) for k in ("shoulder", "elbow", "wrist")]
+                bm.vision_sample(*pts, conf=0.9)
+            if t > 5.0:
+                e = vlen(vsub(bm.body()["wrist_m"], s.truth(t)["pts"]["wrist"]))
+                stats["worst"] = max(stats["worst"], e); stats["sum"] += e; stats["n"] += 1
+        run(shoulder_motion, seed=8, cfg={"inertial": False}, on_frame=cam)
+        return stats["worst"], stats["sum"] / stats["n"]
+
+    base_w, base_m = go(False)
+    vis_w, vis_m = go(True)
+    print("\n[shoulder reach, camera %+.0f deg] imu only: worst %.1f mean %.1f cm | + camera: worst %.1f mean %.1f cm"
+          % (yaw_off_deg, base_w * 100, base_m * 100, vis_w * 100, vis_m * 100))
+    assert vis_m < 0.4 * base_m
+    assert vis_w < 0.10

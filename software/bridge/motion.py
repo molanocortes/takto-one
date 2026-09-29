@@ -431,6 +431,13 @@ DEFAULT_CFG = {
     "frame_check_min_rad_s": 0.35,     # both segments turning at least this fast
     "frame_check_votes": 40,           # decisive samples before a verdict (~1-2 s of motion)
     "frame_check_share": 0.85,         # the verdict needs this share of the votes
+    # camera (vision) upper-arm measurement: the one degree of freedom the two
+    # IMUs cannot see. A webcam pose model gives shoulder/elbow/wrist; the
+    # upper-arm direction steers u, everything else stays IMU.
+    "vision_tau_s": 0.12,              # u follows the camera with this time constant
+    "vision_fresh_s": 0.5,             # older camera samples are ignored
+    "vision_min_conf": 0.5,
+    "vision_yaw_tau_s": 4.0,           # camera-to-body heading, learned from the forearm
     "gap_s": 0.25,                     # a frame gap larger than this resets integration
     "history_s": 8.0,
 }
@@ -653,6 +660,9 @@ class BodyModel:
         self._ua_x_prev = list(X_AXIS)
         self._out = None
         self._fc_reset()
+        self._vis = None             # last camera sample {"t","u","conf","f"}
+        self.vision_yaw = 0.0        # camera-body frame -> body frame, about up (rad)
+        self._vis_yaw_n = 0
         self.events = []             # (kind, payload) for the owner to broadcast
 
     def _reset_arm(self):
@@ -965,6 +975,7 @@ class BodyModel:
             self._frame_check(t)
 
         self._arm_update(fr, dt)
+        self._vision_step(dt)
         self._out = None
 
     # ---------------- hand-frame self-check ----------------
@@ -1141,6 +1152,51 @@ class BodyModel:
         self.u = self._cone(vnorm(elbow, self.u))
         self._relax(both_still, dt)
 
+    # ---------------- camera (vision) upper arm ----------------
+    def vision_sample(self, shoulder, elbow, wrist, conf=1.0):
+        """A camera pose sample, metric, in the CAMERA frame of a webcam facing
+        the wearer (MediaPipe world landmarks: x image-right, y down, z away
+        from the camera). Mapped to a "camera body" frame (x, -y, -z): up is
+        up and +Z points at the camera, i.e. at the screen the neutral points
+        at. The remaining heading offset to the body frame is learned from the
+        forearm, whose direction both the camera and the IMU see."""
+        try:
+            s_ = [float(v) for v in shoulder]; e_ = [float(v) for v in elbow]; w_ = [float(v) for v in wrist]
+            conf = float(conf)
+        except (TypeError, ValueError):
+            return False
+        cb = lambda v: [v[0], -v[1], -v[2]]
+        ua = vnorm(cb(vsub(e_, s_)), None)
+        fa = vnorm(cb(vsub(w_, e_)), None)
+        if ua is None or self.t is None or not math.isfinite(conf):
+            return False
+        # heading: align the camera's forearm with the IMU's (horizontal parts)
+        qf = self.seg_quat("forearm") if self.neutral is not None and self.live["forearm"] else None
+        if qf is not None and fa is not None and conf >= self.cfg["vision_min_conf"]:
+            fi = qrot(qf, Z_AXIS)
+            pc, hc = heading(fa)
+            pi_, hi = heading(fi)
+            if hc > 0.6 and hi > 0.6:
+                err = wrap_pi(pi_ - pc - self.vision_yaw)
+                a = 0.5 if self._vis_yaw_n < 10 else min(1.0, 0.033 / self.cfg["vision_yaw_tau_s"])
+                self.vision_yaw = wrap_pi(self.vision_yaw + a * err)
+                self._vis_yaw_n += 1
+        self._vis = {"t": self.t, "u": qrot(qy(self.vision_yaw), ua), "conf": conf}
+        return True
+
+    def vision_fresh(self):
+        v = self._vis
+        return bool(v and self.t is not None and self.t - v["t"] <= self.cfg["vision_fresh_s"]
+                    and v["conf"] >= self.cfg["vision_min_conf"])
+
+    def _vision_step(self, dt):
+        if dt <= 0.0 or not self.vision_fresh():
+            return
+        a = min(1.0, dt / self.cfg["vision_tau_s"])
+        q = qfrom_two(self.u, self._vis["u"])
+        self.u = self._cone(vnorm(qrot(qslerp(IDENTITY, q, a), self.u), self.u))
+        self.v_e = [0.0, 0.0, 0.0]
+
     def _cone(self, u):
         lim = math.radians(self.cfg["max_elev_deg"])
         ang = vangle(u, DOWN)
@@ -1151,7 +1207,7 @@ class BodyModel:
         return qrot(qaxis_angle(ax, lim), DOWN)
 
     def _relax(self, both_still, dt):
-        if dt <= 0.0 or not both_still:
+        if dt <= 0.0 or not both_still or self.vision_fresh():
             return
         since = max(self.still_since["hand"], self.still_since["forearm"])
         if self.t - since < self.cfg["relax_after_s"]:
@@ -1237,7 +1293,8 @@ class BodyModel:
             "thumb_quat": r4(qt) if qt is not None else None,
             "wrist_deg": {"flex": round(math.degrees(fl), 2), "dev": round(math.degrees(dv), 2),
                           "pro": round(math.degrees(pro), 2)},
-            "pos_source": "arm+inertial" if self.inertial_active else "arm",
+            "pos_source": ("arm+vision" if self.vision_fresh()
+                           else "arm+inertial" if self.inertial_active else "arm"),
             "quality": {
                 "since_neutral_s": None if since is None else round(since, 1),
                 "inertial_conf": round(conf, 2),
@@ -1254,6 +1311,8 @@ class BodyModel:
                 "twist_deg": round(math.degrees(tw), 2),
                 "heading_bleed_deg": round(math.degrees(self.bleed_psi), 2),
                 "elevation_deg": round(math.degrees(vangle(self.u, DOWN)), 1),
+                "vision": self.vision_fresh(),
+                "vision_yaw_deg": round(math.degrees(self.vision_yaw), 1),
             },
         }
         return self._out

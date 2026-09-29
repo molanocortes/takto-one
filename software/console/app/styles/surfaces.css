@@ -664,6 +664,18 @@ a.wordmark:hover { opacity: 0.72; }
   transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .op-dock-btn:hover, .op-dock-btn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+/* webcam upper-arm tracker (vision_arm.js): a small glass picture-in-picture */
+.va-pip { position: fixed; z-index: 31; bottom: 76px; left: var(--free-l, 12px);
+  width: 216px; padding: 6px; border-radius: 18px; display: flex; flex-direction: column; gap: 6px;
+  transition: left 460ms cubic-bezier(.2, .85, .2, 1); }
+.va-pip[hidden] { display: none; }
+.va-frame { position: relative; border-radius: 13px; overflow: hidden; aspect-ratio: 4 / 3; background: #000; }
+.va-video, .va-cv { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.va-row { display: flex; align-items: center; gap: 6px; padding: 0 4px 2px; }
+.va-status { flex: 1; font-size: 10px; letter-spacing: 0.06em; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.va-side, .va-close { border: 1px solid var(--lg-line); background: var(--lg-fill-2); color: var(--text-1);
+  border-radius: 999px; font: 600 10px/1 var(--font-ui); padding: 4px 8px; cursor: pointer; }
+.va-side:hover, .va-close:hover { color: var(--accent); }
 /* the calibration prompt sits under the bar, centred over the twin */
 .op-full .cp-v-stage { top: 80px; left: var(--free-cx, 50%); }
 .op-full .cp-v-stage.collapsed { left: auto; right: 12px; top: 80px; transform: none; }

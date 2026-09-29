@@ -5177,11 +5177,11 @@ def build_snapshot(hz):
          "detail": motor_detail},
         {"stream": "link", "ok": device_up, "rate_hz": hz,
          "detail": src if device_up else "no data"},
-        {"stream": "tracking", "ok": world["source"] != "none",
-         "rate_hz": hz if world["source"] != "none" else 0,
+        {"stream": "tracking", "ok": world["source"] != "none" or BODY.vision_fresh(),
+         "rate_hz": hz if (world["source"] != "none" or BODY.vision_fresh()) else 0,
          "detail": {"quest-fused": "quest-fused (right wrist)",
                     "imu-model": "imu-only (occluded)",
-                    "none": "no vision anchor"}[world["source"]]},
+                    "none": "camera: upper arm" if BODY.vision_fresh() else "no vision anchor"}[world["source"]]},
         {"stream": "body", "ok": bool(body.get("calibrated")) and bool(body.get("live")),
          "rate_hz": hz if body.get("live") else 0,
          "detail": ("calibrated" if body.get("calibrated") else
@@ -6008,6 +6008,11 @@ def derive_raw_take(lines, take_id, out_path, progress=None):
                 nl = research.parse_neutral_line(line)
                 if nl is not None:
                     pending.append(nl)       # an orphan "a" is applied like a "b"
+                continue
+            if line.startswith("#V"):
+                vl = research.parse_vision_line(line)
+                if vl is not None:
+                    d.bm.vision_sample(vl["shoulder"], vl["elbow"], vl["wrist"], conf=vl["conf"])
                 continue
             if not line.startswith("S,"):
                 continue
@@ -7003,6 +7008,20 @@ def handle_command(c, raw):
             _ack(c, event="error", error="unknown env", id=env_id)
         return
 
+    if name == "vision":          # a camera pose sample: the upper arm the IMUs cannot see
+        try:
+            pts = [[float(v) for v in cmd[k]][:3] for k in ("shoulder", "elbow", "wrist")]
+            conf = float(cmd.get("conf", 1.0))
+            if any(len(p) != 3 or not all(math.isfinite(v) for v in p) for p in pts):
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            return                # high-rate stream: a bad sample is dropped, never acked
+
+        def apply(bm, pts=pts, conf=conf):
+            if bm.vision_sample(*pts, conf=conf):
+                _raw_write(time.time(), research.vision_line(*pts, conf))
+        body_call(apply)
+        return
     if name == "body_cfg":        # research switches of the body model (live, per session)
         for k in ("inertial", "heading_bleed"):
             if k in cmd:
