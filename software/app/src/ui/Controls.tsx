@@ -4,7 +4,7 @@ import React, { useRef, useState } from 'react';
 import { View, Pressable, PanResponder, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { M, T, Num, Btn, Pill, Bar } from './primitives';
-import { C, R } from './tokens';
+import { C, R, FINGERS, FINGER_LABEL } from './tokens';
 import { useSession } from '../data/session';
 
 const SPEEDS = [0.25, 0.5, 1, 2];
@@ -182,8 +182,106 @@ const st = StyleSheet.create({
   knob: { position: 'absolute', top: 6, width: 16, height: 16, borderRadius: 8, backgroundColor: C.white, borderWidth: 2, borderColor: C.ink },
   round: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
   speed: { paddingHorizontal: 5, minWidth: 30, height: 26, borderRadius: 6, borderWidth: 1, borderColor: C.tileLine, alignItems: 'center', justifyContent: 'center' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 12, columnGap: 10 },
+  cell: { width: '47%', flexGrow: 1, gap: 3 },
+  cellDot: { width: 6, height: 6, borderRadius: 3 },
   prompt: {
     flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFF8EC', borderRadius: R.r2,
     borderWidth: 1, borderColor: '#F6D9A6', paddingHorizontal: 12, paddingVertical: 10,
   },
 });
+
+type Tone = 'ok' | 'warn' | 'bad' | 'none';
+const TONE: Record<Tone, string> = { ok: C.green, warn: C.orange, bad: C.red, none: C.ink3 };
+
+function Cell({ label, value, tone, sub }: { label: string; value: string; tone: Tone; sub?: string }) {
+  return (
+    <View style={st.cell} accessible accessibilityLabel={`${label}: ${value}${sub ? `, ${sub}` : ''}`}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <View style={[st.cellDot, { backgroundColor: TONE[tone] }]} />
+        <M size={8} color={C.ink2}>{label}</M>
+      </View>
+      <T size={14.5} color={C.ink} numberOfLines={1}>{value}</T>
+      {sub ? <M size={8} color={C.ink3} upper={false} style={{ marginTop: 1 }}>{sub}</M> : null}
+    </View>
+  );
+}
+
+/**
+ * What the source is delivering right now, as six measured cells: the two
+ * main IMUs, the encoders, the stream rate, the calibration and the SD card.
+ * Everything comes from the source's own frame (never the replay), and a
+ * value the source does not report is a dash, not a guess.
+ */
+export function SensorStrip() {
+  const session = useSession();
+  const f = session.live;
+  const status = session.status;
+  const offline = session.source === 'bridge' && status.kind === 'offline';
+  const b = f.body;
+  const imu = f.imu;
+  const imuCell = (who: 'hand' | 'forearm'): [string, Tone] => {
+    if (offline) return ['–', 'none'];
+    const v = imu?.[who];
+    if (v === true) return ['live', 'ok'];
+    if (v === false) return ['no signal', 'bad'];
+    if (b) return b.live ? ['live', 'ok'] : ['no signal', 'bad'];
+    return ['not reported', 'none'];
+  };
+  let enc = 0;
+  for (const k of FINGERS) enc += (f.ok[k].ab ? 1 : 0) + (f.ok[k].mcp ? 1 : 0) + (f.ok[k].pip ? 1 : 0);
+  const deadFingers = FINGERS.filter((k) => !f.ok[k].mcp && !f.ok[k].pip).map((k) => FINGER_LABEL[k]);
+  const [hv, ht] = imuCell('hand');
+  const [fv, ft] = imuCell('forearm');
+  const c = session.conn;
+  const p = session.pose;
+  const rate = session.source === 'sim' ? (p.lane === 'on' ? `${p.hz} Hz` : 'in-app') : offline ? '–' : `${c.hz} Hz`;
+  const rateSub = session.source === 'sim' ? 'simulated pose lane'
+    : offline ? 'no data' : p.lane === 'on' ? `pose lane ${p.hz} Hz` : f.device?.rateHz ? `device ${Math.round(f.device.rateHz)} Hz` : 'snapshot';
+  const rateTone: Tone = offline ? 'none' : session.source === 'sim' ? 'ok' : c.hz >= 30 ? 'ok' : c.hz > 0 ? 'warn' : 'bad';
+  const calV = !b ? 'no IMU pose' : b.origin === 'legacy' ? 'legacy' : b.cal === 'calibrated' ? 'calibrated' : b.cal === 'provisional' ? 'provisional' : 'none';
+  const calT: Tone = offline || !b ? 'none' : b.cal === 'calibrated' ? 'ok' : b.origin === 'legacy' ? 'none' : 'warn';
+  const dev = f.device;
+  const sdV = offline || !dev ? '–' : dev.sdRecording ? `recording #${dev.sdTake}` : dev.sdPresent ? 'ready' : 'no card';
+  const sdT: Tone = offline || !dev ? 'none' : dev.sdPresent ? 'ok' : 'warn';
+  return (
+    <View style={st.grid}>
+      <Cell label="Hand IMU" value={hv} tone={ht} />
+      <Cell label="Forearm IMU" value={fv} tone={ft} />
+      <Cell label="Encoders" value={offline ? '–' : `${enc} of 12`} tone={offline ? 'none' : enc === 12 ? 'ok' : enc > 0 ? 'warn' : 'bad'}
+        sub={!offline && deadFingers.length ? `no signal: ${deadFingers.join(', ')}` : undefined} />
+      <Cell label="Rate" value={rate} tone={rateTone} sub={rateSub} />
+      <Cell label="Neutral" value={offline ? '–' : calV} tone={calT} />
+      <Cell label="SD card" value={sdV} tone={sdT} sub={!offline && !dev ? 'not reported' : undefined} />
+    </View>
+  );
+}
+
+/** A take's research quality block as a row of small, honest tags. */
+export function QualityPills({ q, fw }: { q: unknown; fw?: number }) {
+  if (typeof q === 'string') return q ? <Pill>{q}</Pill> : null;
+  if (!q || typeof q !== 'object') return fw ? <Pill>fw {fw}</Pill> : null;
+  const Q = q as import('../data/types').TakeQuality;
+  const out: React.ReactNode[] = [];
+  const good = (k: string, s: string) => out.push(<Pill key={k} color={C.green} bg={C.greenSoft}>{s}</Pill>);
+  const warn = (k: string, s: string) => out.push(<Pill key={k} color={C.orange} bg="#FDF3E1">{s}</Pill>);
+  const bad = (k: string, s: string) => out.push(<Pill key={k} color={C.red} bg="#FDECEC">{s}</Pill>);
+  const plain = (k: string, s: string) => out.push(<Pill key={k}>{s}</Pill>);
+  if (typeof Q.rate_hz === 'number') plain('rate', `${Math.round(Q.rate_hz)} Hz`);
+  if (typeof Q.dropped === 'number') {
+    const frac = Q.frames ? Q.dropped / (Q.frames + Q.dropped) : 0;
+    (Q.dropped === 0 ? good : frac < 0.01 ? warn : bad)('drop', Q.dropped === 0 ? 'no drops' : `${Q.dropped} dropped`);
+  }
+  if (typeof Q.max_gap_ms === 'number' && Q.rate_hz && Q.max_gap_ms > 3 * (1000 / Q.rate_hz)) warn('gap', `gap ${Math.round(Q.max_gap_ms)} ms`);
+  const ih = Q.imu_live_pct?.hand, ifa = Q.imu_live_pct?.forearm;
+  if (typeof ih === 'number' || typeof ifa === 'number') {
+    const m = Math.min(ih ?? 100, ifa ?? 100);
+    (m >= 99 ? good : m >= 90 ? warn : bad)('imu', `IMU ${Math.round(m)}%`);
+  }
+  if (Array.isArray(Q.enc_live)) (Q.enc_live.length === 12 ? good : Q.enc_live.length > 0 ? warn : bad)('enc', `enc ${Q.enc_live.length}/12`);
+  const nk = Q.neutral?.kind;
+  if (nk) (nk === 'calibrated' ? good : nk === 'provisional' ? warn : bad)('neu', nk === 'calibrated' ? 'calibrated' : nk === 'provisional' ? 'provisional neutral' : `neutral: ${nk}`);
+  if (typeof Q.latency_ms?.median === 'number') plain('lat', `lat ${Math.round(Q.latency_ms.median)} ms`);
+  if (fw) plain('fw', `fw ${fw}`);
+  return <>{out}</>;
+}

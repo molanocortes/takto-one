@@ -4,8 +4,8 @@
 // elevation around 26-36 degrees, because low angles foreshorten the fingers
 // into a cluster and a raised camera opens the top face so the screen, the
 // spool bank and the finger array all read at once. Exactly ONE light casts.
-import React, { useMemo, useRef, useState } from 'react';
-import { View, PanResponder, StyleSheet, Platform, type StyleProp, type ViewStyle } from 'react-native';
+import React, { useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { View, PanResponder, StyleSheet, Platform, PixelRatio, type StyleProp, type ViewStyle } from 'react-native';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Canvas, useFrame, useThree } from './canvas';
@@ -252,7 +252,7 @@ function urlPart(): 'device' | 'hand' {
   return DEFAULT_PART;
 }
 
-export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, part, view = 'hand' }: {
+function TwinView({ style, shadow = true, stage = 'dark', scale = 1, look, part, view = 'hand' }: {
   style?: StyleProp<ViewStyle>; shadow?: boolean; stage?: 'dark' | 'light'; scale?: number; look?: Look;
   part?: 'device' | 'hand';
   /** 'hand': the device alone, forearm still, the wrist articulated;
@@ -265,6 +265,7 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
   const exposure = ({ studio: 0.92, graphite: 1.15, clay: 1.05, ceramic: 0.85, ink: 1.2, xray: 1.0, midnight: 1.3, slate: 1.15, frost: 0.9 } as Partial<Record<Look, number>>)[theLook] ?? 1.05;
   const orbit = useRef<Orbit>({ yaw: 0, pitch: 0, drifting: true, t: 0 });
   const start = useRef({ yaw: 0, pitch: 0 });
+  const active = useAppActive();
 
   const pan = useMemo(
     () =>
@@ -290,7 +291,8 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
       {/* the dark stage is one tone of black: the machine is the only thing lit */}
       <Canvas
         shadows={shadow ? 'percentage' : false}
-        dpr={[1, 2]}
+        dpr={DPR}
+        frameloop={active ? 'always' : 'never'}
         gl={{ antialias: true, alpha: true }}
         camera={{ fov: VIEW.fovDeg, near: 0.1, far: 40 }}
         onCreated={({ gl, scene }: any) => {
@@ -343,6 +345,29 @@ export function Twin({ style, shadow = true, stage = 'dark', scale = 1, look, pa
     </View>
   );
 }
+
+/**
+ * The screens around the twin re-render at the read-out rate (12 Hz); the
+ * twin draws from its own loop and must not follow them. Its props are a few
+ * scalars and a style, so a structural compare is enough to skip those renders.
+ */
+export const Twin = React.memo(TwinView, (a, b) => {
+  const ka = Object.keys(a) as (keyof typeof a)[];
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => (k === 'style' ? JSON.stringify(StyleSheet.flatten(a.style)) === JSON.stringify(StyleSheet.flatten(b.style)) : a[k] === b[k]));
+});
+
+/**
+ * Pixel ratio of the GL surface. A mid-range Android phone reports 2.6-3.5;
+ * drawing the 143k-triangle twin with shadows at that density costs 4x the
+ * fill of 1.5 for a difference nobody can see at this size. The browser keeps
+ * [1, 2], which R3F clamps to the display.
+ */
+const NATIVE_DPR = Math.min(PixelRatio.get(), Platform.OS === 'android' ? 1.5 : 2);
+const DPR: number | [number, number] = Platform.OS === 'web' ? [1, 2] : NATIVE_DPR;
+
+/** the twin is on screen: drawing stops entirely in the background and under the full-screen setup guide */
+const useAppActive = () => useSyncExternalStore(session.subscribe, () => session.appActive && !session.setupOpen, () => true);
 
 const styles = StyleSheet.create({
   wrap: { backgroundColor: 'transparent', overflow: 'hidden' },

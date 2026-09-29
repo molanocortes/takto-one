@@ -67,7 +67,12 @@ export type DeviceInfo = {
   standby: boolean;
   autoRecord: boolean | null;
   neutralRunning: boolean;
+  /** the device's own S-line rate as the bridge measures it, Hz; null when not reported */
+  rateHz: number | null;
 };
+
+/** Per-IMU liveness as the bridge reports it (snap.hand.live, ...); null = not reported. */
+export type ImuLive = { hand: boolean | null; forearm: boolean | null; thumb: boolean | null };
 
 /** The snapshot's `session` block: the one shared recording. */
 export type RecInfo = {
@@ -96,6 +101,8 @@ export type Frame = {
   body: Body | null;
   /** headset-world wrist position in METRES (px/py/pz of a take), replay only */
   pos?: Vec3;
+  /** per-IMU liveness; absent when the source does not say */
+  imu?: ImuLive;
   /** device-side SD/power state; absent before firmware v16 */
   device?: DeviceInfo;
   /** the bridge's recording state; absent from replays */
@@ -132,12 +139,27 @@ export type LibTake = {
   created_ms?: number;
   duration_s?: number;
   samples?: number;
-  quality?: string;
+  /** older bridges: a word ("good"); research-grade takes: the quality block */
+  quality?: string | TakeQuality;
+  provenance?: { fw?: number; boot_id?: number; bridge_version?: string; [k: string]: unknown };
   has_data?: boolean;
   joint_source?: string;
   env?: string;
   source?: string;
   [k: string]: unknown;
+};
+
+/** A take's `quality` block (MOTION_PIPELINE.md section 8), every field optional. */
+export type TakeQuality = {
+  frames?: number;
+  rate_hz?: number;
+  dropped?: number;
+  max_gap_ms?: number;
+  imu_live_pct?: { hand?: number; forearm?: number };
+  enc_live?: number[];
+  neutral?: { kind?: string; age_s?: number; spread_deg?: number };
+  pos_source_pct?: Record<string, number>;
+  latency_ms?: { median?: number; p95?: number };
 };
 
 /** One file on the device's SD card (the {kind:"sd_takes"} message). */

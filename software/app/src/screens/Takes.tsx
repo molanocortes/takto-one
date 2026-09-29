@@ -10,7 +10,7 @@ import { C, S, R } from '../ui/tokens';
 import { useSession } from '../data/session';
 import { bundledTakes } from '../data/takes';
 import type { LibTake } from '../data/types';
-import { Transport, OriginPill } from '../ui/Controls';
+import { Transport, OriginPill, QualityPills } from '../ui/Controls';
 
 function when(ms?: number) {
   // imported and simulated takes carry wall-clock ms; a bridge take carries
@@ -41,7 +41,8 @@ export function Takes({ onMenu, onStatus, onTwin }: { onMenu?: () => void; onSta
     return (
       <View key={t.id}>
         {i > 0 && <Hairline />}
-        <Pressable disabled={noData || st8 === 'loading'} onPress={() => (on ? session.setTake(null) : open(t))} style={st.row}>
+        <Pressable disabled={noData || st8 === 'loading'} onPress={() => (on ? session.setTake(null) : open(t))} style={st.row}
+          accessibilityRole="button" accessibilityLabel={`${on ? 'Stop' : 'Play'} ${t.task && t.task !== 'unlabelled' ? t.task : t.id}`}>
           <View style={st.icon}>
             {st8 === 'loading' ? <ActivityIndicator size="small" color={C.ink2} />
               : <Feather name={on ? 'pause-circle' : noData ? 'slash' : 'play-circle'} size={20} color={noData ? C.ink3 : C.ink} />}
@@ -54,6 +55,7 @@ export function Takes({ onMenu, onStatus, onTwin }: { onMenu?: () => void; onSta
               {t.joint_source ? <Pill color={t.joint_source === 'encoders' ? C.green : t.joint_source === 'sim' ? C.orange : C.ink2}
                 bg={t.joint_source === 'encoders' ? C.greenSoft : t.joint_source === 'sim' ? '#FDF3E1' : C.tile}>joints: {t.joint_source}</Pill> : null}
               {t.source === 'sd' ? <Pill color={C.blue} bg="#E8F0FE">from SD</Pill> : null}
+              <QualityPills q={t.quality} fw={typeof t.provenance?.fw === 'number' ? t.provenance.fw : undefined} />
               {noData ? <Pill color={C.red} bg="#FDECEC">no rows</Pill> : null}
               {st8 === 'error' ? <Pill color={C.red} bg="#FDECEC">could not load</Pill> : null}
             </View>

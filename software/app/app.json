@@ -6,20 +6,25 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "takto",
-    "userInterfaceStyle": "dark",
-    "backgroundColor": "#0A0A0B",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F2F2F2",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "one.takto.companion"
     },
     "android": {
       "package": "one.takto.companion",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#0A0A0B",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.VIBRATE"
+      ],
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -33,7 +38,14 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      [
+        "expo-status-bar",
+        {
+          "style": "dark"
+        }
+      ],
+      "./plugins/withLightNavigationBar.js"
     ]
   }
 }

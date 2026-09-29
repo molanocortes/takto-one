@@ -11,12 +11,12 @@ Six surfaces on one data path:
 
 | | |
 | --- | --- |
-| **Home** | The device at a glance: the twin lying on the page (its wrist now follows the IMUs), the system health number and its trace, four housekeeping channels, the battery and the mode. |
+| **Home** | The device at a glance, measured quantities only: the twin lying on the page, how many of the 14 sensing channels are live, wrist flexion / deviation, forearm elevation and hand speed with their traces, the recording, and the calibration (tap the pill to capture the neutral). With no data from the source every number is a dash. |
 | **Twin** | The device on the wearer's arm. *Arm in space* draws the body frame of `software/MOTION_PIPELINE.md` (shoulder at the origin, a faint upper arm, forearm and torso) and places the forearm at `wrist_m` with `forearm_quat`, the hand at the wrist with `hand_quat`. *Hand only* holds the forearm still and articulates the wrist, so the fingers read at full size. Below: wrist flexion / deviation / pronation, elbow / wrist / palm positions, the position source, and which fingers report. |
-| **Record** | Start and stop the bridge's one shared recording with a task, subject and notes; the running take's elapsed time and sample count from the snapshot's `session` block; the device's SD state from the `device` block (card present, recording to card, take number, rows, auto-record, standby, boot); and the neutral calibration with the device's countdown, hold and done. |
-| **Takes** | The bridge's take library (`{kind:"takes"}`), each replayable (rows fetched with `take_data`); the device's SD card (`{kind:"sd_takes"}`) with Import and a progress bar; and three bundled demo takes, labelled as synthetic, for when there is no bridge. A replay has a real transport: play / pause, a draggable scrubber, 0.25x to 2x, eject. |
+| **Record** | One big record button with the clock and sample count of the running take (the snapshot's `session` block); a **live quality** grid measured from the source (hand and forearm IMU, encoders n of 12 and which fingers are silent, stream rate, neutral state, SD card); optional task / subject / notes; the device's SD state from the `device` block; and the neutral calibration with the device's countdown, hold and done. Start, stop, the hold and the neutral result give a short vibration. |
+| **Takes** | The bridge's take library (`{kind:"takes"}`), each replayable (rows fetched with `take_data`) and tagged with its research `quality` block when the bridge sends one (rate, drops, long gaps, IMU live %, encoders live, neutral kind, latency, firmware); the device's SD card (`{kind:"sd_takes"}`) with Import and a progress bar; and three bundled demo takes, labelled as synthetic, for when there is no bridge. A replay has a real transport: play / pause, a draggable scrubber, 0.25x to 2x, eject. |
 | **Data** | The twelve joints and the activation channel as traces, finger by finger. |
-| **Link** | The bridge address, the connection state in plain words and its rate, recent addresses, the bridge's own LAN address when it reports one, and the steps to reach a PC from a phone. |
+| **Link** | The bridge address (type just the IP), the connection state in plain words, recent addresses, the bridge's own LAN address when it reports one, the steps to reach a PC from a phone, the **setup guide**, and measured **rates and latency**: snapshot rate, pose-lane rate, bridge processing time, network + app time, arrival jitter, device stream rate. |
 
 **One label, never ambiguous.** The top row of every screen says where the
 numbers come from, and a tap on it opens Link:
@@ -35,8 +35,26 @@ numbers come from, and a tap on it opens Link:
 The session has one writer for the displayed frame (the animation loop): the
 socket only stores the bridge's newest snapshot, and a replay overlays it.
 
-Everything also runs with **no hardware attached**. The app opens on the
-in-app simulator, which is a stand-in for the bridge as well as the device:
+**Launch and first run.** The app remembers the last source. If it was a
+bridge, launch goes straight back to it: the top row says CONNECTING and a
+banner above the tab bar says which address is being dialled, with a
+one-tap **Simulator** fallback and a pencil to change the address. A first
+launch opens the **Get started** guide, four steps each ticked from what
+the source reports, never from a timer:
+
+1. **Connect** to the bridge (type the PC's IP; or pick the simulator).
+2. **Calibrate the neutral pose** (ticked when the body block says
+   `calibrated`; the device counts 3-2-1 and asks for a 2 s hold).
+3. **Check the sensors**: the live-quality grid, and a "the sensors look
+   right" button, the only step that is the person's own judgement.
+4. **Record** a take (ticked when the bridge seals one).
+
+The guide can be skipped and reopened from Link → Setup guide. On Android
+the hardware back button closes the guide, then retraces the tabs, then
+leaves the app from Home.
+
+Everything also runs with **no hardware attached**. The in-app simulator
+(the first-launch source, or the Simulator button) is a stand-in for the bridge as well as the device:
 the arm moves (a reach, a lift, forearm roll, wrist flexion), recording
 produces takes with the v16 body columns, the neutral capture counts down,
 and two fake SD files can be imported. All of it is labelled SIMULATED and
@@ -69,10 +87,14 @@ A native run builds through Expo in the usual way (`npx expo run:ios`,
 3. Find the PC's address: macOS `ipconfig getifaddr en0`, Windows `ipconfig`,
    Linux `hostname -I`. Once any client is connected the Link screen also
    shows the address the bridge reports for itself.
-4. On the phone, Link tab: type the address, e.g. `192.168.1.20`. The scheme,
-   port 8765 and `/ws` are filled in (the line under the field shows the
-   final URL, e.g. `ws://192.168.1.20:8765/ws`). Connect. Allow incoming
-   connections if the PC's firewall asks.
+4. On the phone, Link tab (or step 1 of the guide): type the address, e.g.
+   `192.168.1.20`. The scheme, port 8765 and `/ws` are filled in (the line
+   under the field shows the final URL, e.g. `ws://192.168.1.20:8765/ws`).
+   A tap on the field selects all of it, so typing replaces the old address;
+   the x empties it. Anything that is not exactly one address (two URLs run
+   together, an IP with three numbers, a space) is refused with the reason
+   and never dialled. Connect. Allow incoming connections if the PC's
+   firewall asks.
 
 The address is remembered (the last four), the link retries with a short
 backoff, a socket that is open but silent for three seconds is declared
@@ -81,12 +103,43 @@ and takes it back on wake. The Android build allows plain `ws://` on the LAN
 (`expo-build-properties` in `app.json`). A web build served over https can
 only open `wss://`; start the bridge with its TLS options in that case.
 
+## Install on an Android phone
+
+The Android build is a plain APK: no store, no Expo Go. Package
+`one.takto.companion`, `versionCode` 1, portrait, light theme,
+edge-to-edge with dark status- and navigation-bar icons
+(`plugins/withLightNavigationBar.js`), and plain `ws://` allowed on the LAN
+(`expo-build-properties` → `usesCleartextTraffic`).
+
+Build it one of two ways:
+
+- **EAS (no Android toolchain on the PC):** `npx eas build -p android
+  --profile preview` produces an installable `.apk` (`eas.json`,
+  `buildType: apk`). Download it from the link EAS prints.
+- **Locally (Android SDK + JDK 17 installed):** `npx expo prebuild
+  --platform android`, then `cd android && ./gradlew assembleRelease`; the APK
+  is `android/app/build/outputs/apk/release/app-release.apk` (signed with
+  the debug key, fine for side-loading). Needs several GB of disk.
+
+Install: copy the APK to the phone and open it (allow "install unknown
+apps" for the file manager or browser once), or `adb install
+app-release.apk` with USB debugging on. Then:
+
+1. Start the bridge on the PC with `--ws-host 0.0.0.0` (below) and put the
+   phone on the same Wi-Fi.
+2. Open TAKTO. The guide opens: type the PC's IP in step 1 and Connect. The
+   top row turns green: **LIVE**.
+3. Calibrate the neutral, check the sensors, record.
+
+Next launches reconnect to that bridge by themselves.
+
 ## What the phone sends
 
 The companion only ever sends these, and only when you press the button:
 
 | Button | Command | Answer it shows |
 | --- | --- | --- |
+| (on connect, automatically) | `{"cmd":"stream","pose":true}` | `{kind:"pose"}` at 100 Hz; an older bridge answers `unknown_cmd`, which is not shown as an error |
 | Start / Stop recording | `{"cmd":"record","action":"start","task":..,"profile":{"name":..},"notes":..}` / `{"cmd":"record","action":"stop"}` | `rec_started` / `rec_stopped` acks, the new `{kind:"takes"}` list |
 | Calibrate neutral | `{"cmd":"calibrate","what":"neutral"}` | `{event:"neutral", phase:"countdown"/"hold"/"done"/"abort", t}`; an older bridge's single `calibrated` ack is accepted too |
 | Play a bridge take | `{"cmd":"take_data","id":..}` | `{kind:"take_data", id, cols, rows}` |
@@ -116,6 +169,18 @@ is empty).
 - **Dead channels.** A joint the bridge marks `ok:false` is held at the
   neutral pose, never drawn at 0 degrees; a finger with no flexion signal is
   drawn as a grey ghost; the Twin lists it and Data shows a dash.
+- **The fast pose lane** (MOTION_PIPELINE.md section 8). On every connect
+  the app asks for `{"cmd":"stream","pose":true}`. While `{kind:"pose"}`
+  messages arrive (100 Hz, built the moment the S-line lands), the twin draws
+  the arm and fingers from the newest one, laid over the newest 60 Hz
+  snapshot, which still owns recording, device and SD state; if none has
+  arrived for 250 ms it falls back to the snapshot. Pose messages never cause
+  a React render: they are stored, and the twin's own loop reads them. The
+  Link screen shows the lane's measured rate, the bridge's processing time
+  (`tx - rx`, one clock), network + app time (`now - tx`, shown only when
+  plausible because it mixes the bridge's clock and the phone's), arrival
+  jitter and skipped frames (`seq`). The in-app simulator speaks the same
+  lane, so the path is exercised without a PC.
 - **Replay.** Joints interpolate linearly, orientations by slerp. When a take
   carries the v16 body columns (`b_ex..b_wz`, `b_fq_*`, `b_hq_*`, `b_cal`) the
   arm replays in space exactly as recorded; older takes fall back to the
@@ -178,12 +243,14 @@ built from are `src/ui/primitives.tsx` and `src/ui/Chrome.tsx`.
   quaternions are treated as body-frame orientations under a hanging upper
   arm, and the view is labelled *Approximate arm*. There is no calibration
   prompt in that mode because there is no provisional flag to act on.
-- **The v16 paths** (`body`, `device`, `sd_takes`, neutral countdown acks,
-  SD import) were exercised against the in-app simulator and against the
-  parsing code with contract-shaped messages. At the time of writing the
-  bridge on this branch did not yet emit them, so against the real bridge
-  only the legacy arm, record/stop, the take library and `take_data` replay
-  were exercised (with `--sim`).
+- **Against the real device** (firmware v16/17 through the bridge on this
+  branch) the launch reconnect, the `body`, `device` and per-IMU liveness
+  blocks, the live-quality grid, the snapshot rate and jitter, and the
+  "no pose lane on this bridge" fallback were exercised. The **pose lane**
+  itself, the take `quality` badges, recording, the neutral countdown and SD
+  import were exercised against the in-app simulator only (the bridge did
+  not yet answer `stream`, and nothing was recorded or calibrated on the
+  shared device during testing).
 - The in-app simulator's takes and imports are synthetic and live in memory
   only; they disappear when the app closes.
 - The bundled demo takes are **choreographed and synthetic**, by their own
@@ -193,17 +260,22 @@ built from are `src/ui/primitives.tsx` and `src/ui/Chrome.tsx`.
   16 degree limit; the twin clamps it.
 - A bridge take's joint columns carry no liveness, so a joint that was dead
   while recording replays as the value the bridge wrote (0.0).
-- **Temperature, motor load, position accuracy, response time, battery and
-  the health number on Home are modelled by the synthetic feed**, not
-  measured. On a real link they show as a dash.
 - The twin renders **the mechanism**, not a person; the thumb is sensing-only
   on the device and is not drawn.
 - The full mesh is 10.9 MB in the bundle and 607k triangles on the GPU; a
   phone loads the 143k export (`MODEL` in `src/twin/loadHand.ts`).
-- Verified on the **web** target at phone width. The iOS and Android bundles
-  build from the same source but have not been run on a device here; treat
-  them as compiling rather than exercised. `expo-blur` on Android needs
-  `experimentalBlurMethod` to blur at all.
+- Verified on the **web** target at phone width. The Android config was
+  validated with `npx expo config --type introspect` (manifest, cleartext,
+  permissions, theme) and `expo-doctor` (only patch-version drift), but no
+  APK was built or run on a phone here; treat the Android-only paths (the
+  back button, keyboard padding, the capped GL pixel ratio, pausing in the
+  background, vibration) as written to the platform APIs, not exercised.
+  `expo-blur` on Android needs `experimentalBlurMethod` to blur at all.
+- **Android performance.** The GL surface is capped at 1.5x pixel density
+  on Android (2x on iOS), the twin stops drawing in the background and under
+  the guide, the session's loops stop in the background, and the screens
+  re-render at 12 Hz while the twin is memoised and drawn from its own loop.
+  System text scaling is honoured up to 1.3x.
 - On web, the Metro dev server on this machine runs without watchman and
   sometimes stops noticing file edits; restart it with `--clear` if a change
   does not appear.
@@ -212,7 +284,10 @@ built from are `src/ui/primitives.tsx` and `src/ui/Chrome.tsx`.
 
 The synthetic feed is a pure function of time and the app accepts `?t=`,
 `?screen=` (`overview`, `twin`, `record`, `takes`, `analytics`, `link`; the
-old `logs` still works) and `?take=`, so every captured frame is reproducible. See
+old `logs` still works) and `?take=`, so every captured frame is reproducible. A capture URL
+(`?t=` or `?take=`) never reconnects to a remembered bridge and never opens
+the guide. `?bridge=<address>` opens that bridge at launch instead of the
+remembered one. See
 [`tools/capture.mjs`](tools/capture.mjs) for the stills and the loop frames,
 [`tools/compose.mjs`](tools/compose.mjs) for the docs composite, and
 [`tools/gif.mjs`](tools/gif.mjs) for the loop.

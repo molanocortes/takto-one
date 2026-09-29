@@ -1,7 +1,7 @@
 // Chrome.tsx - the pieces every screen shares: the page, the top row, the
 // three-tile control, the section header, and the tab bar.
 import React from 'react';
-import { View, Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { View, Pressable, StyleSheet, Platform, type StyleProp, type ViewStyle } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { M, T } from './primitives';
@@ -25,7 +25,7 @@ export function TopRow({ onMenu, onStatus }: { onMenu?: () => void; onStatus?: (
   const inset = useSafeAreaInsets();
   const s = useSession().status;
   return (
-    <View style={[st.top, { marginTop: Math.max(inset.top, 47) + 18 }]}>
+    <View style={[st.top, { marginTop: Platform.OS === 'android' ? inset.top + 16 : Math.max(inset.top, 47) + 18 }]}>
       <Pressable onPress={onStatus} hitSlop={10} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}
         accessibilityRole="button" accessibilityLabel={`Source: ${s.label}, ${s.detail}`}>
         <View style={[st.dot, { backgroundColor: STATUS_COLOR[s.kind] }]} />
@@ -38,12 +38,12 @@ export function TopRow({ onMenu, onStatus }: { onMenu?: () => void; onStatus?: (
 }
 
 /** The session's last notice (an ack, a refusal), for a few seconds. */
-export function NoticeBar() {
+export function NoticeBar({ bottom }: { bottom?: number }) {
   const session = useSession();
   const n = session.notice;
   if (!n || Date.now() - n.at > 4500) return null;
   return (
-    <View pointerEvents="none" style={[st.notice, { borderColor: n.tone === 'error' ? C.red : C.tileLine }]}>
+    <View pointerEvents="none" accessibilityLiveRegion="polite" style={[st.notice, { borderColor: n.tone === 'error' ? C.red : C.tileLine }, bottom != null && { bottom }]}>
       <Feather name={n.tone === 'error' ? 'alert-circle' : 'check-circle'} size={13} color={n.tone === 'error' ? C.red : C.green} />
       <T size={12.5} color={C.ink} style={{ flex: 1 }}>{n.text}</T>
     </View>
@@ -127,7 +127,9 @@ export function TabBar<K extends string>({ items, value, onChange }: {
 }) {
   const inset = useSafeAreaInsets();
   return (
-    <View style={[st.tabBar, { paddingBottom: Math.max(inset.bottom, 32) }]}>
+    // the reference screen's 32 pt foot is an iPhone home indicator; an
+    // Android phone gets its real navigation-bar inset plus a little air
+    <View style={[st.tabBar, { paddingBottom: Platform.OS === 'android' ? inset.bottom + 10 : Math.max(inset.bottom, 32) }]}>
       <Tiles items={items} value={value} onChange={onChange} height={NAV_H} raised labelSize={8} />
     </View>
   );

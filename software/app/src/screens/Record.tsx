@@ -5,13 +5,13 @@
 // or seals the take every client sees, and the snapshot's `session` block is
 // the truth about whether one is running. The phone only asks and reports.
 import React, { useState } from 'react';
-import { View, ScrollView, StyleSheet } from 'react-native';
+import { View, ScrollView, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { TopRow, Title, SectionHead, STATUS_COLOR } from '../ui/Chrome';
 import { M, T, Num, Hairline, Btn, Field, Pill } from '../ui/primitives';
 import { C, S, R } from '../ui/tokens';
 import { useSession } from '../data/session';
-import { NeutralCard, fmtTime } from '../ui/Controls';
+import { NeutralCard, SensorStrip, fmtTime } from '../ui/Controls';
 
 let draft = { task: '', profile: '', notes: '' };
 
@@ -44,41 +44,55 @@ export function Record({ onMenu, onStatus, onLink }: { onMenu?: () => void; onSt
           </View>
         )}
 
-        {/* the running take */}
-        <View style={[st.card, { marginTop: 22 }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        {/* the primary action: one big button, the clock, and what is being captured */}
+        <View style={[st.card, { marginTop: 22, alignItems: 'center', gap: 6 }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'stretch' }}>
             <View style={[st.recDot, { backgroundColor: recording ? C.red : C.line }]} />
-            <M size={10} color={recording ? C.red : C.ink2} weight="500">{recording ? 'Recording' : 'Not recording'}</M>
+            <M size={10} color={recording ? C.red : C.ink2} weight="500">{recording ? 'Recording' : 'Ready'}</M>
             <View style={{ flex: 1 }} />
             {sourceIsSim && <Pill color={C.orange} bg="#FDF3E1">Simulated</Pill>}
             {rec?.id ? <M size={9} color={C.ink2} upper={false}>{rec.id}</M> : null}
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 14 }}>
-            <Num size={48} weight="300" color={recording ? C.ink : C.ink3} tracking={-1}>{fmtTime((rec?.elapsedMs ?? 0) / 1000)}</Num>
-            <View>
-              <Num size={15} color={C.ink}>{rec ? rec.samples.toLocaleString() : '–'}</Num>
-              <M size={8} color={C.ink2}>samples</M>
-            </View>
-          </View>
+          <Num size={56} weight="300" color={recording ? C.ink : C.ink3} tracking={-1.5}>{fmtTime((rec?.elapsedMs ?? 0) / 1000)}</Num>
+          <M size={8.5} color={C.ink2} upper={false}>
+            {rec ? `${rec.samples.toLocaleString()} samples${recording && dev?.sdRecording ? ` · card take ${dev.sdTake}, ${dev.sdRows.toLocaleString()} rows` : ''}` : 'no recording state from this bridge'}
+          </M>
+          <Pressable
+            onPress={() => (recording ? session.recordStop() : session.recordStart(form))}
+            disabled={!can || !!session.recPending}
+            accessibilityRole="button" accessibilityLabel={recording ? 'Stop and save the take' : 'Start recording'}
+            accessibilityState={{ disabled: !can || !!session.recPending, busy: !!session.recPending }}
+            style={({ pressed }) => [st.big, { opacity: !can ? 0.35 : pressed ? 0.75 : 1, borderColor: recording ? C.red : C.ink }]}>
+            {session.recPending ? <ActivityIndicator color={recording ? C.red : C.ink} />
+              : <View style={recording ? st.stopGlyph : st.recGlyph} />}
+          </Pressable>
+          <M size={9.5} color={recording ? C.red : C.ink} weight="500">
+            {session.recPending === 'start' ? 'Starting…' : session.recPending === 'stop' ? 'Saving…' : recording ? 'Tap to stop and save' : 'Tap to record'}
+          </M>
           {recording && (rec?.task || rec?.profile) ? (
             <T size={12} color={C.ink2}>{[rec.task, rec.profile].filter(Boolean).join(' · ')}</T>
           ) : null}
-          {!recording && (
-            <>
-              <Field label="Task / take name" value={form.task} onChange={upd('task')} placeholder="e.g. cup grasp, trial 3" />
-              <Field label="Subject" value={form.profile} onChange={upd('profile')} placeholder="Operator" />
-              <Field label="Notes" value={form.notes} onChange={upd('notes')} placeholder="optional" />
-            </>
-          )}
-          {recording
-            ? <Btn label="Stop and save" icon="square" kind="danger" height={50} onPress={() => session.recordStop()} busy={session.recPending === 'stop'} disabled={!can} style={{ marginTop: 6 }} />
-            : <Btn label="Start recording" icon="circle" kind="primary" height={50} onPress={() => session.recordStart(form)} busy={session.recPending === 'start'} disabled={!can} style={{ marginTop: 6 }} />}
-          {session.play && <T size={11} color={C.ink3}>A replay is showing in the twin; recording still captures the live device.</T>}
-          {!rec && can && <T size={11} color={C.ink3}>This bridge does not report its recording state; the start and stop acknowledgements are all there is.</T>}
-          {live.body?.cal === 'provisional' && !recording && (
-            <T size={11.5} color={C.orange}>Calibrate the neutral first (below) so the arm columns of the take are true.</T>
+          {session.play && <T size={11} color={C.ink3} style={{ textAlign: 'center' }}>A replay is showing in the twin; recording still captures the live device.</T>}
+          {live.body?.cal === 'provisional' && !recording && can && (
+            <View style={st.warn}>
+              <Feather name="alert-triangle" size={13} color={C.orange} />
+              <T size={11.5} color={C.ink} style={{ flex: 1 }}>Neutral is provisional: calibrate first so the arm columns are true.</T>
+              <Btn label="Calibrate" height={32} onPress={() => session.calibrateNeutral()} disabled={!!session.play} />
+            </View>
           )}
         </View>
+
+        <SectionHead label="Live quality" right={sourceIsSim ? 'simulated' : status.kind === 'live' ? 'measured' : undefined} style={{ marginTop: 22 }} />
+        <View style={{ marginTop: 10 }}><SensorStrip /></View>
+
+        {!recording && (
+          <>
+            <SectionHead label="Take details · optional" style={{ marginTop: 24 }} />
+            <Field label="Task / take name" value={form.task} onChange={upd('task')} placeholder="e.g. cup grasp, trial 3" maxLength={80} />
+            <Field label="Subject" value={form.profile} onChange={upd('profile')} placeholder="Operator" maxLength={60} />
+            <Field label="Notes" value={form.notes} onChange={upd('notes')} placeholder="optional" maxLength={240} />
+          </>
+        )}
 
         <SectionHead label="Device" right={dev?.fw ? `firmware v${dev.fw}` : undefined} style={{ marginTop: 26 }} />
         <View style={{ marginTop: 4 }}>
@@ -126,4 +140,8 @@ const st = StyleSheet.create({
   recDot: { width: 10, height: 10, borderRadius: 5 },
   dot: { width: 6, height: 6, borderRadius: 3 },
   kv: { flexDirection: 'row', alignItems: 'center', minHeight: 40 },
+  big: { width: 92, height: 92, borderRadius: 46, borderWidth: 3, alignItems: 'center', justifyContent: 'center', marginTop: 10, marginBottom: 2, backgroundColor: C.white },
+  recGlyph: { width: 64, height: 64, borderRadius: 32, backgroundColor: C.red },
+  stopGlyph: { width: 34, height: 34, borderRadius: 6, backgroundColor: C.red },
+  warn: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'stretch', marginTop: 6, backgroundColor: '#FFF8EC', borderRadius: R.r2, borderWidth: 1, borderColor: '#F6D9A6', padding: 10 },
 });

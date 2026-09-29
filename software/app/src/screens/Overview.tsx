@@ -7,7 +7,7 @@
 // were dashes and in the simulator they were invented. What the rig does
 // measure is motion, so that is what the home page reports.
 import React, { useRef } from 'react';
-import { View, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, ScrollView, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSyncExternalStore } from 'react';
 import { Twin } from '../twin/Twin';
@@ -88,6 +88,8 @@ export function Overview({ onMenu, onStatus }: { onMenu?: () => void; onStatus?:
     for (const m of METRICS) push(m.key, m.read(frame, last.speed));
   }
 
+  // no data from the source means no sensor is live that we know of: a dash, not a frozen percentage
+  const noData = session.status.kind === 'offline';
   const cov = coverage(frame);
   const covPct = Math.round((cov.live / cov.total) * 100);
   const body = frame.body;
@@ -104,6 +106,8 @@ export function Overview({ onMenu, onStatus }: { onMenu?: () => void; onStatus?:
     ? `neutral ${Math.max(0, Math.round(body.sinceNeutralS / 60))} min ago`
     : 'hold your hand flat, then calibrate';
 
+  const neutralRunning = ['requested', 'countdown', 'hold'].includes(session.neutral.phase);
+  const canCal = !!body && body.origin === 'body' && body.cal !== 'calibrated' && session.canCommand && !session.play && !neutralRunning;
   const recording = !!(rec && rec.recording);
   const recDetail = recording
     ? `${rec!.samples} samples`
@@ -131,10 +135,10 @@ export function Overview({ onMenu, onStatus }: { onMenu?: () => void; onStatus?:
           <View style={{ marginTop: 40 }} pointerEvents="none">
             <M size={9.5} color={C.ink2}>Sensors live</M>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 6 }}>
-              <Num size={54} weight="300" color={C.ink} tracking={-1}>{covPct}</Num>
-              <T size={15} weight="400" color={C.ink} style={{ marginLeft: 5 }}>%</T>
+              <Num size={54} weight="300" color={noData ? C.ink3 : C.ink} tracking={-1}>{noData ? '–' : covPct}</Num>
+              {!noData && <T size={15} weight="400" color={C.ink} style={{ marginLeft: 5 }}>%</T>}
             </View>
-            <M size={8} color={C.ink3} upper={false} style={{ marginTop: 2 }}>{`${cov.live} of ${cov.total} channels`}</M>
+            <M size={8} color={C.ink3} upper={false} style={{ marginTop: 2 }}>{noData ? 'no data from the source' : `${cov.live} of ${cov.total} channels`}</M>
             <View style={{ marginTop: 6 }}>
               <Trace values={hist.cov ?? []} width={98} height={20} color={C.green} stroke={1.1} />
             </View>
@@ -144,7 +148,7 @@ export function Overview({ onMenu, onStatus }: { onMenu?: () => void; onStatus?:
         <SectionHead label="Motion" right={session.isPaused() ? 'Paused' : 'Real-time'} onRight={() => (session.isPaused() ? session.resume() : session.pause())} style={{ marginTop: 18 }} />
         <View style={{ marginTop: 8 }}>
           {METRICS.map((m, i) => {
-            const v = m.read(frame, last.speed);
+            const v = noData ? null : m.read(frame, last.speed);
             return (
               <View key={m.key}>
                 {i > 0 && <Hairline />}
@@ -185,9 +189,12 @@ export function Overview({ onMenu, onStatus }: { onMenu?: () => void; onStatus?:
           <View style={[st.col, { paddingLeft: 24 }]}>
             <M size={9.5} color={C.ink}>Calibration</M>
             <T size={18} weight="400" color={C.ink} style={{ marginTop: 16 }}>{calWord}</T>
-            <View style={[st.pill, { backgroundColor: body && body.cal === 'calibrated' ? C.greenSoft : 'rgba(240,140,60,0.12)' }]}>
-              <M size={8.5} color={calColor} upper={false}>{calDetail}</M>
-            </View>
+            {/* not calibrated: the pill is the button (the device counts down and beeps) */}
+            <Pressable disabled={!canCal} onPress={() => session.calibrateNeutral()} hitSlop={8}
+              accessibilityRole={canCal ? 'button' : undefined} accessibilityLabel={canCal ? 'Calibrate the neutral pose' : calDetail}
+              style={[st.pill, { backgroundColor: body && body.cal === 'calibrated' ? C.greenSoft : 'rgba(240,140,60,0.12)' }]}>
+              <M size={8.5} color={calColor} upper={false}>{neutralRunning ? 'hold the pose…' : canCal ? `${calDetail} · tap` : calDetail}</M>
+            </Pressable>
           </View>
         </View>
         <Hairline style={{ marginHorizontal: -S.gutter }} />

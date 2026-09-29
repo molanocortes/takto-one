@@ -20,10 +20,10 @@
 // So the frame object is mutable and always current, while React is notified
 // at UI_HZ.
 import { useSyncExternalStore } from 'react';
-import { AppState, Platform, type AppStateStatus } from 'react-native';
+import { AppState, Platform, Vibration, type AppStateStatus } from 'react-native';
 import { emptyFrame, type Frame, type LibTake, type SdTake } from './types';
 import { sampleTake, decodeTake, type Take } from './takes';
-import { connectBridge, normalizeBridgeUrl, type BridgeLink, type ConnState } from './bridge';
+import { connectBridge, checkBridgeAddress, shortAddress, poseToFrame, type BridgeLink, type ConnState, type PoseStats } from './bridge';
 import { SimBridge } from './simBridge';
 
 /** the bridge addresses that were tried, newest first, kept across launches */
@@ -35,32 +35,59 @@ function parseSaved(txt: string | null): string[] {
   try { const v = JSON.parse(txt); if (Array.isArray(v)) return v.filter((x) => typeof x === 'string').slice(0, MAX_RECENT); } catch { /* a bare address */ }
   return txt.startsWith('ws') ? [txt.trim()] : [];
 }
-async function readSaved(): Promise<string[]> {
+/** one small text value kept across launches: localStorage on web, a file in the app's documents on a phone */
+async function readText(key: string, file: string, legacy: string[] = []): Promise<string | null> {
   try {
     if (Platform.OS === 'web') {
-      if (typeof localStorage === 'undefined') return [];
-      return parseSaved(localStorage.getItem(SAVED_KEY) ?? localStorage.getItem('takto.bridgeUrl'));
+      if (typeof localStorage === 'undefined') return null;
+      for (const k of [key, ...legacy]) { const v = localStorage.getItem(k); if (v !== null) return v; }
+      return null;
     }
     const FS: any = await import('expo-file-system/legacy');
-    for (const name of [SAVED_FILE, 'bridge-url.txt']) {
+    for (const name of [file, ...legacy]) {
       const info = await FS.getInfoAsync(FS.documentDirectory + name);
-      if (info.exists) return parseSaved(await FS.readAsStringAsync(FS.documentDirectory + name));
+      if (info.exists) return await FS.readAsStringAsync(FS.documentDirectory + name);
     }
-  } catch { /* a forgotten address is an inconvenience, not an error */ }
-  return [];
+  } catch { /* a forgotten preference is an inconvenience, not an error */ }
+  return null;
 }
-async function writeSaved(urls: string[]) {
-  const txt = JSON.stringify(urls);
+async function writeText(key: string, file: string, txt: string) {
   try {
-    if (Platform.OS === 'web') { if (typeof localStorage !== 'undefined') localStorage.setItem(SAVED_KEY, txt); return; }
+    if (Platform.OS === 'web') { if (typeof localStorage !== 'undefined') localStorage.setItem(key, txt); return; }
     const FS: any = await import('expo-file-system/legacy');
-    await FS.writeAsStringAsync(FS.documentDirectory + SAVED_FILE, txt);
+    await FS.writeAsStringAsync(FS.documentDirectory + file, txt);
   } catch { /* see above */ }
 }
+async function readSaved(): Promise<string[]> {
+  return parseSaved(await readText(SAVED_KEY, SAVED_FILE, Platform.OS === 'web' ? ['takto.bridgeUrl'] : ['bridge-url.txt']));
+}
+function writeSaved(urls: string[]) { return writeText(SAVED_KEY, SAVED_FILE, JSON.stringify(urls)); }
+
+/**
+ * What the app remembers about the person, besides addresses: which source
+ * they used last (so a launch goes straight back to their bridge) and
+ * whether the first-run guide has been finished or skipped.
+ */
+type Prefs = { lastSource: 'sim' | 'bridge'; setupDone: boolean };
+const PREFS_KEY = 'takto.prefs';
+const PREFS_FILE = 'prefs.json';
+async function readPrefs(): Promise<Prefs | null> {
+  const txt = await readText(PREFS_KEY, PREFS_FILE);
+  if (!txt) return null;
+  try {
+    const v = JSON.parse(txt);
+    return { lastSource: v?.lastSource === 'bridge' ? 'bridge' : 'sim', setupDone: !!v?.setupDone };
+  } catch { return null; }
+}
+
+/** a short buzz for "the device heard you"; a no-op where there is no motor */
+function buzz(ms = 25) { try { Vibration.vibrate(ms); } catch { /* no vibrator */ } }
 
 const UI_HZ = 12;
 /** an open socket whose last frame is older than this is "waiting", not LIVE */
 const FRESH_MS = 1500;
+/** the twin draws from the pose lane while its newest message is younger than this */
+const POSE_FRESH_MS = 250;
 
 type Play = { take: Take; t: number; playing: boolean; speed: number };
 
@@ -90,6 +117,8 @@ export type NeutralState = {
 
 export type Notice = { text: string; tone: 'info' | 'error'; at: number };
 
+export type SetupStep = { key: 'connect' | 'calibrate' | 'sensors' | 'record'; done: boolean };
+
 class Session {
   /** what every surface draws. Written only by the loop; never rely on identity. */
   frame: Frame = emptyFrame();
@@ -116,6 +145,24 @@ class Session {
   recPending: 'start' | 'stop' | null = null;
   notice: Notice | null = null;
 
+  /** the fast pose lane, as measured here; `lane` 'off' on the in-app feed before it subscribes */
+  pose: PoseStats = { lane: 'off', hz: 0, procMs: null, ageMs: null, jitterMs: null, gaps: 0 };
+  /** the bridge's own reported pose-lane latency (link.latency_ms), ms */
+  bridgeLatencyMs: number | null = null;
+  /** the app is in the foreground; the twin stops drawing when it is not */
+  appActive = true;
+  /** the launch reconnect to the last bridge, while it has not delivered yet */
+  autoConnect: { url: string; since: number } | null = null;
+  /** preferences have been read (until then the launch source is not decided) */
+  prefsLoaded = false;
+  /** first-run guide */
+  setupDone = true;
+  setupOpen = false;
+  sensorsChecked = false;
+  recordedOnce = false;
+  /** the person picked the simulator themselves (not merely launched on it) */
+  simChosen = false;
+
   private version = 0;
   private listeners = new Set<() => void>();
   private raf: any = null;
@@ -129,7 +176,16 @@ class Session {
   private cache = new Map<string, Take>();
   private wantTake: string | null = null;
   private neutralTimer: any = null;
-  private sim = new SimBridge((m) => { if (this.source === 'sim') this.onMessage(m); });
+  private sim = new SimBridge((m) => { if (this.source === 'sim') this.onMessage(m); }, () => this.pinnedT ?? this.simT());
+  private poseFrame: Frame | null = null;
+  private simBase: Frame | null = null;
+  private simPoseAt = 0;
+  private simPoses = 0;
+  private simGaps: number[] = [];
+  private simStatsAt = Date.now();
+  private poseAt = 0;
+  private poseOff: number | null = null;
+  private prefs: Prefs = { lastSource: 'sim', setupDone: false };
 
   /**
    * Media capture. With the clock pinned, the synthetic feed is a pure
@@ -171,9 +227,10 @@ class Session {
     const fresh = c.state === 'open' && Date.now() - this.bridgeFrameAt < FRESH_MS;
     if (fresh && c.synthetic) return { kind: 'sim', label: 'SIMULATED', detail: `bridge running --sim · ${c.hz} Hz` };
     if (fresh) return { kind: 'live', label: 'LIVE', detail: `device via bridge · ${c.hz} Hz` };
+    const where = this.bridgeUrl ? shortAddress(this.bridgeUrl) : '';
     if (c.state === 'paused') return { kind: 'offline', label: 'PAUSED', detail: 'app in background' };
-    if (c.state === 'connecting' || c.state === 'open') return { kind: 'offline', label: 'CONNECTING', detail: c.state === 'open' ? 'socket open, waiting for data' : c.detail };
-    return { kind: 'offline', label: 'OFFLINE', detail: c.detail || 'no bridge' };
+    if (c.state === 'connecting' || c.state === 'open') return { kind: 'offline', label: 'CONNECTING', detail: `${where} · ${c.state === 'open' ? 'socket open, waiting for data' : c.detail}` };
+    return { kind: 'offline', label: 'OFFLINE', detail: `${where} · ${c.detail || 'no bridge'}` };
   }
 
   /** commands can reach a backend right now */
@@ -181,23 +238,59 @@ class Session {
     return this.source === 'sim' || (this.conn.state === 'open' && Date.now() - this.bridgeFrameAt < FRESH_MS);
   }
 
-  start() {
+  /**
+   * `opts.bridge`: an address to open instead of the remembered one (web ?bridge=);
+   * `opts.noAuto`: stay on the simulator whatever was used last (capture runs).
+   */
+  start(opts: { bridge?: string | null; noAuto?: boolean } = {}) {
     if (this.raf) return;
-    readSaved().then((u) => { if (u.length && !this.recentUrls.length) { this.recentUrls = u; this.bump(); } });
+    Promise.all([readSaved(), readPrefs()]).then(([u, p]) => {
+      if (u.length && !this.recentUrls.length) this.recentUrls = u;
+      if (p) this.prefs = p;
+      this.setupDone = !!p?.setupDone;
+      this.prefsLoaded = true;
+      // launch goes back to where the person was: the last bridge, if the
+      // last thing they used was a bridge; a first run opens the guide
+      const want = opts.bridge ? opts.bridge : !opts.noAuto && this.prefs.lastSource === 'bridge' ? this.recentUrls[0] : null;
+      if (want && this.source === 'sim') this.connect(want, { auto: true });
+      if (!this.setupDone && !opts.noAuto) this.setupOpen = true;
+      this.bump();
+    });
     // a phone that sleeps loses the socket; drop it cleanly and take it back
-    // up on wake instead of waiting for the watchdog to notice
+    // up on wake instead of waiting for the watchdog to notice. The loops stop
+    // too: nothing is drawn in the background, so nothing should be computed.
     if (!this.appState) {
       this.appState = AppState.addEventListener('change', (s: AppStateStatus) => {
-        if (s === 'active') { if (this.source === 'bridge' && this.bridgeUrl && !this.link) this.openBridge(this.bridgeUrl); }
-        else if (this.link) {
-          this.link.stop(); this.link = null;
-          this.setConn({ state: 'paused', detail: 'app in background', hz: 0 });
+        if (s === 'active') {
+          if (this.appActive) return;
+          this.appActive = true;
+          this.runLoops();
+          if (this.source === 'bridge' && this.bridgeUrl && !this.link) this.openBridge(this.bridgeUrl);
+          if (this.source === 'sim') this.sim.handle({ cmd: 'stream', pose: true }, this.simT());
+          this.bump();
+        } else if (s === 'background' || (s === 'inactive' && Platform.OS !== 'ios')) {
+          // iOS reports 'inactive' for the app switcher and a pulled-down
+          // notification centre; the socket survives those, so only background counts there
+          this.appActive = false;
+          this.stopLoops();
+          this.sim.stopPose();
+          if (this.link) {
+            this.link.stop(); this.link = null;
+            this.setConn({ state: 'paused', detail: 'app in background', hz: 0 });
+          }
+          this.bump();
         }
       });
     }
     this.started = Date.now();
     this.lastTick = this.started;
-    if (this.source === 'sim') this.sim.hello();
+    if (this.source === 'sim') { this.sim.hello(); this.sim.handle({ cmd: 'stream', pose: true }, this.simT()); }
+    this.runLoops();
+  }
+
+  private runLoops() {
+    if (this.raf || this.uiTimer) return;
+    this.lastTick = Date.now();
     const loop = () => { this.tick(); this.raf = requestAnimationFrame(loop); };
     this.raf = requestAnimationFrame(loop);
     this.uiTimer = setInterval(() => {
@@ -207,11 +300,15 @@ class Session {
       this.bump();
     }, 1000 / UI_HZ);
   }
-
-  stop() {
+  private stopLoops() {
     if (this.raf) cancelAnimationFrame(this.raf);
     if (this.uiTimer) clearInterval(this.uiTimer);
     this.raf = this.uiTimer = null;
+  }
+
+  stop() {
+    this.stopLoops();
+    this.sim.stopPose();
   }
 
   /** THE writer of `frame`. */
@@ -220,7 +317,16 @@ class Session {
     const dt = Math.min(0.1, (now - this.lastTick) / 1000);
     this.lastTick = now;
     const t = this.pinnedT ?? this.simT();
-    this.live = this.source === 'sim' ? this.sim.frame(t) : (this.bridgeFrame ?? this.live);
+    // the pose lane, when it is flowing, is the newest arm and fingers there
+    // are; the snapshot (or the in-app feed) still owns everything else
+    const poseFresh = this.poseFrame !== null && now - this.poseAt < POSE_FRESH_MS;
+    if (this.source === 'sim') {
+      this.simBase = this.sim.frame(t);
+      this.live = poseFresh && this.pinnedT === null ? this.poseFrame! : this.simBase;
+    } else {
+      this.live = poseFresh ? this.poseFrame! : (this.bridgeFrame ?? this.live);
+    }
+    if (this.autoConnect && (this.source !== 'bridge' || this.status.kind === 'live' || this.status.kind === 'sim')) this.autoConnect = null;
     if (this.play) {
       if (this.pinnedT !== null) this.play.t = Math.min(this.pinnedT, this.play.take.durationS);
       else if (this.play.playing) {
@@ -270,15 +376,21 @@ class Session {
     const cmd: Record<string, unknown> = { cmd: 'record', action: 'start', task: o.task.trim() || undefined };
     if (o.profile.trim()) cmd.profile = { name: o.profile.trim() };
     if (o.notes.trim()) cmd.notes = o.notes.trim();
-    if (this.send(cmd)) { this.recPending = 'start'; this.bump(); }
+    // pending BEFORE sending: the in-app simulator answers synchronously
+    this.recPending = 'start';
+    if (!this.send(cmd)) this.recPending = null;
+    this.bump();
   }
   recordStop() {
-    if (this.send({ cmd: 'record', action: 'stop' })) { this.recPending = 'stop'; this.bump(); }
+    this.recPending = 'stop';
+    if (!this.send({ cmd: 'record', action: 'stop' })) this.recPending = null;
+    this.bump();
   }
 
   calibrateNeutral() {
-    if (!this.send({ cmd: 'calibrate', what: 'neutral' })) return;
+    const before = this.neutral;
     this.neutral = { phase: 'requested', t: 0, at: Date.now() };
+    if (!this.send({ cmd: 'calibrate', what: 'neutral' })) { this.neutral = before; this.bump(); return; }
     clearTimeout(this.neutralTimer);
     // a v16 bridge answers within a second with the countdown; if nothing at
     // all comes back the request is reported as lost, not left spinning
@@ -290,7 +402,10 @@ class Session {
 
   sdList() { this.send({ cmd: 'sd', action: 'list' }); }
   sdImport(name: string) {
-    if (this.send({ cmd: 'sd', action: 'import', name })) { this.sdProgress = { ...this.sdProgress, [name]: 0 }; this.bump(); }
+    const before = this.sdProgress;
+    this.sdProgress = { ...this.sdProgress, [name]: 0 };
+    if (!this.send({ cmd: 'sd', action: 'import', name })) this.sdProgress = before;
+    this.bump();
   }
 
   private say(text: string, tone: Notice['tone'] = 'info') { this.notice = { text, tone, at: Date.now() }; this.bump(); }
@@ -298,6 +413,23 @@ class Session {
   // ---- messages from the source (bridge or simulator) ---------------------------
 
   private onMessage(m: Record<string, any>) {
+    if (m.kind === 'pose') {
+      // the in-app feed's pose lane: same path as a bridge's, no React render
+      if (this.source !== 'sim') return;
+      const now = Date.now();
+      if (this.simPoseAt) this.simGaps.push(now - this.simPoseAt);
+      this.simPoseAt = now; this.simPoses++;
+      if (now - this.simStatsAt >= 1000) {
+        const g = [...this.simGaps].sort((a, b) => a - b);
+        const q = (p: number) => (g.length ? g[Math.min(g.length - 1, Math.floor(g.length * p))] : null);
+        const p95 = q(0.95), p50 = q(0.5);
+        this.pose = { lane: 'on', hz: Math.round((this.simPoses * 1000) / (now - this.simStatsAt || 1)), procMs: 0, ageMs: typeof m.tx === 'number' ? Math.max(0, now - m.tx) : null,
+          jitterMs: p95 !== null && p50 !== null ? p95 - p50 : null, gaps: 0 };
+        this.simPoses = 0; this.simGaps = []; this.simStatsAt = now;
+      }
+      this.onPose(m, this.simBase);
+      return;
+    }
     switch (m.kind) {
       case 'takes':
         this.library = Array.isArray(m.takes) ? m.takes.filter((t: any) => t && typeof t.id === 'string') : [];
@@ -335,8 +467,9 @@ class Session {
       case 'neutral': {
         const phase = ['countdown', 'hold', 'done', 'abort'].includes(m.phase) ? m.phase : 'countdown';
         this.neutral = { phase, t: Number(m.t) || 0, at: Date.now() };
-        if (phase === 'done') this.say('Neutral captured: the twin is calibrated for this power-up');
-        if (phase === 'abort') this.say('Neutral capture aborted: hold still and try again', 'error');
+        if (phase === 'done') { this.say('Neutral captured: the twin is calibrated for this power-up'); buzz(40); }
+        if (phase === 'abort') { this.say('Neutral capture aborted: hold still and try again', 'error'); buzz(120); }
+        if (phase === 'hold' && this.neutral.phase !== 'hold') buzz(15);
         break;
       }
       case 'calibrated':
@@ -346,10 +479,11 @@ class Session {
           this.say('Neutral captured');
         }
         break;
-      case 'rec_started': this.recPending = null; this.say(`Recording ${m.id ?? ''}`.trim()); break;
+      case 'rec_started': this.recPending = null; this.say(`Recording ${m.id ?? ''}`.trim()); buzz(30); break;
       case 'rec_stopped':
         this.recPending = null;
         this.say(m.id ? `Saved ${m.id} to the take library` : 'Nothing was recording');
+        if (m.id) { this.recordedOnce = true; buzz(30); }
         break;
       case 'sd_import':
         if (m.name) this.sdProgress = { ...this.sdProgress, [m.name]: Math.max(0, Math.min(100, Number(m.pct) || 0)) };
@@ -380,6 +514,9 @@ class Session {
     this.sdProgress = {}; this.takeState = {};
     this.neutral = { phase: 'idle', t: 0, at: 0 };
     this.recPending = null; this.wantTake = null;
+    // the guide's own ticks belong to a source: a take made on the simulator
+    // says nothing about the device
+    this.sensorsChecked = false; this.recordedOnce = false;
   }
 
   private setConn(p: Partial<Conn>) {
@@ -393,19 +530,52 @@ class Session {
    * address ("192.168.1.20" becomes ws://192.168.1.20:8765/ws), remembered,
    * and retried until it answers or the simulator is chosen instead.
    */
-  connect(input: string) {
-    const url = normalizeBridgeUrl(input);
-    if (!url) { this.say('Type the bridge address, e.g. 192.168.1.20', 'error'); return; }
+  connect(input: string, o: { auto?: boolean } = {}) {
+    const { url, error } = checkBridgeAddress(input);
+    if (!url) { this.say(error ? `Not connecting: ${error}` : 'Type the bridge address, e.g. 192.168.1.20', 'error'); return false; }
     this.recentUrls = [url, ...this.recentUrls.filter((u) => u !== url)].slice(0, MAX_RECENT);
     writeSaved(this.recentUrls);
+    this.savePrefs({ lastSource: 'bridge' });
+    this.autoConnect = o.auto ? { url, since: Date.now() } : null;
+    this.sim.stopPose();
     this.play = null;
     this.source = 'bridge';
     this.bridgeFrame = null;
     this.bridgeFrameAt = 0;
+    // nothing has arrived from this bridge yet: every channel is absent, not
+    // a finger resting at the neutral pose
     this.live = emptyFrame();
+    for (const k of Object.keys(this.live.ok) as (keyof Frame['ok'])[]) this.live.ok[k] = { ab: false, mcp: false, pip: false };
     this.resetSourceState();
     this.openBridge(url);
+    return true;
   }
+
+  private savePrefs(p: Partial<Prefs>) {
+    this.prefs = { ...this.prefs, ...p };
+    writeText(PREFS_KEY, PREFS_FILE, JSON.stringify(this.prefs));
+  }
+
+  // ---- first-run guide --------------------------------------------------------
+
+  /** the four steps, each checked against what the source actually reports */
+  get setupSteps(): SetupStep[] {
+    const s = this.status.kind;
+    const b = this.live.body;
+    return [
+      { key: 'connect', done: this.source === 'bridge' ? s === 'live' || (s === 'sim' && this.conn.synthetic) : this.simChosen },
+      { key: 'calibrate', done: !!b && b.origin === 'body' && b.cal === 'calibrated' },
+      { key: 'sensors', done: this.sensorsChecked },
+      { key: 'record', done: this.recordedOnce },
+    ];
+  }
+  openSetup() { this.setupOpen = true; this.bump(); }
+  closeSetup(finished = false) {
+    this.setupOpen = false;
+    if (finished || !this.setupDone) { this.setupDone = true; this.savePrefs({ setupDone: true }); }
+    this.bump();
+  }
+  confirmSensors() { this.sensorsChecked = true; this.bump(); }
 
   forgetUrl(url: string) {
     this.recentUrls = this.recentUrls.filter((u) => u !== url);
@@ -416,29 +586,62 @@ class Session {
   private openBridge(url: string) {
     this.link?.stop();
     this.bridgeUrl = url;
-    this.setConn({ state: 'connecting', detail: url, hz: 0, synthetic: false, lan: null, port: null });
+    this.resetPose();
+    this.setConn({ state: 'connecting', detail: 'opening socket', hz: 0, synthetic: false, lan: null, port: null });
     this.link = connectBridge(url, {
       onFrame: (f, meta) => {
         this.bridgeFrame = f;
         this.bridgeFrameAt = Date.now();
+        this.bridgeLatencyMs = meta.latencyMs;
         if (meta.synthetic !== this.conn.synthetic || meta.lan !== this.conn.lan) this.setConn({ synthetic: meta.synthetic, lan: meta.lan, port: meta.port });
       },
+      onPose: (m) => { if (this.source === 'bridge') this.onPose(m, this.bridgeFrame); },
+      onPoseStats: (p) => { this.pose = p; },
       onMessage: (m) => { if (this.source === 'bridge') this.onMessage(m); },
       onState: (state, detail, hz) => this.setConn({ state, detail, hz }),
     });
   }
 
+  private resetPose() {
+    this.poseFrame = null; this.poseAt = 0; this.poseOff = null;
+    this.pose = { lane: 'off', hz: 0, procMs: null, ageMs: null, jitterMs: null, gaps: 0 };
+    this.bridgeLatencyMs = null;
+  }
+
+  /** one pose-lane message: laid over the newest full frame, never a React render */
+  private onPose(m: Record<string, any>, base: Frame | null) {
+    const devT = typeof m.t === 'number' ? m.t / 1000 : null;
+    let t = base?.t ?? 0;
+    if (devT !== null) {
+      // map the device clock onto the frame clock the rest of the app uses;
+      // re-anchor on a jump (a device reboot, a new socket)
+      if (this.poseOff === null || Math.abs(devT + this.poseOff - (base?.t ?? devT + this.poseOff)) > 1) this.poseOff = (base?.t ?? 0) - devT;
+      t = devT + this.poseOff;
+    }
+    const f = poseToFrame(m, base, t);
+    if (!f) return;
+    this.poseFrame = f;
+    this.poseAt = Date.now();
+  }
+
+  /** the person's own choice of the simulator (a button), as opposed to the launch default */
+  chooseSimulator() { this.simChosen = true; this.useSimulator(); }
+
   useSimulator() {
     this.link?.stop();
     this.link = null;
     this.bridgeUrl = null;
+    this.autoConnect = null;
     this.play = null;
     this.source = 'sim';
     this.bridgeFrame = null;
+    this.savePrefs({ lastSource: 'sim' });
+    this.resetPose();
     this.setConn({ state: 'idle', detail: '', hz: 0, synthetic: false, lan: null, port: null });
     this.started = Date.now();
     this.resetSourceState();
     this.sim.hello();
+    this.sim.handle({ cmd: 'stream', pose: true }, this.simT());
     this.bump();
   }
 }

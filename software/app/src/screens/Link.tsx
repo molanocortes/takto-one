@@ -8,14 +8,7 @@ import { TopRow, Title, SectionHead, STATUS_COLOR } from '../ui/Chrome';
 import { M, T, Num, Hairline, Btn, Field } from '../ui/primitives';
 import { C, S, R } from '../ui/tokens';
 import { useSession } from '../data/session';
-import { DEFAULT_PORT, normalizeBridgeUrl } from '../data/bridge';
-
-const RATES = [
-  { what: 'This app', rate: '60 Hz', note: 'what you are watching' },
-  { what: 'Bridge broadcast', rate: '60 Hz', note: 'the snapshot rate, --hz on the bridge' },
-  { what: 'Firmware stream', rate: '100 Hz', note: 'S-lines, firmware v16 (v15: 50 Hz)' },
-  { what: 'Control loop', rate: '2 kHz', note: 'on the Teensy, next to the actuator' },
-];
+import { DEFAULT_PORT, checkBridgeAddress, shortAddress } from '../data/bridge';
 
 function ago(ms: number) {
   const s = Math.round((Date.now() - ms) / 1000);
@@ -26,13 +19,38 @@ export function Link({ onMenu, onStatus }: { onMenu?: () => void; onStatus?: () 
   const session = useSession();
   // the field opens with the last address that was tried; on a phone the
   // PC's LAN address is what is needed, and localhost would be the phone
-  const [url, setUrl] = useState(session.savedUrl || (Platform.OS === 'web' ? `ws://localhost:${DEFAULT_PORT}/ws` : ''));
-  useEffect(() => { if (session.savedUrl && !url) setUrl(session.savedUrl); }, [session.savedUrl]);
+  // The field holds what a person would type ("192.168.1.20"), not the full
+  // URL: less to get wrong, and a tap selects all of it, so typing replaces it.
+  const [url, setUrl] = useState(session.savedUrl ? shortAddress(session.savedUrl) : Platform.OS === 'web' ? 'localhost' : '');
+  useEffect(() => { if (session.savedUrl && !url) setUrl(shortAddress(session.savedUrl)); }, [session.savedUrl]);
+  // the field follows the bridge actually in use (a Recent tap, the guide, a launch reconnect)
+  useEffect(() => { if (session.bridgeUrl) setUrl(shortAddress(session.bridgeUrl)); }, [session.bridgeUrl]);
   const status = session.status;
   const c = session.conn;
   const onBridge = session.source === 'bridge';
-  const preview = normalizeBridgeUrl(url);
+  const check = checkBridgeAddress(url);
+  const preview = check.url;
   const lanUrl = c.lan ? `ws://${c.lan}:${c.port ?? DEFAULT_PORT}/ws` : null;
+  const p = session.pose;
+  const dev = session.live.device;
+  const flowing = status.kind === 'live' || status.kind === 'sim' || (status.kind === 'replay' && (session.source === 'sim' || c.state === 'open'));
+  const ms = (v: number | null) => (v == null ? '–' : v < 10 ? `${v.toFixed(1)} ms` : `${Math.round(v)} ms`);
+  const rates: { what: string; rate: string; note: string }[] = session.source === 'sim' ? [
+    { what: 'Pose lane', rate: p.lane === 'on' ? `${p.hz} Hz` : '–', note: 'in-app simulator, the same path a bridge uses' },
+    { what: 'Arrival jitter', rate: ms(p.jitterMs), note: 'p95 minus median gap between pose messages' },
+    { what: 'Control loop', rate: '2 kHz', note: 'on the Teensy (design value, not measured here)' },
+  ] : [
+    { what: 'Snapshot', rate: flowing ? `${c.hz} Hz` : '–', note: 'measured here: full frames from the bridge' },
+    { what: 'Pose lane', rate: p.lane === 'on' ? `${p.hz} Hz` : p.lane === 'unsupported' ? 'n/a' : '–',
+      note: p.lane === 'on' ? `measured here${p.gaps ? ` · ${p.gaps} frames skipped last second` : ''}`
+        : p.lane === 'unsupported' ? 'this bridge has no pose lane yet: the twin draws from the snapshot'
+          : p.lane === 'asked' ? 'asked for, nothing yet' : 'not connected' },
+    { what: 'Bridge processing', rate: ms(p.procMs ?? session.bridgeLatencyMs), note: 'serial line in to pose out, bridge clock (median)' },
+    { what: 'Network + app', rate: ms(p.ageMs), note: p.ageMs == null ? 'needs the pose lane and clocks that agree' : 'bridge send to arrival here; assumes both clocks agree' },
+    { what: 'Arrival jitter', rate: ms(p.jitterMs), note: `p95 minus median gap between ${p.lane === 'on' ? 'pose messages' : 'snapshots'}, measured here` },
+    { what: 'Device stream', rate: dev?.rateHz ? `${Math.round(dev.rateHz)} Hz` : '–', note: 'S-lines, as the bridge counts them (firmware v16: 100 Hz)' },
+    { what: 'Control loop', rate: '2 kHz', note: 'on the Teensy (design value, not measured here)' },
+  ];
 
   return (
     <View style={{ flex: 1, backgroundColor: C.page }}>
@@ -55,19 +73,26 @@ export function Link({ onMenu, onStatus }: { onMenu?: () => void; onStatus?: () 
                     `Not receiving data (${c.detail || c.state}) for ${ago(c.since)}. The app keeps retrying.`}
           </T>
           {onBridge && <M size={9.5} color={C.ink2} upper={false}>{session.bridgeUrl}</M>}
-          {lanUrl && <T size={11} color={C.ink3}>The bridge reports its LAN address as {lanUrl}. Use that on the phone.</T>}
+          {lanUrl && <T size={11} color={C.ink3}>The bridge reports its LAN address as {lanUrl}. On the phone, type {c.lan}.</T>}
+          {onBridge && flowing && p.lane === 'on' ? (
+            <M size={8.5} color={C.ink2} upper={false}>{`pose lane ${p.hz} Hz · bridge ${ms(p.procMs ?? session.bridgeLatencyMs)}${p.ageMs != null ? ` · network+app ${ms(p.ageMs)}` : ''}`}</M>
+          ) : onBridge && p.lane === 'unsupported' ? (
+            <M size={8.5} color={C.ink3} upper={false}>no pose lane on this bridge: the twin draws from the {c.hz} Hz snapshot</M>
+          ) : null}
         </View>
 
         <SectionHead label="Bridge address" style={{ marginTop: 26 }} />
-        <Field value={url} onChange={setUrl} placeholder="ws://192.168.x.x:8765/ws" keyboardType="url" mono icon="link"
-          onSubmit={() => session.connect(url)} />
-        <M size={8.5} color={preview ? C.ink3 : C.red} upper={false} style={{ marginTop: 6 }}>
-          {preview ? `→ ${preview}` : url ? 'not an address' : 'e.g. 192.168.1.20: the scheme, port 8765 and /ws are filled in'}
+        <Field value={url} onChange={setUrl} placeholder="192.168.x.x" keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'url'} mono icon="link"
+          selectOnFocus clearable invalid={!!check.error} maxLength={200}
+          onSubmit={() => { if (preview) session.connect(url); }} />
+        <M size={8.5} color={check.error ? C.red : C.ink3} upper={false} style={{ marginTop: 6 }}>
+          {check.error ?? (preview ? `→ ${preview}` : `the PC's IP, e.g. 192.168.1.20: ws://, port ${DEFAULT_PORT} and /ws are filled in`)}
         </M>
         <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
-          <Btn label={onBridge ? 'Reconnect' : 'Connect'} icon="link" kind="primary" onPress={() => session.connect(url)} disabled={!preview} style={{ flex: 1 }} />
-          <Btn label="Use simulator" icon="cpu" onPress={() => session.useSimulator()} disabled={!onBridge} style={{ flex: 1 }} />
+          <Btn label={onBridge && session.bridgeUrl === preview ? 'Reconnect' : 'Connect'} icon="link" kind="primary" onPress={() => session.connect(url)} disabled={!preview} style={{ flex: 1 }} />
+          <Btn label="Use simulator" icon="cpu" onPress={() => session.chooseSimulator()} disabled={!onBridge} style={{ flex: 1 }} />
         </View>
+        <Btn label="Setup guide" icon="list" onPress={() => session.openSetup()} style={{ marginTop: 6 }} />
 
         {session.recentUrls.length > 0 && (
           <>
@@ -77,8 +102,9 @@ export function Link({ onMenu, onStatus }: { onMenu?: () => void; onStatus?: () 
                 <View key={u}>
                   {i > 0 && <Hairline />}
                   <View style={st.row}>
-                    <Pressable style={{ flex: 1 }} onPress={() => { setUrl(u); session.connect(u); }}>
-                      <M size={10.5} color={C.ink} upper={false}>{u}</M>
+                    <Pressable style={{ flex: 1, minHeight: 40, justifyContent: 'center' }} onPress={() => { setUrl(shortAddress(u)); session.connect(u); }}
+                      accessibilityRole="button" accessibilityLabel={`Connect to ${u}`}>
+                      <M size={10.5} color={C.ink} upper={false}>{shortAddress(u)}</M>
                     </Pressable>
                     {session.bridgeUrl === u && onBridge ? <M size={8.5} color={STATUS_COLOR[status.kind]}>in use</M> : null}
                     <Pressable onPress={() => session.forgetUrl(u)} hitSlop={8} accessibilityLabel={`Forget ${u}`}>
@@ -111,9 +137,9 @@ export function Link({ onMenu, onStatus }: { onMenu?: () => void; onStatus?: () 
           </T>
         </View>
 
-        <SectionHead label="Rates" style={{ marginTop: 26 }} />
+        <SectionHead label="Rates and latency" right={session.source === 'sim' ? 'simulated' : flowing ? 'measured' : undefined} style={{ marginTop: 26 }} />
         <View style={{ marginTop: 6 }}>
-          {RATES.map((r, i) => (
+          {rates.map((r, i) => (
             <View key={r.what}>
               {i > 0 && <Hairline />}
               <View style={st.row}>

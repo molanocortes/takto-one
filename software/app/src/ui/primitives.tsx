@@ -5,6 +5,13 @@ import { Feather } from '@expo/vector-icons';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { C, F, R, fontFor } from './tokens';
 
+/**
+ * System text scaling is honoured, up to a point: the labels are laid out in
+ * fixed columns, and past 1.3x a mono label wraps into its neighbour. Every
+ * text in the app goes through these primitives, so this is the one place.
+ */
+export const MAX_FONT_SCALE = 1.3;
+
 type TW = TextStyle['fontWeight'];
 
 /** Words and numerals, in Inter. */
@@ -13,7 +20,7 @@ export function T({ children, size = 14, weight = '400', color = C.ink, style, t
   tracking?: number; lineHeight?: number; numberOfLines?: number;
 }) {
   return (
-    <Text numberOfLines={numberOfLines} style={[{
+    <Text numberOfLines={numberOfLines} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[{
       fontFamily: fontFor(weight), fontSize: size, color, letterSpacing: tracking,
       lineHeight: lineHeight ?? Math.round(size * 1.25),
     }, style]}>{children}</Text>
@@ -26,7 +33,7 @@ export function M({ children, size = 11, color = C.ink2, style, tracking, weight
   tracking?: number; weight?: '400' | '500'; upper?: boolean;
 }) {
   return (
-    <Text style={[{
+    <Text maxFontSizeMultiplier={MAX_FONT_SCALE} style={[{
       fontFamily: weight === '500' ? F.monoMed : F.mono, fontSize: size, color,
       letterSpacing: tracking ?? size * 0.12, lineHeight: Math.round(size * 1.3),
       textTransform: upper ? 'uppercase' : 'none',
@@ -123,27 +130,38 @@ export function Pill({ children, color = C.ink2, bg = C.tile }: { children: Reac
   );
 }
 
-/** A labelled text field. */
-export function Field({ label, value, onChange, placeholder, keyboardType, onSubmit, mono, icon }: {
+/**
+ * A labelled text field. `selectOnFocus` selects everything on a tap, so
+ * typing REPLACES a pre-filled value instead of splicing into it; `clearable`
+ * adds an x that empties the field.
+ */
+export function Field({ label, value, onChange, placeholder, keyboardType, onSubmit, mono, icon, selectOnFocus, clearable, invalid, onFocus, maxLength }: {
   label?: string; value: string; onChange: (v: string) => void; placeholder?: string;
   keyboardType?: KeyboardTypeOptions; onSubmit?: () => void; mono?: boolean; icon?: keyof typeof Feather.glyphMap;
+  selectOnFocus?: boolean; clearable?: boolean; invalid?: boolean; onFocus?: () => void; maxLength?: number;
 }) {
   return (
     <View style={{ marginTop: 10 }}>
       {label ? <M size={8.5} color={C.ink2} style={{ marginBottom: 6 }}>{label}</M> : null}
-      <View style={fieldSt.row}>
+      <View style={[fieldSt.row, invalid && { borderColor: C.red }]}>
         {icon ? <Feather name={icon} size={14} color={C.ink3} /> : null}
-        <TextInput value={value} onChangeText={onChange} autoCapitalize="none" autoCorrect={false}
+        <TextInput value={value} onChangeText={onChange} autoCapitalize="none" autoCorrect={false} spellCheck={false}
           keyboardType={keyboardType} returnKeyType={onSubmit ? 'go' : 'done'} onSubmitEditing={onSubmit}
-          placeholder={placeholder} placeholderTextColor={C.ink3}
+          placeholder={placeholder} placeholderTextColor={C.ink3} selectTextOnFocus={selectOnFocus} onFocus={onFocus}
+          maxLength={maxLength} maxFontSizeMultiplier={MAX_FONT_SCALE} accessibilityLabel={label ?? placeholder}
           style={[fieldSt.input, { fontFamily: mono ? F.mono : F.ui }]} />
+        {clearable && value ? (
+          <Pressable onPress={() => onChange('')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Clear">
+            <Feather name="x-circle" size={15} color={C.ink3} />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
 }
 const fieldSt = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.tile, borderRadius: R.r2, borderWidth: 1, borderColor: C.tileLine, paddingHorizontal: 12, height: 42 },
-  input: { flex: 1, fontSize: 13, color: C.ink, minWidth: 0 },
+  input: { flex: 1, fontSize: 13, color: C.ink, minWidth: 0, height: '100%', paddingVertical: 0 },
 });
 
 /** A thin progress bar, 0..1. */

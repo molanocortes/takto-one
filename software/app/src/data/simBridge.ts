@@ -9,7 +9,7 @@
 // from the source, never from anything this file says. Takes recorded here
 // are synthetic, live in memory, and are gone when the app closes.
 import { FINGERS } from '../ui/tokens';
-import type { DeviceInfo, Frame, LibTake, RecInfo, SdTake } from './types';
+import type { DeviceInfo, Frame, LibTake, RecInfo, SdTake, TakeQuality } from './types';
 import { simFrame } from './sim';
 
 type Msg = Record<string, any>;
@@ -53,6 +53,20 @@ function synthRows(fromT: number, toT: number, cal: number) {
   return rows;
 }
 
+const PROVENANCE = { fw: 16, boot_id: 4711, bridge_version: 'in-app simulator' };
+
+/** the take's quality block, measured from the synthetic rows themselves */
+function qualityOf(rows: (number | null)[][], kind: string, ageS: number): TakeQuality {
+  let maxGap = 0;
+  for (let i = 1; i < rows.length; i++) maxGap = Math.max(maxGap, Number(rows[i][0]) - Number(rows[i - 1][0]));
+  const span = rows.length > 1 ? (Number(rows[rows.length - 1][0]) - Number(rows[0][0])) / 1000 : 0;
+  return {
+    frames: rows.length, rate_hz: span > 0 ? Math.round((rows.length - 1) / span) : RATE_HZ, dropped: 0, max_gap_ms: maxGap,
+    imu_live_pct: { hand: 100, forearm: 100 }, enc_live: Array.from({ length: 12 }, (_, i) => i),
+    neutral: { kind, age_s: ageS }, pos_source_pct: { arm: 100 },
+  };
+}
+
 type Neutral = { phase: 'countdown' | 'hold'; left: number } | null;
 
 export class SimBridge {
@@ -75,7 +89,37 @@ export class SimBridge {
   private sdBusy = false;
   private autoRecord = true;
 
-  constructor(emit: (m: Msg) => void) { this.emit = emit; }
+  private clock: () => number;
+  private poseTimer: ReturnType<typeof setInterval> | null = null;
+  private seq = 0;
+
+  /** `clock` is the feed time in seconds, the same one frame(t) is sampled at */
+  constructor(emit: (m: Msg) => void, clock: () => number) { this.emit = emit; this.clock = clock; }
+
+  /**
+   * The fast pose lane, as the bridge sends it (MOTION_PIPELINE.md section 8):
+   * one compact message per device frame at 100 Hz. Built from the same
+   * synthetic frame, so it exercises the app's pose path end to end.
+   */
+  private startPose() {
+    if (this.poseTimer) return;
+    this.poseTimer = setInterval(() => {
+      const t = this.clock();
+      const f = this.frame(t);
+      const b = f.body!;
+      const now = Date.now();
+      const r4v = (a: number[]) => a.map(r4);
+      this.emit({
+        kind: 'pose', t: Math.round(t * 1000), us: Math.round(t * 1e6) % 4294967296, seq: this.seq++, rx: now, tx: now,
+        cal: b.cal === 'calibrated' ? 2 : b.cal === 'provisional' ? 1 : 0, live: b.live,
+        e: r4v(b.elbow), w: r4v(b.wrist), h: r4v(b.hand), fq: r4v(b.forearmQuat), hq: r4v(b.handQuat),
+        wd: b.wristDeg ? [r2(b.wristDeg.flex), r2(b.wristDeg.dev), r2(b.wristDeg.pro)] : [0, 0, 0],
+        j: FINGERS.flatMap((k) => [r2(f.joints[k].ab), r2(f.joints[k].mcp), r2(f.joints[k].pip)]),
+        tq: null,
+      });
+    }, 10);
+  }
+  stopPose() { if (this.poseTimer) clearInterval(this.poseTimer); this.poseTimer = null; }
 
   /** the library sync a bridge sends to every client on join */
   hello() {
@@ -87,7 +131,7 @@ export class SimBridge {
   private ack(m: Msg) { this.emit({ kind: 'ack', ...m }); }
   private later(ms: number, fn: () => void) { this.timers.push(setTimeout(fn, ms)); }
 
-  dispose() { for (const t of this.timers) clearTimeout(t); this.timers = []; }
+  dispose() { for (const t of this.timers) clearTimeout(t); this.timers = []; this.stopPose(); }
 
   /** simFrame(t) plus the state a bridge would add: calibration, SD, recording */
   frame(t: number): Frame {
@@ -102,8 +146,9 @@ export class SimBridge {
     const device: DeviceInfo = {
       fw: 16, bootId: 4711, sdPresent: true, sdRecording: !!this.rec,
       sdTake: this.rec?.sdTake ?? 0, sdRows: this.rec ? Math.max(0, Math.floor(recS * 100)) : 0,
-      standby: false, autoRecord: this.autoRecord, neutralRunning: !!this.neutral,
+      standby: false, autoRecord: this.autoRecord, neutralRunning: !!this.neutral, rateHz: 100,
     };
+    f.imu = { hand: true, forearm: true, thumb: null };
     const rec: RecInfo = {
       recording: !!this.rec, id: this.rec?.id ?? null, task: this.rec?.task ?? null, profile: this.rec?.profile ?? null,
       elapsedMs: Math.max(0, Math.round(recS * 1000)), samples: Math.max(0, Math.floor(recS * RATE_HZ)),
@@ -116,6 +161,7 @@ export class SimBridge {
   /** one command, exactly as it would go up the socket; `t` is the feed clock */
   handle(cmd: Msg, t: number) {
     const name = cmd?.cmd;
+    if (name === 'stream') { if (cmd.pose) this.startPose(); else this.stopPose(); return; }
     if (name === 'calibrate') {
       if (cmd.what !== 'neutral') { this.ack({ event: 'error', error: 'unknown calibration' }); return; }
       if (this.neutral) return;
@@ -157,7 +203,8 @@ export class SimBridge {
         this.takes.unshift({
           id: r.id, profile: r.profile, task: r.task, notes: r.notes || undefined,
           created_ms: r.startWall, duration_s: Math.round(dur * 10) / 10, samples: rows.length,
-          quality: 'good', has_data: true, joint_source: 'sim',
+          quality: qualityOf(rows, this.cal === 'calibrated' ? 'calibrated' : 'provisional', Math.round((Date.now() - (this.neutralWall ?? this.bootWall)) / 1000)),
+          provenance: PROVENANCE, has_data: true, joint_source: 'sim',
         });
         // the card keeps the archival copy, already paired with this take
         this.sd.push({ name: `TK${String(r.sdTake).padStart(5, '0')}.CSV`, bytes: rows.length * 1100, imported_take: r.id });
@@ -192,7 +239,8 @@ export class SimBridge {
           this.data.set(id, { id, cols: SIM_COLS, rows, joint_source: 'sim' });
           this.takes.unshift({
             id, profile: 'Standalone', task: `SD ${item.name}`, created_ms: Date.now(),
-            duration_s: dur, samples: rows.length, quality: 'good', has_data: true, joint_source: 'sim', source: 'sd',
+            duration_s: dur, samples: rows.length, quality: qualityOf(rows, 'calibrated', 0), provenance: PROVENANCE,
+            has_data: true, joint_source: 'sim', source: 'sd',
           });
           item.imported_take = id;
           this.sdBusy = false;
