@@ -260,7 +260,7 @@ private:
     if (kind == 1) {
       if (p < 0.6f) {                               // 3-2-1: the gold ring closes
         uiRingArc(p / 0.6f, P.gold, P.goldDim, P.gold, 1.5f);
-        char buf[4]; snprintf(buf, sizeof buf, "%d", 3 - (int)(p / 0.2f));
+        char buf[12]; snprintf(buf, sizeof buf, "%d", 3 - (int)(p / 0.2f));
         wgfx::aaText(&FreeSansBold24pt7b, buf, wgfx::SCX, wgfx::SCY - 10, P.text);
         wgfx::aaText(&FreeSans9pt7b, "palm down", wgfx::SCX, wgfx::SCY + 26, P.dim);
       } else {                                      // the hold: the sapphire ring fills

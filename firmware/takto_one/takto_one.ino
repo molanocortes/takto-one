@@ -1941,7 +1941,7 @@ void recStartTake(bool fromDevice) {
   if (!recFile.preAllocate(REC_PREALLOC_BYTES))
     Serial.println(F("# take: no contiguous space to preallocate - writing unallocated"));
   recTake = recSeq++;
-  strncpy(recPath, name, sizeof(recPath) - 1);
+  snprintf(recPath, sizeof(recPath), "%s", name);
   recFromDevice = fromDevice;
   recStart = millis(); recRows = 0;
   recFile.print("# takto take v1\n");
