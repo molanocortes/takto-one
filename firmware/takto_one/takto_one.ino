@@ -2926,8 +2926,13 @@ void setup() {
   // long paints yield to due frames AND keep the IMUs drained (both are safe
   // mid-paint: neither touches the framebuffer; the IMU poll is rate-limited)
   // [2026-09-30] the servo tick rides the paint too: a 20 ms repaint used to
-  // hold the 2 kHz control loop off for its whole length
-  wgfx::rowHook = []() { motorService(); frameTick(); imuService(); };
+  // hold the 2 kHz control loop off for its whole length. The IMUs do NOT:
+  // draining them is ~57 % of the CPU (blocking ~1.3 ms I2C packets), and
+  // doing it from inside a paint stretched every paint to 1.6-4 s and the
+  // loop to 13 passes/s - long enough for host motor commands to sit unread
+  // and trip the 600 ms watchdog. A ~25 ms paint lets at most three 10 ms
+  // reports queue in the BNO085, which the loop then drains.
+  wgfx::rowHook = []() { motorService(); frameTick(); };
   watchLoad();                                    // the face chosen last session
   FB = cv.getBuffer();
   memset(FB, 0, 240 * 240 * 2);
