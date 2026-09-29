@@ -1,12 +1,12 @@
 # Firmware
 
-`takto_one/` is the unified Teensy 4.1 firmware. The checked-in sketch reports firmware version 16 and includes:
+`takto_one/` is the unified Teensy 4.1 firmware. The checked-in sketch reports firmware version 18 and includes:
 
 - Up to 14 AS5600 channels through two TCA9548A multiplexers
 - BNO085 support across the configured I²C buses
 - EMG-envelope input, SD recording, crown/button/piezo input, and a GC9A01A display
 - A production TAKTO watch face
-- 100 Hz motion frames with on-device preintegrated IMU velocity (see [`../software/MOTION_PIPELINE.md`](../software/MOTION_PIPELINE.md))
+- 100 Hz motion frames (preemptive: a watch repaint never delays a frame; p99 spacing 13 ms while recording to SD), microsecond timing and quaternion age per frame, on-device preintegrated IMU velocity (see [`../software/MOTION_PIPELINE.md`](../software/MOTION_PIPELINE.md))
 - Standalone recording to the SD card, a neutral-pose calibration, and a sound for every key moment
 - Two-motor Dynamixel Protocol 2.0 support through a 74HC241 on `Serial1`
 - Torque-off startup, bus fault accounting, communication watchdogs, and bounded control modes
@@ -46,8 +46,10 @@ extended**. The screen counts 3-2-1 (one beep per second) and then asks you to h
 for 2 s; moving restarts the hold, and after 7 s without a still window the capture is
 abandoned rather than calibrating a moving arm.
 
-Takes are written to `/TAKES/TKnnnnn.CSV` (format in `MOTION_PIPELINE.md` section 6). The
-bridge lists and imports them over USB, so the card never has to leave the device.
+Takes are written to `/TAKES/TKnnnnn.CSV` (format in `MOTION_PIPELINE.md` section 6),
+preallocated and written in sector slices between frames. The bridge lists and imports them
+over USB in CRC-checked chunks, so the card never has to leave the device. A card formatted
+with 32 KB clusters writes faster than one with tiny clusters (e.g. a printer's card).
 `F,auto,0` over serial turns standalone auto-record off (stored in EEPROM).
 
 ### Sounds

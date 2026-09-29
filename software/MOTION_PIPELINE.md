@@ -170,6 +170,7 @@ Existing `E,nav/press/screen/home/cal/watch` lines are unchanged.
 | `N` | start a neutral capture (countdown, beeps, `E,neutral,...`) |
 | `F,list` | device replies `F,item,<name>,<bytes>` per take, then `F,end,<count>` |
 | `F,get,<name>` | device pauses the S stream, replies `F,begin,<name>,<bytes>`, one `F,d,<line>` per file line, then `F,done,<name>,<bytes>,<crc32hex>` (CRC-32/IEEE over the file bytes including newlines); on error `F,err,<reason>` |
+| `F,get,<path>,<offset>,<max>` | **firmware v18+**: one verifiable chunk: `F,begin,<path>,<filesize>`, whole `F,d,<line>` lines from `<offset>`, then `F,chunk,<path>,<offset>,<end>,<crc32 of offset..end>`. The bridge requests 32 KB chunks, re-requests a damaged one, and checks the whole file with `F,crc,<path>` -> `F,crc,<path>,<size>,<crc32>`. (macOS's USB-serial driver drops bytes when a reader falls behind a multi-MB burst; the single-burst form lost 36-75 % of a 6 MB take on the bench.) |
 | `F,auto,<0or1>` | auto-record when standalone on/off (persisted); device replies `F,auto,<0or1>` |
 | `Q` | mute/unmute the buzzer (bench work) |
 
