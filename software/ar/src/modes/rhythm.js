@@ -577,7 +577,8 @@ export class Rhythm extends Mode {
 
     // ---- desktop hand: waits at the strike zone, meets the notes -----------
     if (!this.ctx.world.renderer.xr.isPresenting) {
-      this._tmp.copy(ZONE).add(ANCHOR).add(new THREE.Vector3(0, 0.10, 0.04));
+      this._tmp.copy(ZONE).add(ANCHOR);
+      this._tmp.y += 0.10; this._tmp.z += 0.04;
       this.ctx.hand.moveTo(this._tmp, 3);
     }
   }

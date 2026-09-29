@@ -72,6 +72,16 @@ export class World {
     this.isXR = false;
     this._deskStandIn = null;
     this._camDrift = { t: 0 };
+    // THE STAGE (ui/stage.js): where the canonical layout sits in the room.
+    // XR: an offset reference space off local-floor. Desktop: the simulated
+    // head and the stand-in room are carried by its inverse, which is exactly
+    // what the offset space does to the headset's poses.
+    this.stage = { yaw: 0, pos: [0, 0, 0] };
+    this._stageInv = new THREE.Matrix4();
+    this._m = new THREE.Matrix4();
+    this._baseRef = null;              // local-floor as granted (XR only)
+    // desktop head simulation (verification of recenter): turn + stand up
+    this.simHead = { yaw: 0, stand: 0 };
     this._buildDesktopStandIn();
     this._setDesktopCamera();
 
@@ -169,7 +179,47 @@ export class World {
     g.add(desk);
 
     this._deskStandIn = g;
+    g.matrixAutoUpdate = false;        // placed by the stage inverse (setStage)
     this.scene.add(g);
+  }
+
+  /** The stand-in desk top as a horizontal plane in ROOM (base) coordinates,
+   *  for the desktop recenter (the headset reports real planes instead). */
+  get simTablePlane() {
+    return { y: DESK_Y, label: "table",
+             poly: [[-0.95, -1.075], [0.95, -1.075], [0.95, 0.075], [-0.95, 0.075]] };
+  }
+
+  /** Apply a stage {yaw, pos} (canonical -> local-floor). */
+  setStage(stage) {
+    this.stage = { yaw: stage.yaw, pos: stage.pos.slice() };
+    this._stageInv.makeRotationY(stage.yaw).setPosition(stage.pos[0], stage.pos[1], stage.pos[2]).invert();
+    if (this._deskStandIn) this._deskStandIn.matrix.copy(this._stageInv);
+    if (this._baseRef && this.renderer.xr.isPresenting && typeof XRRigidTransform !== "undefined") {
+      const h = stage.yaw / 2;
+      const t = new XRRigidTransform({ x: stage.pos[0], y: stage.pos[1], z: stage.pos[2] },
+                                     { x: 0, y: Math.sin(h), z: 0, w: Math.cos(h) });
+      this.renderer.xr.setReferenceSpace(this._baseRef.getOffsetReferenceSpace(t));
+    }
+  }
+
+  /** local-floor as granted by the session (poses read here are in ROOM
+   *  coordinates, before the stage). Null off-XR. */
+  get baseRef() { return this._baseRef; }
+
+  // desktop: the simulated head pose in ROOM coordinates -> the camera in the
+  // canonical frame (carried by the stage inverse, like the XR offset space)
+  _placeDesktopCamera(px, py, pz, lx, ly, lz) {
+    const sh = this.simHead;
+    const hy = py + sh.stand * 0.50;
+    // look direction turned by the simulated head yaw about the head
+    const dx = lx - px, dz = lz - pz;
+    const c = Math.cos(sh.yaw), s = Math.sin(sh.yaw);
+    this.camera.position.set(px, hy, pz);
+    this.camera.lookAt(px + c * dx + s * dz, ly + sh.stand * 0.35, pz - s * dx + c * dz);
+    this.camera.updateMatrix();
+    this._m.multiplyMatrices(this._stageInv, this.camera.matrix);
+    this._m.decompose(this.camera.position, this.camera.quaternion, this.camera.scale);
   }
 
   // procedural walnut: quiet horizontal grain, low contrast (seeded)
@@ -203,8 +253,7 @@ export class World {
 
   _setDesktopCamera() {
     // a seated view over the desk, slightly above and back, gazing at the anchor
-    this.camera.position.set(0, DESK_Y + 0.36, 0.14 + this._aspectBack);
-    this.camera.lookAt(0, DESK_Y + 0.13, -0.55);
+    this._placeDesktopCamera(0, DESK_Y + 0.36, 0.14 + this._aspectBack, 0, DESK_Y + 0.13, -0.55);
   }
 
   // slow drift so preview stills have life and parallax can be judged
@@ -213,9 +262,8 @@ export class World {
     const d = this._camDrift; d.t += dt;
     const sway = Math.sin(d.t * 0.11) * 0.03;
     const bob = Math.sin(d.t * 0.16 + 1.2) * 0.010;
-    this.camera.position.set(sway * 1.4, DESK_Y + 0.36 + bob,
-      0.14 + this._aspectBack + Math.sin(d.t * 0.07) * 0.02);
-    this.camera.lookAt(sway * 0.3, DESK_Y + 0.13, -0.55);
+    this._placeDesktopCamera(sway * 1.4, DESK_Y + 0.36 + bob,
+      0.14 + this._aspectBack + Math.sin(d.t * 0.07) * 0.02, sway * 0.3, DESK_Y + 0.13, -0.55);
   }
 
   // RHYTHM streaks brighten the whole room; eases back on its own
@@ -233,9 +281,22 @@ export class World {
     this.renderer.xr.setFramebufferScaleFactor(0.9);
     this.renderer.xr.setReferenceSpaceType("local-floor");
     await this.renderer.xr.setSession(session);
+    // the granted local-floor, kept as the base every stage is offset from
+    this._baseRef = this.renderer.xr.getReferenceSpace();
+    // comfort: hold the Quest 3S at 72 Hz (headroom) rather than letting the
+    // browser pick 90/120 Hz; fixed foveation is already at maximum (1)
+    try {
+      const rates = session.supportedFrameRates;
+      if (rates && typeof session.updateTargetFrameRate === "function" &&
+          Array.prototype.indexOf.call(rates, 72) >= 0) {
+        session.updateTargetFrameRate(72).catch(() => {});
+      }
+    } catch (_) { /* optional API */ }
+    this.setStage(this.stage);
   }
   exitXR() {
     this.isXR = false;
+    this._baseRef = null;
     if (this._deskStandIn) this._deskStandIn.visible = true;
     this._setDesktopCamera();
   }

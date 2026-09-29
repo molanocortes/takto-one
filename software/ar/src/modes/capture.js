@@ -287,7 +287,9 @@ export class Capture extends Mode {
   _bindTyping() {
     addEventListener("keydown", (ev) => {
       if (!this.active || this._state !== "choose") return;
-      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      // Shift+letter is left to the global shortcuts (main.js: Shift+R
+      // recenter, Shift+T take, ...), so they work from this console too
+      if (ev.metaKey || ev.ctrlKey || ev.altKey || ev.shiftKey) return;
       if (ev.key === "Backspace") { this._label = this._label.slice(0, -1); ev.stopImmediatePropagation(); }
       else if (ev.key.length === 1 && this._label.length < 14 &&
                (/[a-zA-Z]/.test(ev.key) || (this._label.length > 0 && /[0-9 _-]/.test(ev.key)))) {
@@ -396,7 +398,7 @@ export class Capture extends Mode {
       }
       if (snap.hand && snap.hand.quat) {
         const q = snap.hand.quat;
-        const cur = new THREE.Quaternion(q[1], q[2], q[3], q[0]);
+        const cur = (this._qCur || (this._qCur = new THREE.Quaternion())).set(q[1], q[2], q[3], q[0]);
         const d = 1 - Math.min(1, Math.abs(cur.dot(this._imuPrev)));
         this._imuPrev.copy(cur);
         const spike = clamp(1 - d * 900, 0, 1);
@@ -610,7 +612,8 @@ export class Capture extends Mode {
     // ---- desktop hand: rests near the ring, reaches with the operator ------
     if (!this.ctx.world.renderer.xr.isPresenting) {
       if (recording) {
-        this._tmp.copy(RING_C).add(ANCHOR).add(new THREE.Vector3(0, 0.09, 0.10));
+        this._tmp.copy(RING_C).add(ANCHOR);
+        this._tmp.y += 0.09; this._tmp.z += 0.10;
         this.ctx.hand.moveTo(this._tmp, 2.5);
       } else this.ctx.hand.rest();
     }
@@ -619,6 +622,14 @@ export class Capture extends Mode {
     this._motes.update(t);
     this._base.material.opacity = 0.18 + 0.06 * this._breath.at(t) + (this._lapBoost || 0);
   }
+
+  // ---- the dock's record button (ui/dock.js via main.js) --------------------
+  get isRecording() { return this._state === "recording"; }
+  get busy() { return this._state === "count" || this._state === "seal" || this._state === "scan"; }
+  /** Start a take exactly like reaching "begin" (3-2-1, then record). */
+  startTake() { if (this._state === "choose") this.onSelect(this._begin); }
+  /** Stop the running take exactly like reaching "finish". */
+  stopTake() { if (this._state === "recording") this._seal(); }
 
   _seal() {
     this.ctx.tele.send({ cmd: "record", action: "stop" });

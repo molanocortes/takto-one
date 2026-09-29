@@ -236,7 +236,22 @@ export class Replay extends Mode {
     }
   }
 
+  /** The dock's "next take" (and a public handle for scripted checks). */
+  nextTake() { this._pick(this._sel + 1); }
+  get loaded() { return !!this._track; }
+
+  /** The stage was recentered (ui/stage.js): a take placed against the ROOM
+   *  (an anchored env) must be re-placed in the new canonical frame; body and
+   *  desk-recentred placements ride with the stage and need nothing. */
+  onStageChange() {
+    if (!this._payload || !this._placement || this._placement.indexOf("anchored") !== 0) return;
+    const t = this._t, playing = this._playing;
+    this._ingest(this._payload);
+    this._t = t; this._playing = playing;
+  }
+
   _ingest(payload) {
+    this._payload = payload;
     const parsed = parseTake(payload);
     if (!parsed) { this._status = "take has no usable rows"; return; }
     const hand = this.ctx.hand;
@@ -410,7 +425,8 @@ export class Replay extends Mode {
         const q = inRoom ? s.segQuat : qmul(this._qM, s.segQuat);
         this._q.set(q[1], q[2], q[3], q[0]);
         // the CAD palm origin sits ~2 cm distal of the wrist pivot
-        this._tmp.set(0, 0, 0.02).applyQuaternion(this._q).add(new THREE.Vector3(p[0], p[1], p[2]));
+        this._tmp.set(0, 0, 0.02).applyQuaternion(this._q);
+        this._tmp.x += p[0]; this._tmp.y += p[1]; this._tmp.z += p[2];
         this._hand.group.visible = true;
         this._hand.pose(this._tmp.multiplyScalar(TWIN_PRESENT), this._q, s.joints,
                         0.2 + 0.2 * bb, dt, null);

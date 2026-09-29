@@ -136,6 +136,15 @@ export class BodyAnchor {
   /** Forget the placement (a new XR session has a new local-floor). */
   reset() { this.yaw = 0; this.t = [0, 0, 0]; this.source = "none"; this.visionAt = -Infinity; }
 
+  /** The room frame moved under the anchor (a stage recenter, ui/stage.js):
+   *  carry the placement by a yaw dYaw about +Y plus a translation d, i.e.
+   *  p_new = Ry(dYaw) * p_old + d. The body stays where it physically is. */
+  applyYawTranslate(dYaw, d) {
+    if (!this.valid) return;
+    this.t = vadd(qrot(yawQuat(dYaw), this.t), d);
+    this.yaw = wrapPi(this.yaw + dYaw);
+  }
+
   /** Seed a default when vision never saw the hand: the right shoulder below
    *  and to the right of the head, body forward = where the head faces.
    *  headPos [x,y,z], headFwd horizontal-ish forward [x,y,z]. */

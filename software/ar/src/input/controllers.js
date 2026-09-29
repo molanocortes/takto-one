@@ -78,6 +78,15 @@ export class ControllerInput {
       }
     }
     this._lastSrc = src;
+    // A / X (xr-standard button 4) on EITHER controller: the recenter button
+    // (held, main.js). It is a UI button, not test telemetry, so it does not
+    // wake the overlay below.
+    this.recenterDown = false;
+    for (const g of this._grips) {
+      const s = g.userData.src;
+      const b4 = s && s.gamepad && s.gamepad.buttons && s.gamepad.buttons[4];
+      if (b4 && b4.pressed) this.recenterDown = true;
+    }
     if (!src) {
       this.active = false;
       this.tracked = false;
@@ -91,7 +100,11 @@ export class ControllerInput {
     const sq = btn(1);                         // 1 = squeeze
     const ax = Math.abs((gp.axes && gp.axes[2]) || 0) + Math.abs((gp.axes && gp.axes[3]) || 0);
     let pressedAny = false;
-    if (gp.buttons) for (const b of gp.buttons) if (b && b.pressed) { pressedAny = true; break; }
+    // trigger / squeeze / touchpad / stick click only: A/B (4/5) are UI buttons
+    if (gp.buttons) for (let i = 0; i < Math.min(4, gp.buttons.length); i++) {
+      const b = gp.buttons[i];
+      if (b && b.pressed) { pressedAny = true; break; }
+    }
 
     if (trig > 0.02 || sq > 0.02 || ax > 0.06 || pressedAny) this._idle = 0;
     else this._idle += dt;

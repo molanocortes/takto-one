@@ -68,6 +68,12 @@
   #simbadge.show { display:block; }
   #simbadge.sim { color:#1a1206; background:rgba(231,180,90,0.94); }
   #simbadge.off { color:#EAF4FF; background:rgba(244,119,106,0.88); }
+  /* desktop keyboard help (? toggles) */
+  #keys { position:fixed; left:16px; bottom:16px; z-index:12; display:none; max-width:calc(100% - 32px);
+    box-sizing:border-box; padding:12px 16px; border-radius:14px; color:#EAF4FF;
+    background:rgba(6,10,16,0.86); font:500 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #keys.show { display:block; }
+  #keys b { color:#66B8FF; font-weight:700; }
   /* AR possible on this device class but blocked (insecure origin): amber, tappable for why */
   #xr.blocked { border-color:rgba(212,164,88,0.55); box-shadow:0 0 18px rgba(212,164,88,0.18);
     background:radial-gradient(circle at 50% 50%, rgba(212,164,88,0.16), rgba(6,10,16,0.1)); }
@@ -79,6 +85,10 @@
 <div id="veil"><div class="ring"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="18" width="4" height="10" rx="2" fill="#2F5B86"/><rect x="8" y="12" width="4" height="16" rx="2" fill="#2F5B86"/><rect x="14" y="4" width="4" height="24" rx="2" fill="#2F5B86"/><rect x="20" y="8" width="4" height="20" rx="2" fill="#66B8FF"/><rect x="26" y="20" width="4" height="8" rx="2" fill="#2F5B86"/></svg></div><div class="word">begin</div></div>
 <div id="xr" title="passthrough"></div>
 <div id="simbadge"></div>
+<div id="keys"><b>1-6</b> hub · capture · rhythm · touch · twin · replay &nbsp;<b>Esc</b> hub<br>
+<b>C</b> calibrate &nbsp;<b>T</b> record / stop &nbsp;<b>P</b> replay / next take &nbsp;<b>R</b> recenter &nbsp;<b>H</b> hub<br>
+<b>G</b> first-run guide &nbsp;<b>[ ]</b> turn head 30° &nbsp;<b>U</b> stand / sit (head sim) &nbsp;<b>?</b> this help<br>
+In the capture console letters name the take: hold <b>Shift</b> for the shortcuts.</div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

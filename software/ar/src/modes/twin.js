@@ -93,17 +93,17 @@ export class Twin extends Mode {
     // motor position no longer equals joint position). No sea frame -> the
     // panel says nothing (the host already drops stale sea state).
     this._seaHead = makeCounter({ px: 34, size: 0.22, color: "rgba(150,232,220,0.95)" });
-    this._seaHead.spr.position.set(-0.34, 0.315, 0.16);
+    this._seaHead.spr.position.set(0.34, 0.315, 0.16);   // right side: the action dock owns the left
     g.add(this._seaHead.spr);
     this._seaRows = [];
     for (let i = 0; i < 2; i++) {
       const row = makeCounter({ px: 27, size: 0.30, color: "rgba(196,216,236,0.92)" });
-      row.spr.position.set(-0.34, 0.255 - i * 0.055, 0.16);
+      row.spr.position.set(0.34, 0.255 - i * 0.055, 0.16);
       g.add(row.spr);
       this._seaRows.push(row);
     }
     this._seaFlags = makeCounter({ px: 27, size: 0.26, color: "rgba(231,180,90,0.95)" });
-    this._seaFlags.spr.position.set(-0.34, 0.145, 0.16);
+    this._seaFlags.spr.position.set(0.34, 0.145, 0.16);
     g.add(this._seaFlags.spr);
 
     this._motes = new MoteField({

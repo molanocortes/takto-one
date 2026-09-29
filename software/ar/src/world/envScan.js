@@ -53,7 +53,7 @@
 import { SceneObjectRegistry, harvestSceneObjects, resetSceneObjectIds }
   from "./sceneObjects.js";
 import { RoomAnchor, tagAnchorEnv, latestEnvAnchor, invertRigid, applyToPoint,
-         quatFromMatrix, IDENTITY4 } from "./roomAnchor.js";
+         quatFromMatrix, IDENTITY4, mul4 } from "./roomAnchor.js";
 
 const ENV_TRI_BUDGET = 90000;    // stay under the bridge's 120k cap with margin
 const POSE_PERIOD_MS = 33;       // ~30 Hz wrist stream
@@ -177,14 +177,47 @@ export function roomFromEnv(envId) {
   if (!envId) return null;
   if (envId === _envId && !_envFromRoom) return IDENTITY4;
   if (envId === _reloc.envId && _reloc.state === "restored" && _reloc.relocated) return _reloc.relocated;
+  // a room scanned THIS session, after a recenter moved the stage
+  if (envId === _envId && _envFromRoom) return invertRigid(_envFromRoom);
   return null;
+}
+
+/**
+ * The stage moved (ui/stage.js recenter): everything this module caches in
+ * canonical (stage) coordinates is carried to the new frame, so the room
+ * stays where it physically is. newFromOld maps old canonical coordinates to
+ * new ones (p_new = newFromOld * p_old), oldFromNew is its inverse.
+ *   - the labelled scene objects (contacts read them every frame)
+ *   - a room scanned this session: its env frame is the OLD canonical frame,
+ *     so poses streamed from now on are carried back into it
+ * A relocated room needs nothing: its anchor pose is re-read in the new frame
+ * every XR frame. A scan in flight is refused by the caller (main.js).
+ */
+export function applyStageDelta(newFromOld, oldFromNew) {
+  const qn = quatFromMatrix(newFromOld);
+  for (const o of _objects.all()) {
+    if (Array.isArray(o.pos)) o.pos = applyToPoint(newFromOld, o.pos);
+    if (Array.isArray(o.quat) && o.quat.length === 4) {
+      const q = o.quat;
+      o.quat = [
+        qn[0] * q[0] - qn[1] * q[1] - qn[2] * q[2] - qn[3] * q[3],
+        qn[0] * q[1] + qn[1] * q[0] + qn[2] * q[3] - qn[3] * q[2],
+        qn[0] * q[2] - qn[1] * q[3] + qn[2] * q[0] + qn[3] * q[1],
+        qn[0] * q[3] + qn[1] * q[2] - qn[2] * q[1] + qn[3] * q[0],
+      ];
+    }
+  }
+  _objects.gen++;
+  if (_envId && _envId !== _reloc.envId) {
+    _envFromRoom = mul4(_envFromRoom || IDENTITY4, oldFromNew);
+  }
 }
 
 /** The bridge's `world` block in today's room frame (undoes the env frame our
  *  poses were streamed in). Returns the same object when no transform applies. */
 export function worldToRoom(world) {
-  if (!world || !_reloc.relocated || !_envFromRoom || !Array.isArray(world.pos_m) || !Array.isArray(world.quat)) return world;
-  const m = _reloc.relocated;
+  if (!world || !_envFromRoom || !Array.isArray(world.pos_m) || !Array.isArray(world.quat)) return world;
+  const m = (_reloc.relocated && _envId === _reloc.envId) ? _reloc.relocated : invertRigid(_envFromRoom);
   const qm = quatFromMatrix(m), q = world.quat;
   return Object.assign({}, world, {
     pos_m: applyToPoint(m, world.pos_m),
@@ -334,7 +367,7 @@ export function envDiag() {
     relocState: _reloc.state,
     relocReason: _reloc.reason,
     relocEnv: _reloc.envId,
-    poseFrame: _envFromRoom ? "env (relocated)" : "room",
+    poseFrame: _envFromRoom ? (_envId === _reloc.envId ? "env (relocated)" : "env (scanned, stage moved)") : "room",
     depthFrames: _scan.depthFrames,
     depthReason: _depthReason,
     depthLanded: _depthLanded,

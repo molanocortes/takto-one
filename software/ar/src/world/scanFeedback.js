@@ -50,6 +50,10 @@ export class ScanFeedback {
     this._lastConn = null;            // last seen transport connected state
     this._lastKey = "";               // redraw only when the content changes
     this._placed = false;
+    // the idle CONNECTED / SIMULATED banner (0.78 m, dead centre, 8 s at
+    // entry) is superseded by the status HUD (ui/hud.js), which says the same
+    // thing without covering the room; scan progress and results still show
+    this.banner = false;
   }
 
   /** Call when an XR session starts: the connection state must be the first
@@ -178,7 +182,7 @@ export class ScanFeedback {
     this._terminalT = Math.max(0, this._terminalT - dt);
 
     const scanActive = phase === "scanning" || phase === "uploading";
-    const show = presenting && (scanActive || this._terminalT > 0 || this._bannerT > 0);
+    const show = presenting && (scanActive || this._terminalT > 0 || (this.banner && this._bannerT > 0));
     this._mesh.visible = show || this._mat.opacity > 0.02;
     this._mat.opacity += ((show ? 1 : 0) - this._mat.opacity) * (1 - Math.exp(-dt * 6));
     if (!this._mesh.visible) return;

@@ -97,6 +97,7 @@ class WebSocketSource extends TelemetrySource {
     this._attempt = 0;
     this._lastRx = 0;
     this.connected = false;
+    this.poseLane = true;          // subscribe to {"kind":"pose"} on connect
   }
   start() {
     this._closed = false;
@@ -120,7 +121,13 @@ class WebSocketSource extends TelemetrySource {
     try {
       this._ws = new WebSocket(this.url);
     } catch (e) { this._retry(); return; }
-    this._ws.onopen = () => { this._attempt = 0; this._lastRx = performance.now(); this.connected = true; };
+    this._ws.onopen = () => {
+      this._attempt = 0; this._lastRx = performance.now(); this.connected = true;
+      // the fast pose lane (MOTION_PIPELINE.md section 8): ask on EVERY
+      // (re)connect; a bridge without the lane simply ignores the command and
+      // the page keeps rendering from snap (ui/poseLane.js falls back)
+      if (this.poseLane) this.send({ cmd: "stream", pose: true });
+    };
     this._ws.onmessage = (ev) => {
       this._lastRx = performance.now();
       // forward EVERY typed message (snap, ack, takes, take_data, env, envs,
@@ -191,10 +198,35 @@ class MockSource extends TelemetrySource {
     this._timer = setInterval(() => this._tick(), dt);
     // the bridge pushes the take library on join; so does the mock
     setTimeout(() => this._emit({ kind: "takes", takes: this._takes.slice() }), 0);
+    // and the page subscribes to the pose lane on connect (WebSocketSource)
+    if (this.poseLane !== false) this._startPoseLane();
   }
   stop() {
     if (this._timer) clearInterval(this._timer);
+    if (this._poseTimer) clearInterval(this._poseTimer);
     for (const h of this._neutralTimers) clearTimeout(h);
+  }
+
+  // the fast pose lane, emulated with the bridge's message shape (100 Hz,
+  // section 8). Only after {"cmd":"stream","pose":true}, like the bridge.
+  _startPoseLane() {
+    if (this._poseTimer) return;
+    let seq = 0;
+    this._poseTimer = setInterval(() => {
+      if (this.t0 == null) return;
+      const t = this._now(), ts = t / 1000;
+      const b = mockBody(ts, { calibrated: this._calibrated });
+      const snap = this._lastSnap;
+      const j = snap ? POSE_JOINT_IDS.map((id) => {
+        const jj = snap.joints.find((x) => x.id === id);
+        return jj && jj.ok ? jj.deg : null;
+      }) : POSE_JOINT_IDS.map(() => null);
+      const wall = Date.now();
+      this._emit({ kind: "pose", t: Math.floor(t), us: Math.floor(t * 1000), seq: seq++,
+                   rx: wall - 2, tx: wall, cal: this._calibrated ? 2 : 1, live: true,
+                   e: b.elbow_m, w: b.wrist_m, h: b.hand_m, fq: b.forearm_quat, hq: b.hand_quat,
+                   wd: [b.wrist_deg.flex, b.wrist_deg.dev, b.wrist_deg.pro], j, tq: null });
+    }, 10);
   }
   sendRaw(str) { try { this.send(JSON.parse(str)); return true; } catch (_) { return false; } }
   get isOpen() { return true; }
@@ -223,6 +255,7 @@ class MockSource extends TelemetrySource {
     if (!cmd || !cmd.cmd) return;
     switch (cmd.cmd) {
       case "mode": this.mode = cmd.mode || "atelier"; break;
+      case "stream": if (cmd.pose) this._startPoseLane(); break;
       case "goal": this._reps.goal = cmd.value || this._reps.goal; break;
       case "feedback": /* arm/disarm; mock always ready */ break;
       case "walls": this._walls = Array.isArray(cmd.walls) ? cmd.walls : []; break;
@@ -401,7 +434,7 @@ class MockSource extends TelemetrySource {
     // no headset feeds the mock, so there is never a vision-anchored world
     const world = { pos_m: null, quat: null, source: "none", occluded: false };
 
-    this._emit({
+    this._emit(this._lastSnap = {
       kind: "snap", t_ms: Math.floor(t), source: "mock",
       mode: this.mode, state: this._recording ? "running" : "ready", safety: "ok",
       link: { device: true, motors: true },
@@ -434,6 +467,7 @@ class MockSource extends TelemetrySource {
 // mock body model + mock takes (pure functions of time; deterministic)
 // =============================================================================
 const X_AXIS = [1, 0, 0], Y_AXIS = [0, 1, 0], Z_AXIS = [0, 0, 1];
+const POSE_JOINT_IDS = FINGERS.flatMap((f) => SEGMENTS.map((sg) => `${f}_${sg}`));
 const L_UA = 0.30, L_FA = 0.26;
 const r4 = (v) => Math.round(v * 1e4) / 1e4;
 
