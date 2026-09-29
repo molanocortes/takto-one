@@ -2568,6 +2568,65 @@ void fullScan() {
 // Builds a DeviceState from the signals this sketch already has, hands it to
 // the face engine, and repaints ONLY when the engine's value-dirty signature
 // changes. A static face still costs zero paint, zero tile scan, zero SPI.
+// ---- motor-control mode: the screen steps aside ------------------------------
+// [2026-09-30, owner's call] With torque on, the control loop is the priority
+// and every paint competes with it for the one core. The face plays a short
+// entrance - the colorway's ring closes around the word MOTORS (450 ms,
+// ~25 fps, only the changed tiles ship) - then holds ONE still frame, which
+// costs nothing, for as long as the motors are energized. Torque off opens
+// the ring (350 ms) and hands the screen back to the watch face.
+static uint8_t  motorFacePhase = 0;   // 0 off, 1 entering, 2 still, 3 leaving
+static uint32_t motorFaceT0 = 0, motorFaceLast = 0;
+
+static void drawMotorFace(float k) {
+  using wgfx::aaCircleA; using wgfx::aaArcA; using wgfx::aaTextTracked;
+  const Colorway &cw = watch::active()->colorway(watch::curColorway[watch::curFace]);
+  const uint16_t acc = WGFX_C565(cw.r, cw.g, cw.b);
+  const float e = k * k * (3.0f - 2.0f * k);                 // smoothstep
+  wgfx::FB = FB;                                             // the primitives draw into wgfx::FB
+  memset(FB, 0, 240 * 240 * 2);
+  aaCircleA(120, 120, 104, 1.5f, acc, (uint8_t)(46 * e));    // the faint track
+  if (e > 0.002f)
+    aaArcA(120, 120, 104, 6.0f, -PI / 2, -PI / 2 + e * 2.0f * PI, acc, 255);
+  // the word fades in over the second half of the close
+  const float tw = e < 0.5f ? 0.0f : (e - 0.5f) * 2.0f;
+  if (tw > 0.0f) {
+    const uint16_t w = WGFX_C565((uint8_t)(235 * tw), (uint8_t)(240 * tw), (uint8_t)(245 * tw));
+    const uint16_t g = WGFX_C565((uint8_t)(cw.r * tw), (uint8_t)(cw.g * tw), (uint8_t)(cw.b * tw));
+    aaTextTracked(&FreeSansBold12pt7b, "MOTORS", 120, 112, w, 3);
+    aaTextTracked(&FreeSans9pt7b, "torque on", 120, 140, g, 1);
+  }
+}
+
+// true while motor mode owns the screen
+static bool motorFaceService() {
+  const bool want = mc.taken && mc.torque;
+  const uint32_t now = millis();
+  if (want && (motorFacePhase == 0 || motorFacePhase == 3)) {
+    motorFacePhase = 1; motorFaceT0 = now; motorFaceLast = 0;
+    carouselUntil = 0; localScreen = -1;        // any menu closes: the motors own the device now
+  }
+  if (!want && (motorFacePhase == 1 || motorFacePhase == 2)) {
+    motorFacePhase = 3; motorFaceT0 = now; motorFaceLast = 0;
+  }
+  if (motorFacePhase == 0) return false;
+  if (motorFacePhase == 2 || !uiR.idle()) return true;   // still frame, or a frame still shipping
+  const float D = motorFacePhase == 1 ? 450.0f : 350.0f;
+  float k = (now - motorFaceT0) / D;
+  if (k > 1.0f) k = 1.0f;
+  if (k < 1.0f && now - motorFaceLast < 40) return true;
+  motorFaceLast = now;
+  FB = cv.getBuffer();
+  const bool first = (motorFacePhase == 1 && k < 0.1f && now - motorFaceT0 < 60);
+  drawMotorFace(motorFacePhase == 1 ? k : 1.0f - k);
+  if (first) uiR.forceFullRepaint(); else uiR.notifyPainted();
+  if (k >= 1.0f) {
+    if (motorFacePhase == 1) motorFacePhase = 2;
+    else { motorFacePhase = 0; scLastSig = 0xFFFFFFFF; screenForcePaint = true; }
+  }
+  return true;
+}
+
 void screenService() {
   uint32_t now = millis();
   // State/safety is inspected at 50 Hz, but ordinary visible frames are built
@@ -2987,6 +3046,8 @@ void loop() {
       FB = cv.getBuffer(); memset(FB, 0, 240 * 240 * 2);
       uiR.forceFullRepaint(); standbyPainted = true;
     }
+  } else if (motorFaceService()) {
+    // motor mode owns the screen: an entrance, then a still frame (zero cost)
   } else if (!frameDue()) {
     screenService();                      // presentation <=7.7 Hz (crown <=9.6 Hz)
   }
