@@ -1768,15 +1768,23 @@ _load_tare()
 # ============================================================================
 _BODY_FILE = os.path.join(STATE_DIR, ".takto_body.json")
 BODY_REQ = deque()                # callables run by the ingest thread (FIFO)
-# hand_flip: the hand module's "forward" is 180 deg from the legacy prior.
-# [BENCH 2026-09-29] measured, not assumed: while hand and forearm rotated
-# together, the hand's pitch and roll came out mirrored (co-rotation votes
-# 351 flipped vs 7 same over two sessions; e.g. forearm +13 deg pitch, hand
-# -15 deg) - the ~180 deg rest yaw the old bench note below already saw. The
-# model's frame self-check re-verifies it every neutral and corrects it (and
-# this file) if a remount ever changes it back.
-HAND_FLIP_DEFAULT = True
-BODY_PERSIST = {"wrist_axis": None, "neutral": None, "arm": {}, "hand_flip": HAND_FLIP_DEFAULT}
+# forearm_flip: the forearm module's "forward" is 180 deg from the legacy prior,
+# and the forearm defines forward for the whole twin.
+# [BENCH 2026-09-29] measured, not assumed, in two steps:
+#  1. while hand and forearm rotated together, their pitch and roll came out
+#     mirrored against each other (co-rotation votes 351 vs 7 over two
+#     sessions): exactly one of the two priors points backwards;
+#  2. with the two made consistent, the wearer saw the whole twin tilt and
+#     twist opposite to the arm (side to side correct): the body frame itself
+#     was backwards, i.e. the FOREARM prior. The IMU config notes below had
+#     already measured it ("180 Y <- upright AND forward", never applied).
+# The hand is right as it is; the model's co-rotation self-check re-verifies
+# it against the forearm at every neutral and turns it (hand_flip) if a
+# remount ever breaks that.
+FOREARM_FLIP_DEFAULT = True
+HAND_FLIP_DEFAULT = False
+BODY_PERSIST = {"wrist_axis": None, "neutral": None, "arm": {}, "hand_flip": HAND_FLIP_DEFAULT,
+                "forearm_flip": FOREARM_FLIP_DEFAULT}
 _BODY_NEUTRAL_CANDIDATE = None    # a persisted neutral waiting for the device's boot id
 
 
@@ -1789,8 +1797,9 @@ def rig_mountings():
     """How the sensors really sit, as the body model understands it: the
     priors with the measured hand flip. The simulator mounts its IMUs so."""
     p = body_priors()
-    if BODY_PERSIST.get("hand_flip", HAND_FLIP_DEFAULT):
-        p["hand"] = motion.qnorm(motion.qmul(p["hand"], motion.FLIP_UP))
+    for k, default in (("hand", HAND_FLIP_DEFAULT), ("forearm", FOREARM_FLIP_DEFAULT)):
+        if BODY_PERSIST.get(k + "_flip", default):
+            p[k] = motion.qnorm(motion.qmul(p[k], motion.FLIP_UP))
     return p
 
 
@@ -1806,10 +1815,12 @@ def _body_load():
             raise ValueError("bad wrist_axis")
         arm = d.get("arm") if isinstance(d.get("arm"), dict) else {}
         hf = d.get("hand_flip", HAND_FLIP_DEFAULT)
+        ff = d.get("forearm_flip", FOREARM_FLIP_DEFAULT)
         BODY_PERSIST = {"wrist_axis": wa, "neutral": d.get("neutral"),
                         "arm": {k: float(v) for k, v in arm.items() if k in ("L_ua", "L_fa")
                                 and isinstance(v, (int, float)) and 0.1 <= v <= 0.6},
-                        "hand_flip": hf if isinstance(hf, bool) else HAND_FLIP_DEFAULT}
+                        "hand_flip": hf if isinstance(hf, bool) else HAND_FLIP_DEFAULT,
+                        "forearm_flip": ff if isinstance(ff, bool) else FOREARM_FLIP_DEFAULT}
         _BODY_NEUTRAL_CANDIDATE = d.get("neutral")
     except FileNotFoundError:
         pass
@@ -1827,7 +1838,8 @@ def _body_save():
 def _make_body():
     bm = motion.BodyModel(body_priors(), cfg=dict(BODY_PERSIST.get("arm") or {}),
                           wrist_axis=BODY_PERSIST.get("wrist_axis"),
-                          hand_flip=BODY_PERSIST.get("hand_flip", HAND_FLIP_DEFAULT))
+                          hand_flip=BODY_PERSIST.get("hand_flip", HAND_FLIP_DEFAULT),
+                          forearm_flip=BODY_PERSIST.get("forearm_flip", FOREARM_FLIP_DEFAULT))
     return bm
 
 
@@ -2490,6 +2502,7 @@ def provenance(source="live", fw=None, boot_id=None):
             "priors": {k: [round(float(x), 7) for x in pri[k]] for k in IMU_KEYS},
             "wrist_axis": BODY_PERSIST.get("wrist_axis"),
             "hand_flip": bool(BODY_PERSIST.get("hand_flip", HAND_FLIP_DEFAULT)),
+            "forearm_flip": bool(BODY_PERSIST.get("forearm_flip", FOREARM_FLIP_DEFAULT)),
             "orientation_source": IMU_ORIENTATION_SOURCE,
         },
         "body_params": {k: cfg[k] for k in ("L_ua", "L_fa", "f_imu_to_wrist", "hand_offset",
@@ -2532,6 +2545,7 @@ def apply_provenance(prov):
     BODY_PERSIST["wrist_axis"] = im.get("wrist_axis")
     # takes recorded before the hand-frame fix derived without it
     BODY_PERSIST["hand_flip"] = bool(im.get("hand_flip", False))
+    BODY_PERSIST["forearm_flip"] = bool(im.get("forearm_flip", False))
     bp = prov.get("body_params") or {}
     BODY_PERSIST["arm"] = {k: float(bp[k]) for k in ("L_ua", "L_fa") if isinstance(bp.get(k), (int, float))}
 
@@ -5663,7 +5677,8 @@ class OfflineDeriver:
     def __init__(self, take_id, path=None, boot=None, nominal_hz=None, keep_rows=False):
         self.bm = motion.BodyModel(body_priors(), cfg=dict(BODY_PERSIST.get("arm") or {}),
                                    wrist_axis=BODY_PERSIST.get("wrist_axis"),
-                                   hand_flip=BODY_PERSIST.get("hand_flip", HAND_FLIP_DEFAULT))
+                                   hand_flip=BODY_PERSIST.get("hand_flip", HAND_FLIP_DEFAULT),
+                          forearm_flip=BODY_PERSIST.get("forearm_flip", FOREARM_FLIP_DEFAULT))
         self.bm.set_boot(boot)
         self.bm.auto_neutral = False
         self.joints = _OfflineJoints()

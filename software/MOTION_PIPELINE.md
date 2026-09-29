@@ -105,11 +105,14 @@ frame or turns it around (`hand_flip`), re-solves the neutral, and persists it.
 Surfaces see `body.quality.hand_frame` (`checking` / `verified`) and an ack
 `{"event":"hand_frame","corrected":bool,"votes":{...}}`.
 
-[BENCH 2026-09-29] The rig's hand module is 180 deg from the legacy prior
-(co-rotation votes 351 flipped vs 7 same over two sessions; in the video
-replay a forearm pitch of +13 deg showed the hand at -15 deg). `hand_flip`
-therefore defaults to true; takes record it in their provenance, and takes
-recorded before the fix re-derive without it.
+[BENCH 2026-09-29] On this rig the co-rotation check found hand and forearm
+180 deg apart (351 of 358 votes), and the wearer then saw the whole twin tilt
+and twist opposite to the arm once they agreed: the **forearm** prior points
+backwards. The forearm sets "forward" for the whole twin, and a backwards body
+frame is self-consistent, so no IMU-only check can see it; it is the measured
+setting `forearm_flip` (default true, as the old IMU-config bench note had
+found: "180 Y <- upright AND forward"). Takes record both flags in their
+provenance; takes recorded before the fix re-derive without them.
 
 ### Heading drift
 

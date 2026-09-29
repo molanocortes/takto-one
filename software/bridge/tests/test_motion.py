@@ -496,3 +496,30 @@ def test_hand_flip_re_solves_neutral_and_wrist_axis():
     assert bm.wrist_axis == [-1.0, 0.0, 0.0]
     assert qrot(bm.prior["hand"], Z_AXIS) == pytest.approx([0, 1, 0], abs=1e-9)
     assert bm.set_hand_flip(True) is False
+
+
+def test_forearm_flip_tracks_a_backwards_forearm_mount():
+    """The rig's forearm module sits 180 deg (about up) from the legacy prior.
+    With forearm_flip the twin tracks it exactly, hand self-check included;
+    without it the neutral looks fine but every tilt and twist is mirrored."""
+    rng = random.Random(6)
+    tm = {k: perturb(PRIORS[k], 1.0, rng) for k in PRIORS}
+    tm["forearm"] = FLIPPED(tm["forearm"])  # the hand stays true to its prior
+    heading = {k: rng.uniform(-math.pi, math.pi) for k in PRIORS}
+
+    def go(flip):
+        s = Sensors(Arm(), rigid_wrist, tm, heading, seed=6)
+        bm = BodyModel(PRIORS, cfg={"inertial": False}, forearm_flip=flip)
+        bm.auto_neutral = False
+        worst, t = 0.0, 0.0
+        while t < 20.0 - 1e-9:
+            t = round(t + 0.01, 6)
+            bm.update(s.frame(t, 0.01))
+            if abs(t - 2.5) < 1e-9:
+                assert bm.capture_neutral(t_end=t, kind="test")["ok"]
+            if t > 2.6:
+                worst = max(worst, D(qangle_between(bm.body()["forearm_quat"], s.truth(t)["q"]["forearm"])))
+        assert bm.hand_flip is False or not flip
+        return worst
+    assert go(True) < 3.0
+    assert go(False) > 30.0

@@ -589,12 +589,16 @@ class BodyModel:
     }
     """
 
-    def __init__(self, priors, cfg=None, wrist_axis=None, hand_flip=False):
+    def __init__(self, priors, cfg=None, wrist_axis=None, hand_flip=False, forearm_flip=False):
         self.cfg = dict(DEFAULT_CFG)
         if cfg:
             self.cfg.update(cfg)
         self.prior_base = {k: qnorm(priors[k]) for k in KEYS}
         self.hand_flip = bool(hand_flip)
+        # the forearm defines "forward" for the whole twin; its sense cannot be
+        # observed from the IMUs (a backwards body frame is self-consistent), so
+        # it is a measured setting, not something the self-check decides
+        self.forearm_flip = bool(forearm_flip)
         self.prior = self._priors()
         self.wrist_axis = vnorm(wrist_axis) if wrist_axis is not None else None
         self.auto_neutral = True
@@ -605,6 +609,8 @@ class BodyModel:
         p = dict(self.prior_base)
         if self.hand_flip:
             p["hand"] = qnorm(qmul(p["hand"], FLIP_UP))
+        if self.forearm_flip:
+            p["forearm"] = qnorm(qmul(p["forearm"], FLIP_UP))
         return p
 
     def set_hand_flip(self, flip):
@@ -1244,6 +1250,7 @@ class BodyModel:
                 "hand_frame": self._fc["state"],
                 "hand_frame_votes": [self._fc["same"], self._fc["flipped"]],
                 "hand_flip": self.hand_flip,
+                "forearm_flip": self.forearm_flip,
                 "twist_deg": round(math.degrees(tw), 2),
                 "heading_bleed_deg": round(math.degrees(self.bleed_psi), 2),
                 "elevation_deg": round(math.degrees(vangle(self.u, DOWN)), 1),
