@@ -134,6 +134,12 @@ static void launch(int8_t c) {
 void play(Cue c) {
   if (muted || c >= CUE_COUNT) return;
   if (cur == ALARM && c != ALARM) return;          // an alarm is never talked over
+  // [2026-09-30] sparse by design: two chimes never stack - anything but the
+  // alarm within 1.5 s of the previous chime is dropped
+  static uint32_t lastMs = 0;
+  const uint32_t now = millis();
+  if (c != ALARM && lastMs && now - lastMs < 1500) return;
+  lastMs = now;
   launch((int8_t)c);
 }
 

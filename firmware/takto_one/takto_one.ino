@@ -1863,8 +1863,7 @@ void imuRecoverService() {
     if (imuLive[i]) {
       imuFreshMs[i] = millis(); imuEverLive[i] = true; imuRetryN[i] = 0;
       Serial.printf("# imu %s recovered\n", IMU_NAME[i]);
-      recEvent("imu_back,%s", IMU_NAME[i]);
-      sfx::play(sfx::SENSOR_BACK);
+      recEvent("imu_back,%s", IMU_NAME[i]);   // silent: the screen and the host show it
     }
     return;                                   // at most one begin() per pass
   }
@@ -1950,7 +1949,9 @@ void imuService() {
       imuRetryMs[i] = now + 1000; imuRetryN[i] = 0;
       Serial.printf("# imu %s stopped reporting - restarting it\n", IMU_NAME[i]);
       recEvent("imu_lost,%s", IMU_NAME[i]);
-      if (now - lostCueMs > 8000) { sfx::play(sfx::SENSOR_LOST); lostCueMs = now; }
+      // [2026-09-30] at most ONE sound per sensor per power-up (it used to repeat every 8 s)
+      static uint8_t lostCued = 0;
+      if (!(lostCued & (1u << i))) { lostCued |= (1u << i); sfx::play(sfx::SENSOR_LOST); lostCueMs = now; }
     }
   }
 }
@@ -2454,7 +2455,8 @@ const float NEUTRAL_STILL_RAD_S = 0.35f;
 void neutralStart() {
   if (standby) return;
   neutralPhase = 1; neutralT0 = millis(); neutralTicks = 0; neutralProg = 0;
-  sfx::play(sfx::NEUTRAL_TICK);
+  // [2026-09-30] silent start and countdown: the face counts 3-2-1; the only
+  // sound of a calibration is its result (NEUTRAL_DONE, or REC_FAIL on abort)
   Serial.println(F("E,neutral,start"));
   recEvent("neutral,start");
 }
@@ -2471,13 +2473,12 @@ void neutralService() {
   if (neutralPhase == 1) {
     const uint32_t e = now - neutralT0;
     if (e >= (uint32_t)(neutralTicks + 1) * 1000 && neutralTicks < 2) {
-      neutralTicks++; sfx::play(sfx::NEUTRAL_TICK);
+      neutralTicks++;
     }
     neutralProg = 0.6f * min(1.0f, e / 3000.0f);
     if (e >= 3000) {
       neutralPhase = 2; neutralHold0 = now; neutralCount = 0;
       memset(neutralSum, 0, sizeof(neutralSum));
-      sfx::play(sfx::NEUTRAL_TICK);
     }
     return;
   }
@@ -2547,10 +2548,9 @@ void linkService() {
     if (l) everLinked = true;
     else streaming = false;                   // nobody is reading: stop the S stream
   }
-  if (pendingLinkCue && !sfx::busy() && millis() > 1500) {
-    pendingLinkCue = false;
-    sfx::play(pendingLinkUp ? sfx::LINK_UP : sfx::LINK_DOWN);
-  }
+  // [2026-09-30] the host link is silent: it comes and goes with every bridge
+  // restart or cable swap, and the face already shows it
+  pendingLinkCue = false;
   // Power bank: no host within STANDALONE_AFTER_MS of boot -> the device is on
   // its own. With auto-record on (and a card), it starts a take by itself; the
   // take opens with a neutral capture so it is calibratable later.
@@ -2564,12 +2564,13 @@ void linkService() {
 }
 
 void motorCueService() {
-  static bool pTaken = false, pTorque = false, pFault = false;
-  if (mc.taken && !pTaken) sfx::play(sfx::MOTOR_CONNECT);
-  if (mc.torque && !pTorque) sfx::play(sfx::MOTOR_TORQUE_ON);
-  if (!mc.torque && pTorque && !mc.fault) sfx::play(sfx::MOTOR_TORQUE_OFF);
+  // [2026-09-30, owner: "the buzzer should be used infrequently"] motors
+  // connected sounds ONCE per power-up; torque on/off is silent (the watch's
+  // motor face shows it); only a tripped safety path sounds the alarm
+  static bool pTaken = false, pFault = false, connectCued = false;
+  if (mc.taken && !pTaken && !connectCued) { sfx::play(sfx::MOTOR_CONNECT); connectCued = true; }
   if (mc.fault && !pFault) sfx::play(sfx::ALARM);     // the motor safety path tripped
-  pTaken = mc.taken; pTorque = mc.torque; pFault = mc.fault;
+  pTaken = mc.taken; pFault = mc.fault;
 }
 
 uint8_t fwFlags() {
@@ -3077,7 +3078,9 @@ void setup() {
   tft.fillScreen(0x0000);
   uiIn.begin(POT_PIN, BTN_PIN, PZ_PIN);           // crown pot / button / piezo
   uiIn.toneBusy = []() { return sfx::busy() || standby; };   // clicks never chop a cue
-  uiIn.clickFn = sfx::click;                      // soft struck clicks, not square beeps
+  // [2026-09-30] no clicks on crown detents or presses: the buzzer is kept for
+  // the few moments that matter (a null clickFn would fall back to tone())
+  uiIn.clickFn = [](uint16_t, uint8_t) {};
   // long paints yield to due frames AND keep the IMUs drained (both are safe
   // mid-paint: neither touches the framebuffer; the IMU poll is rate-limited)
   // [2026-09-30] the servo tick rides the paint too: a 20 ms repaint used to
