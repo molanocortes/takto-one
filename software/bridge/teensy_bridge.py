@@ -158,12 +158,19 @@ CH2JOINT = {ch: name for name, ch in JOINT2CH.items()}   # reverse: encoder chan
 # = PIP FLEXION (8 = open .. curl). So map each wired channel to a DOF, sign and
 # scale (adjust after watching each joint move), and zero it to a live neutral.
 WIRED_FINGER = "index"
-# channel -> (dof, sign) per the wiring the user reported: ch10 = MCP side-to-side
-# (abduction), ch8 = MCP up/down (flexion), ch9 = PIP up/down (flexion).
+# channel -> (dof, sign). [2026-09-30, owner's wiring table] index finger:
+# ch8 = MCP side-to-side (abduction), ch9 = MCP flexion, ch10 = PIP flexion.
+# (The earlier default had these rotated - ch10 abduction, ch8 MCP, ch9 PIP -
+# so every index joint drove a different joint in the twin.) The full table:
+#   pinky  ch01 MCP flex, ch02 PIP flex, ch03 MCP abduction
+#   ring   ch07 MCP flex, ch06 PIP flex, (abduction: channel not answering)
+#   index  ch09 MCP flex, ch10 PIP flex, ch08 MCP abduction
+#   middle (all three channels not answering yet; ch00/04/05/11 are silent)
+# A saved .takto_enc_map.json replaces this default.
 ENC_DOF = {
-    10: ("abduct",  +1.0),
-    8:  ("mcpflex", +1.0),
-    9:  ("pipflex", +1.0),
+    8:  ("abduct",  +1.0),
+    9:  ("mcpflex", +1.0),
+    10: ("pipflex", +1.0),
 }
 # channel -> finger. The default is the one wired index finger above; a full
 # 12-encoder map (4 fingers x abduction / MCP flexion / PIP flexion) is learned
