@@ -1682,12 +1682,14 @@ void handleWatchLine(const char* line) {
 }
 
 void handleFileLine(const char* line);   // defined with the SD code below
+void handleCoachLine(const char* line);  // the coach card, with the screen code below
 
 void handleHostLine(char tag, const char* line) {
   if      (tag == 'M') handleMotorLine(line);
   else if (tag == 'D') handleDeviceLine(line);
   else if (tag == 'W') handleWatchLine(line);
   else if (tag == 'F') handleFileLine(line);
+  else if (tag == 'C') handleCoachLine(line);
 }
 
 // ---- scan / report ---------------------------------------------------------
@@ -2755,6 +2757,67 @@ static void drawMotorFace(float k) {
 }
 
 // true while motor mode owns the screen
+// ---- coach card: a host-guided step, unmistakable on the wrist ---------------
+// [2026-09-30] "C,<ms>,<title>,<instruction>[,<chime 0|1>]" puts a full-screen
+// card up for <ms>: the title, one instruction line and a large countdown
+// with a draining ring; "C,0" clears it. Guided tests (the transparency feel
+// test) use it so the wearer always knows what to do and for how long. It
+// outranks the motor face and the watch face while it is up.
+static uint32_t coachT0 = 0, coachDur = 0, coachLastPaint = 0;
+static char coachTitle[20] = "", coachSub[40] = "";
+static bool coachWasUp = false;
+static int  coachLastSec = -1;
+
+void handleCoachLine(const char* line) {
+  unsigned long ms = 0; int chime = 0;
+  char t[20] = "", sub[40] = "";
+  const int n = sscanf(line, "C,%lu,%19[^,],%39[^,],%d", &ms, t, sub, &chime);
+  if (n < 1 || ms == 0) { coachDur = 0; return; }
+  coachT0 = millis(); coachDur = min(ms, 600000UL);
+  snprintf(coachTitle, sizeof(coachTitle), "%s", t);
+  snprintf(coachSub, sizeof(coachSub), "%s", n >= 3 ? sub : "");
+  coachLastPaint = 0; coachLastSec = -1;
+  if (chime) sfx::play(sfx::NEUTRAL_TICK);
+}
+
+static void drawCoach(float remainFrac, int secs) {
+  using wgfx::aaCircleA; using wgfx::aaArcA; using wgfx::aaTextTracked;
+  const Colorway &cw = watch::active()->colorway(watch::curColorway[watch::curFace]);
+  const uint16_t acc = WGFX_C565(cw.r, cw.g, cw.b);
+  wgfx::FB = FB;
+  memset(FB, 0, 240 * 240 * 2);
+  aaCircleA(120, 120, 106, 1.5f, acc, 50);
+  if (remainFrac > 0.002f)
+    aaArcA(120, 120, 106, 7.0f, -PI / 2, -PI / 2 + remainFrac * 2.0f * PI, acc, 255);
+  char num[8]; snprintf(num, sizeof(num), "%d", secs);
+  aaTextTracked(&FreeSansBold12pt7b, coachTitle, 120, 76, WGFX_C565(235, 240, 245), 2);
+  aaTextTracked(&FreeSansBold24pt7b, num, 120, 124, acc, 1);
+  aaTextTracked(&FreeSans9pt7b, coachSub, 120, 168, WGFX_C565(160, 170, 182), 0);
+}
+
+// true while the coach card owns the screen
+static bool coachService() {
+  const uint32_t now = millis();
+  const bool up = coachDur && now - coachT0 < coachDur;
+  if (!up) {
+    if (coachWasUp) {                               // hand the screen back
+      coachWasUp = false; coachDur = 0;
+      scLastSig = 0xFFFFFFFF; screenForcePaint = true;
+      if (motorFacePhase == 2) motorFacePhase = 1, motorFaceT0 = now - 450;   // redraw the still motor face
+    }
+    return false;
+  }
+  if (!uiR.idle()) return true;
+  const uint32_t el = now - coachT0;
+  const int secs = (int)((coachDur - el + 999) / 1000);
+  if (now - coachLastPaint < 100 && secs == coachLastSec) return true;
+  coachLastPaint = now; coachLastSec = secs;
+  FB = cv.getBuffer();
+  drawCoach(1.0f - (float)el / coachDur, secs);
+  if (!coachWasUp) { uiR.forceFullRepaint(); coachWasUp = true; } else uiR.notifyPainted();
+  return true;
+}
+
 static bool motorFaceService() {
   const bool want = mc.taken && mc.torque;
   const uint32_t now = millis();
@@ -3123,7 +3186,7 @@ void loop() {
       } else lnBuf[lnLen++] = c;
       continue;
     }
-    if (c == 'D' || c == 'W' || c == 'M' || c == 'F') { lnTag = c; lnLen = 0; lnBuf[lnLen++] = c; }
+    if (c == 'D' || c == 'W' || c == 'M' || c == 'F' || c == 'C') { lnTag = c; lnLen = 0; lnBuf[lnLen++] = c; }
     else if (c == 's') scanAll();
     else if (c == 'A') fullScan();
     else if (c == 'c') calibrate();
@@ -3209,6 +3272,8 @@ void loop() {
       FB = cv.getBuffer(); memset(FB, 0, 240 * 240 * 2);
       uiR.forceFullRepaint(); standbyPainted = true;
     }
+  } else if (coachService()) {
+    // a guided step owns the screen
   } else if (motorFaceService()) {
     // motor mode owns the screen: an entrance, then a still frame (zero cost)
   } else if (!frameDue()) {
