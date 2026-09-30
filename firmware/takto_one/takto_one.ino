@@ -110,7 +110,9 @@
  *   M,e,<0|1>        torque off / ON (on-path configures current mode, RDT 0 us,
  *                    current limit, arms the Indirect feedback block, SEEDS the
  *                    assist setpoints from measured position, then energizes)
- *   M,m,<0|1|2>      mode: 0 idle, 1 RUN (blended transparency<->assist), 2 direct
+ *   M,m,<0..5>       mode: 0 idle, 1 RUN (blended transparency<->assist), 2 direct,
+ *                    3 jog, 4 SEA follow, 5 PRECISION position (planner + friction ff)
+ *   M,G,<i>,<v>      mode-5 parameter i (kp kd ki Ic1 B1 Ic2 B2 vmax amax kst db imax)
  *   M,a,<-1|0..1000> assist blend override; -1 = follow the physical crown
  *   M,c,<id>,<mA>    direct current setpoint (mode 2), clamped to +/-44 mA (= 10 N)
  *   M,p,<id>,<deg>   assist position setpoint (mode 1), servo horn degrees
@@ -630,6 +632,66 @@ const float    ALPHA_SLEW_PER_S = 2.0f;
 // stiction broke: it saw 161.3 deg, while the next samples ran on to 197 deg.
 // This dedicated law runs at the motor tick, affects one selected motor only,
 // and remains below the global 44 mA (~10 N) ceiling.
+// [v19, 2026-09-30] MODE 5 - PRECISION POSITION, and the friction model the
+// transparency law now shares. Benchmarked on the free spools: friction
+// (motor 1 / 2) breakaway 24 / 22 mA, Coulomb 20.0 / 17.2 mA, viscous 5.9 /
+// 6.5 mA per rad/s, symmetric. A first mode-5 law (PD + integrator + a
+// stiction breaker) limit-cycled +-0.5 deg with 2-9 deg overshoot: against
+// Coulomb friction a linear loop hunts. The standard remedy is used instead:
+//   MOVE    reference = a trapezoidal profile for a step, or the streamed
+//           target with its estimated velocity for a trajectory; current =
+//           friction feed-forward at the reference velocity + PD on
+//           (qr - q, vr - v), v = the servo's own velocity register;
+//   FINE    once stopped within FINE_ENTER of the target: IMPULSE CONTROL
+//           (Yang & Tomizuka 1988; Hojjat & Higuchi 1991) - short full-current
+//           pulses whose width scales with sqrt(error), the width gain adapted
+//           from what each pulse actually moved; zero current inside the
+//           deadband (on a free spool friction holds it).
+// Clamped to I_CAP_MA like every other mode; host silence demotes it like jog.
+// Parameters are live-settable with M,G,<i>,<v>.
+enum PrecParam : uint8_t { PP_KP, PP_KD, PP_KI, PP_IC1, PP_B1, PP_IC2, PP_B2, PP_VMAX, PP_AMAX,
+                           PP_PULSE_MA, PP_DB, PP_W0, PP_FINE, PP_N };
+static float precP[PP_N] = {
+  800.0f,    // kp  mA/rad  (14 mA/deg)      [bench-tuned: 0.0-0.1 deg final error on
+  20.0f,     // kd  mA/(rad/s)               0.5-90 deg steps; kd 8 overshot 6 deg, kd 35 stalled]
+  0.0f,      // ki  (unused: the impulse stage owns the last degree)
+  18.0f,     // Coulomb motor 1, mA (90 % of the identified 20.0)
+  5.3f,      // viscous motor 1, mA/(rad/s) (90 % of 5.9)
+  15.5f,     // Coulomb motor 2 (90 % of 17.2)
+  5.8f,      // viscous motor 2 (90 % of 6.5)
+  3.5f,      // vmax rad/s (200 deg/s)
+  15.0f,     // amax rad/s^2
+  44.0f,     // impulse current, mA (= the sustained cap)
+  0.0017f,   // deadband rad (0.1 deg, ~1 encoder count)
+  6.0f,      // initial impulse width at 1 deg of error, ms (adapted per motor)
+  0.035f,    // FINE_ENTER rad (2 deg)
+};
+struct PrecState {
+  float qT = 0, qr = 0, vr = 0;           // target, reference position / velocity
+  float qTprev = 0, vT = 0;               // streamed-target velocity estimate
+  uint32_t lastTgtMs = 0;
+  uint8_t  stage = 0;                     // 0 move, 1 fine
+  uint32_t stillSince = 0, pulseUntilUs = 0;
+  float    pulseSign = 0, pulseFromQ = 0, pulseErr = 0;
+  bool     pulseJudge = false;
+  float    w0[1] = {0};                   // adapted width gain, ms per sqrt(deg)
+};
+static PrecState prec[2];
+static inline void precTarget(uint8_t i, float qT) {
+  PrecState &P = prec[i];
+  const uint32_t now = millis();
+  const uint32_t gap = now - P.lastTgtMs;
+  if (P.lastTgtMs && gap > 0 && gap < 80) {           // streamed: estimate the target's velocity
+    const float v = (qT - P.qTprev) / (gap * 1e-3f);
+    P.vT += 0.5f * (v - P.vT);
+  } else {
+    P.vT = 0.0f;
+  }
+  P.qTprev = qT; P.lastTgtMs = now; P.qT = qT;
+  if (fabsf(qT - P.qr) > 1e-5f || fabsf(P.vT) > 1e-3f) P.stage = 0;   // any new target: move
+}
+static inline float precIc(uint8_t i) { return i == 0 ? precP[PP_IC1] : precP[PP_IC2]; }
+static inline float precB(uint8_t i)  { return i == 0 ? precP[PP_B1]  : precP[PP_B2]; }
 const float    JOG_KP_MA_RAD = 700.0f;  // 12.2 mA/deg
 const float    JOG_KD_MA_RAD_S = 4.0f;
 const float    JOG_STICTION_MA = 6.0f;
@@ -704,7 +766,15 @@ struct {
   // with M,k and M,f, and all four remain bench-tunable estimates.
   float    kp = 117.0f, kd = 2.35f;    // assist PD [mA/rad, mA/(rad/s)]
   float    frV = 0.88f, frC = 5.87f;   // transparency friction ff [mA/(rad/s), mA]
-  float    frW = 0.5f;                 // Coulomb tanh width [rad/s]
+  float    frW = 0.15f;                // Coulomb tanh width [rad/s] (servo velocity: 0.024 rad/s units)
+  // transparency: fraction of the (90 %-of-identified) friction model cancelled.
+  // [BENCH 2026-09-30] coast after a 44 mA flick, free spool: passive 31-34 deg
+  // / 0.4 s; 0.7 -> 41-47 deg, stops in 0.5 s; 1.0 -> 400-510 deg and still
+  // turning 75-151 deg/s after 3 s (it even accelerated): effectively
+  // frictionless, and friction falls as the gearbox warms. 0.78 is the
+  // default; the speed fade below makes a self-sustained spin impossible.
+  float    trK = 0.78f;
+  float    trVfade0 = 4.0f, trVfade1 = 6.0f;   // compensation fades out between these, rad/s
   float    aOverride = -1.0f;          // blend 0..1; <0 = follow the crown pot
   float    alphaF = 0.0f;              // slew-limited blend actually applied
   float    qSet[2] = {0, 0};           // assist setpoints [rad]
@@ -1203,8 +1273,19 @@ void motorTick() {
     mc.qdF[i] += QD_LP_ALPHA * (qdRaw - mc.qdF[i]);   // 1-pole derivative filter (fc ~ rate-dep)
     float iCmd = 0.0f;
     if (mc.mode == 1) {
-      // transparency: cancel identified friction (viscous + smoothed Coulomb)
-      float iT = -(mc.frV * mc.qdF[i] + mc.frC * tanhf(mc.qdF[i] / mc.frW));
+      // transparency: cancel the identified friction by pushing WITH the motion.
+      // [2026-09-30] This was -(...) - pushing against the motion, i.e. ADDED
+      // friction: bench coast-down after a 44 mA flick, passive 33.9 deg vs
+      // "transparent" 14.8 deg once the identified values were loaded (the old
+      // 5.9 mA default hid it). Positive current drives positive velocity on
+      // this bench (step test), so compensation has the velocity's sign. The
+      // velocity is the servo's own register (0 at rest), not a differentiated
+      // count, which at 2 kHz is noise that positive feedback would amplify.
+      const float vS = mc.velDps[i] * (PI / 180.0f);
+      const float av = fabsf(vS);
+      const float fade = av <= mc.trVfade0 ? 1.0f
+                       : av >= mc.trVfade1 ? 0.0f : (mc.trVfade1 - av) / (mc.trVfade1 - mc.trVfade0);
+      float iT = mc.trK * fade * (precIc(i) * tanhf(vS / mc.frW) + precB(i) * vS);
       // assist: saturated PD toward the host setpoint
       float iA = mc.kp * (mc.qSet[i] - mc.q[i]) - mc.kd * mc.qdF[i];
       iCmd = (1.0f - alpha) * iT + alpha * iA;
@@ -1227,6 +1308,63 @@ void motorTick() {
       } else {
         mc.jogBoostMa = 0.0f;
         mc.jogErrSign = 0;
+      }
+    } else if (mc.mode == 5) {
+      PrecState &P = prec[i];
+      const float v = mc.velDps[i] * (PI / 180.0f);          // the servo's own velocity
+      const bool streaming = millis() - P.lastTgtMs < 80 && fabsf(P.vT) > 1e-3f;
+      if (streaming) {
+        // a trajectory: follow the target itself, its velocity as feed-forward
+        P.qr = P.qT; P.vr = P.vT;
+      } else {
+        // a step: trapezoidal profile toward the target
+        const float vmax = precP[PP_VMAX], amax = precP[PP_AMAX];
+        const float eT = P.qT - P.qr;
+        float vd = sqrtf(2.0f * amax * fabsf(eT));
+        if (vd > vmax) vd = vmax;
+        vd = eT >= 0 ? vd : -vd;
+        P.vr += constrain(vd - P.vr, -amax * dt, amax * dt);
+        P.qr += P.vr * dt;
+        if (fabsf(P.qT - P.qr) < 2e-4f && fabsf(P.vr) < 0.05f) { P.qr = P.qT; P.vr = 0.0f; }
+      }
+      const float e = P.qT - mc.q[i];
+      const bool refDone = !streaming && P.qr == P.qT && P.vr == 0.0f;
+      const uint32_t nowUs = micros();
+      if (fabsf(v) < 1e-3f) { if (!P.stillSince) P.stillSince = nowUs; } else P.stillSince = 0;
+      const bool still = P.stillSince && nowUs - P.stillSince > 25000;   // 25 ms without a velocity count
+      if (P.stage == 0 && refDone && fabsf(e) < precP[PP_FINE] && still) P.stage = 1;
+      if (P.stage == 0) {
+        const float Ic = precIc(i), B = precB(i);
+        const float iFF = Ic * tanhf(P.vr / 0.15f) + B * P.vr;
+        iCmd = iFF + precP[PP_KP] * (P.qr - mc.q[i]) + precP[PP_KD] * (P.vr - v);
+      } else {
+        // FINE: impulse control
+        if (P.w0[0] <= 0.0f) P.w0[0] = precP[PP_W0];
+        if (P.pulseUntilUs && (int32_t)(nowUs - P.pulseUntilUs) < 0) {
+          iCmd = P.pulseSign * precP[PP_PULSE_MA];              // inside a pulse
+        } else {
+          P.pulseUntilUs = 0;
+          iCmd = 0.0f;
+          if (still) {
+            if (P.pulseJudge) {                                   // learn from the last pulse
+              const float moved = fabsf(mc.q[i] - P.pulseFromQ), want = P.pulseErr;
+              const float r = want > 1e-6f ? moved / want : 1.0f;
+              if (r > 1.4f) P.w0[0] *= 0.8f;                      // overshot: shorter
+              else if (r < 0.6f) P.w0[0] *= 1.2f;                 // fell short: longer
+              P.w0[0] = constrain(P.w0[0], 0.3f, 40.0f);
+              P.pulseJudge = false;
+            }
+            const float ae = fabsf(e);
+            if (ae > precP[PP_DB]) {
+              const float wMs = constrain(P.w0[0] * sqrtf(ae * (180.0f / PI)), 0.5f, 30.0f);
+              P.pulseSign = e > 0 ? 1.0f : -1.0f;
+              P.pulseFromQ = mc.q[i]; P.pulseErr = ae; P.pulseJudge = true;
+              P.pulseUntilUs = nowUs + (uint32_t)(wMs * 1000.0f);
+              P.stillSince = 0;
+              iCmd = P.pulseSign * precP[PP_PULSE_MA];
+            }
+          }
+        }
       }
     } else if (mc.mode == 4 && mc.seaArmed && mc.seaHaveJoint &&
                millis() - mc.seaJointMs <= 150 && mc.seaDir[i] != 0) {
@@ -1288,7 +1426,7 @@ void motorService() {
       // it died. De-energize instead, and latch it so re-engaging is deliberate.
       motorTorqueOff();
       mc.fault = true; mc.faultCause = 7;
-    } else if (mc.mode == 2 || mc.mode == 3) {
+    } else if (mc.mode == 2 || mc.mode == 3 || mc.mode == 5) {
       mc.mode = 1;                       // stale direct current is unsafe: blend law
       motorSeedSetpoints();              // [MERGE] and never against a stale setpoint
       mc.jogIndex = -1;
@@ -1414,7 +1552,8 @@ void handleMotorLine(const char* line) {
     case 'e': (a >= 0.5f) ? motorEnable() : motorTorqueOff(); break;
     // [MERGE] entering the blended law re-seeds the setpoint, so a mode change
     // can never hand the PD a target the horn has since moved away from.
-    case 'm': if (a >= 0 && a <= 4) {
+    case 'G': if (n >= 3 && a >= 0 && a < PP_N && b >= 0 && b < 1e5f) precP[(int)a] = b; break;
+    case 'm': if (a >= 0 && a <= 5) {
                 uint8_t want = (uint8_t)a;
                 if (want == 0) motorTorqueOff();
                 else {
@@ -1422,6 +1561,15 @@ void handleMotorLine(const char* line) {
                   if (want == 3) {
                     mc.jogIndex = -1; // zero until a following M,p selects one
                     mc.jogBoostMa = 0.0f; mc.jogErrSign = 0;
+                  }
+                  if (want == 5) {                  // start the planner where the horn IS
+                    for (uint8_t k = 0; k < N_MOTOR; k++) {
+                      mc.qSet[k] = mc.q[k];
+                      const float w = prec[k].w0[0];
+                      prec[k] = PrecState();
+                      prec[k].w0[0] = w;             // the learned impulse gain survives
+                      prec[k].qT = prec[k].qr = prec[k].qTprev = mc.q[k];
+                    }
                   }
                   if (want == 4) {
                     // Selecting SEA is harmless.  It stays at zero current until
@@ -1446,6 +1594,7 @@ void handleMotorLine(const char* line) {
               } break;
     case 'p': { int i = motorIdIndex((int)a); if (i >= 0 && n >= 3) {
                   mc.qSet[i] = b * PI / 180.0f;
+                  if (mc.mode == 5) precTarget((uint8_t)i, mc.qSet[i]);
                   if (mc.mode == 3) {
                     if (mc.jogIndex != i) { mc.jogBoostMa = 0.0f; mc.jogErrSign = 0; }
                     mc.jogIndex = i;
@@ -1498,7 +1647,13 @@ void handleMotorLine(const char* line) {
                        mc.seaDir[0] && mc.seaDir[1]) mc.seaArmed = true;
               break;
     case 'k': if (n >= 3 && a >= 0 && b >= 0) { mc.kp = min(a, 2000.0f); mc.kd = min(b, 100.0f); } break;
-    case 'f': if (n >= 3 && a >= 0 && b >= 0) { mc.frV = min(a, 50.0f); mc.frC = min(b, 60.0f); } break;
+    // M,f,<visc>,<coul>: both motors' friction model (the transparency law and
+    // mode 5 share it); M,G,3..6 set them per motor
+    case 'f': if (n >= 3 && a >= 0 && b >= 0) {
+                precP[PP_B1] = precP[PP_B2] = min(a, 50.0f);
+                precP[PP_IC1] = precP[PP_IC2] = min(b, 40.0f);
+              } break;
+    case 'T': if (n >= 2 && a >= 0) mc.trK = min(a, 1.0f); break;   // transparency fraction
     case 's': motorStats(); break;
     case 'u': motorUpgrade(); break;
     case 'b': motorBench(n >= 2 ? (uint16_t)a : 2000); break;

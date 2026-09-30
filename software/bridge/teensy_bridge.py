@@ -3755,7 +3755,8 @@ def parse_s_line(line):
                          "torque": bool(mf & 2), "mode": (mf >> 2) & 7,
                          # v13 moves fault from bit 4 to bit 5 because bit 4
                          # now represents mode 4 (the two-independent-DOF SEA loop).
-                         "fault": bool((mf & 32) or ((mf & 16) and ((mf >> 2) & 7) != 4)), "m": {}}
+                         "fault": bool(mf & 32) if _fw.get("version", 0) >= 14 else
+                                  bool((mf & 32) or ((mf & 16) and ((mf >> 2) & 7) != 4)), "m": {}}
             for _k in range(N_MOT_FW):
                 _b = MOT_BASE + 3 * _k
                 motors_fw["m"][_k + 1] = {"pos": float(p[_b]), "vel": float(p[_b + 1]),
