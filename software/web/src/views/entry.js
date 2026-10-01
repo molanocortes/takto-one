@@ -80,7 +80,7 @@ const STORY = [
 // A preprint CTA sat here and is removed in this release: it pointed into
 // assets/docs/, which is not distributed. Add it back only when there is a
 // published paper to point at, and prefer a DOI to a bundled PDF.
-const MAIL = "mailto:sebastian.molano.29@gmail.com";
+const MAIL = "mailto:sebastianmolano.eng@gmail.com";
 const BUILD_GUIDE_URL = "../../docs/build-guide.pdf";
 const PROOF_CTAS = [
   { href: "https://github.com/molanocortes/takto-one", ext: true },

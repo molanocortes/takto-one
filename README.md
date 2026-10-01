@@ -500,7 +500,7 @@ interesting problems are still unclaimed.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). Open an issue with questions, ideas, or photos of
 your build; showing what you made is always welcome. For anything that does not belong in a
-public issue, write to [sebastian.molano.29@gmail.com](mailto:sebastian.molano.29@gmail.com).
+public issue, write to [sebastianmolano.eng@gmail.com](mailto:sebastianmolano.eng@gmail.com).
 
 ## License
 
@@ -518,5 +518,5 @@ ONE; just give your own version its own name. Details in [`LICENSE.md`](LICENSE.
 
 <div align="center">
 <sub>Designed and built by Sebastian Molano · Hochschule Anhalt · Made in Germany<br>
-<a href="mailto:sebastian.molano.29@gmail.com">sebastian.molano.29@gmail.com</a></sub>
+<a href="mailto:sebastianmolano.eng@gmail.com">sebastianmolano.eng@gmail.com</a></sub>
 </div>
