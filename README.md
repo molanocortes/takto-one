@@ -11,6 +11,10 @@ itself and pulls them back through tendons, with the control loop on the device,
 instrument: every motion measured, recorded, and answered with force. This repository is
 every file needed to build one.
 
+**[takto.one](https://takto.one)**, the official website: the device in 360°, the live digital
+twin and the console, right in your browser.
+
+[![Website: takto.one](https://img.shields.io/badge/website-takto.one-2F76BF.svg)](https://takto.one)
 [![Software: Apache-2.0](https://img.shields.io/badge/software-Apache--2.0-blue.svg)](LICENSE.md)
 [![Hardware: CERN-OHL-S-2.0](https://img.shields.io/badge/hardware-CERN--OHL--S--2.0-orange.svg)](LICENSE.md)
 [![Docs: CC-BY-4.0](https://img.shields.io/badge/docs-CC--BY--4.0-lightgrey.svg)](LICENSE.md)
@@ -214,6 +218,22 @@ frame budget and the flashing runbook are in
 
 ---
 
+## The website
+
+**[takto.one](https://takto.one)** is the official home of TAKTO ONE: the public front end from
+[`software/web/`](software/web/), live. Turn the device through 360°, walk through the six parts
+that make it, read every spec, spin the digital twin and open the operator console, all in the
+browser and none of it needing hardware. Without a device the console runs a clearly labelled
+simulation; it talks to a real TAKTO ONE only on your own machine, and only when you connect it.
+
+- **English, German and Spanish.**
+- **Private by design.** No cookies, no analytics, no trackers. The camera modes ask before
+  anything loads from a third party, and the video never leaves the browser.
+- **Fast.** Served from Cloudflare's edge over HTTP/3. The console's code loads only when you
+  open it, and the twin's 3D model is baked and compressed for the web.
+
+---
+
 ## The browser surfaces
 
 There are four of them and they all read the same stream: the front end and the console
@@ -396,7 +416,8 @@ with a machine-readable copy in [`docs/bom.csv`](docs/bom.csv).
 ## Start here
 
 Clone to a moving hand in under a minute: the console opens in simulation, so you can explore
-the whole stack before you print a single part.
+the whole stack before you print a single part. (No clone needed just to look around:
+[takto.one](https://takto.one) runs the same twin and console in your browser.)
 
 ```bash
 git clone https://github.com/molanocortes/takto-one.git
