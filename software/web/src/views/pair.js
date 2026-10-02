@@ -26,7 +26,7 @@ export function mountPair(rootHost) {
     canvas, urlLine,
     el("p", { style: "max-width:440px;color:var(--text-2);font-size:14px;line-height:1.6" },
       "In the app: Settings, then “Pair by QR”. Phone and this machine must share the same Wi-Fi."),
-    el("a", { href: "#/", style: "color:var(--accent)" }, "← back"));
+    el("a", { href: "#/operator", style: "color:var(--accent)" }, "← Console"));
   rootHost.append(root);
 
   let drawn = null;

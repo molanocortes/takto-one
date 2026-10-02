@@ -135,7 +135,7 @@ export function mountJog(rootHost) {
 
   const root = el("div", { class: "jg" },
     el("div", { class: "jg-head" },
-      el("a", { class: "jg-back", href: "#/" }, "← back"),
+      el("a", { class: "jg-back", href: "#/operator" }, "← Console"),
       el("h1", { class: "jg-title" }, "Motor jog"),
       el("div", { class: "jg-chips" }, chips.bus, chips.torque, chips.band)),
     el("p", { class: "jg-sub" },

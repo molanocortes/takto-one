@@ -8,11 +8,13 @@
 
 import * as THREE from "../vendor/three.module.js";
 import { GLTFLoader } from "../vendor/GLTFLoader.js";
+import { MeshoptDecoder } from "../vendor/meshopt_decoder.module.js";
 import { toCreasedNormals } from "../vendor/BufferGeometryUtils.js";
 import { clamp, lerp, reducedMotion } from "./ui.js";
 import { getTheme } from "./theme.js";
 import { fingerPose, spoolAngleDeg, SPOOL_STATIONS, THUMB_POD_ANCHOR_MM } from "./kinematics.js";
 import { fitSphereDistance } from "./camera_framing.js";
+import { WRIST_PIVOT_MM, NEUTRAL_WRIST_M, HAND_PALM_M, L_FA_M, synthBody, qValid } from "./arm_model.js";
 
 const FINGERS = ["index", "middle", "ring", "pinky"];
 // Mechanism DOF per finger, palm outward: MCP abduction (left/right),
@@ -21,10 +23,45 @@ const FINGERS = ["index", "middle", "ring", "pinky"];
 // (kinematics.js): rotations AND translations both, per the real mechanism.
 const D2R = Math.PI / 180;
 const MODEL_SCALE = 0.013;          // mm -> scene units (device ~4.4 units long)
+const ARM_S = MODEL_SCALE * 1000;   // m -> scene units (13 units per metre)
+// "arm in space" stage (MOTION_PIPELINE.md section 7): the body frame is
+// drawn in scene units with the NEUTRAL wrist at the scene origin, so a
+// neutral arm sits exactly where the pinned twin always stood.
+const ARM_DEAD_M = 0.07;          // arm view: how far the device moves before the aim follows (m)
+const FLOOR_Y_M = -0.70;            // reference grid, below a hanging arm + hand
+const VIEW_KEY = "takto.twin.view"; // remembered "arm" | "hand" choice
+// Behind the wearer's right shoulder, looking forward along the arm (body +Z):
+// the twin turns the way the wearer sees their own arm turn. [2026-09-29] The
+// first framing (yaw -1.2) sat at the wearer's right, slightly IN FRONT and
+// looking back: a roll made clockwise looked counterclockwise on screen.
+const ARM_FRAMING = { yaw: Math.PI + 0.8, pitch: 0.62, dist: 12.5 };
+const FINGER_GHOST_OPACITY = 0.26;  // a finger whose encoder channel is dead
 
-const HAND_ASSET_VERSION = 20;   // bump when zero_hand.glb is rebuilt (busts HTTP
+const HAND_ASSET_VERSION = 21;   // bump when zero_hand.web.glb is rebuilt (busts HTTP
                                  // cache) - AND update the <link rel="preload">
                                  // in index.html, which carries the same ?v=
+
+// The web hand is zero_hand.glb prepared offline by tools/bake-web-glb.mjs:
+// creased normals baked in (the 600k-vertex pass below no longer runs in the
+// visitor's browser) and meshopt-compressed, 3.6 MB -> 2.0 MB. It also ships
+// gzipped (1.5 MB): the CDN compresses text, never model files.
+const handUrl = (ext) => new URL(`../assets/zero_hand.web.${ext}?v=${HAND_ASSET_VERSION}`, import.meta.url).href;
+async function fetchHand() {
+  if (typeof DecompressionStream === "function") {
+    try {
+      const res = await fetch(handUrl("glb.gz"));
+      if (res.ok) {
+        const raw = new Uint8Array(await res.arrayBuffer());
+        // a host that already decoded it (Content-Encoding) hands back the GLB
+        if (raw[0] !== 0x1f || raw[1] !== 0x8b) return raw.buffer;
+        return await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+      }
+    } catch (_) { /* the plain file below */ }
+  }
+  const res = await fetch(handUrl("glb"));
+  if (!res.ok) throw new Error(`hand model: HTTP ${res.status}`);
+  return res.arrayBuffer();
+}
 
 let _gltfPromise = null;
 // exported for the replay surface: ONE cached parse of the hand GLB serves the
@@ -32,8 +69,8 @@ let _gltfPromise = null;
 export function loadHand() {
   if (!_gltfPromise) {
     const loader = new GLTFLoader();
-    _gltfPromise = loader.loadAsync(
-      new URL(`../assets/zero_hand.glb?v=${HAND_ASSET_VERSION}`, import.meta.url).href);
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    _gltfPromise = fetchHand().then((buf) => loader.parseAsync(buf, ""));
   }
   return _gltfPromise;
 }
@@ -62,6 +99,8 @@ const shadowDiscTexture = () => radialTexture([
 // That removes the mount hitch that made surface transitions feel laggy.
 let _shared = null;
 
+const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
 export class Twin {
   static acquire(container, opts = {}) {
     if (!_shared) _shared = new Twin(container, opts);
@@ -82,6 +121,20 @@ export class Twin {
     this._frameSphere = new THREE.Sphere();
     this._t = 0;
     this._disposed = false;
+    // view: "arm" = the arm in space (body frame, translating, limb + grid),
+    // "hand" = the classic pinned twin (orientation only). Only surfaces that
+    // pass armView:true offer the arm; the choice is remembered.
+    let v = null;
+    try { v = localStorage.getItem(VIEW_KEY); } catch (_) {}
+    this._view = v === "hand" ? "hand" : "arm";
+    this._armK = 0;                     // 0 = pinned placement, 1 = body placement (eased)
+    this._camByView = {};               // per-view yaw/pitch/dist the user left behind
+    this._follow = new THREE.Vector3();
+    this._followInit = false;
+    this._vA = new THREE.Vector3(); this._vB = new THREE.Vector3(); this._vC = new THREE.Vector3();
+    this._qA = new THREE.Quaternion(); this._qB = new THREE.Quaternion();
+    this._trailT = 0;
+    this._armInfo = null;               // what the last arm frame drew (for HUDs / tests)
     this._qTmp = new THREE.Quaternion();
     this._xAxis = new THREE.Vector3(1, 0, 0);
     this._yAxis = new THREE.Vector3(0, 1, 0);
@@ -138,6 +191,21 @@ export class Twin {
     };
     this._manualCameraUntil = 0;
     this._autoFrameNext = 0;
+    // screen insets (px) covered by floating UI: the camera centres the twin in
+    // what is left. A surface that sets none gets the whole canvas.
+    this._insT = { left: 0, right: 0, top: 0, bottom: 0 };
+    if (!this._ins) this._ins = { ...this._insT };
+    this._frameBaseView = { yaw: this.opts.yaw, pitch: this.opts.pitch, dist: this.opts.dist };
+    this._camByView = {};
+    this._followInit = false;
+    this._armZoomManual = false;
+    if (this._armActive()) {
+      const f = { ...ARM_FRAMING, ...(this.opts.armFraming || {}) };
+      this._yaw = this._tyaw = f.yaw;
+      this._pitch = this._tpitch = f.pitch;
+      this._dist = this._tdist = f.dist;
+    }
+    this._armK = this._armActive() ? 1 : 0;   // a surface lands on its view, no ease on mount
     this.setReveal(this.opts.reveal, true);
     this.setCover(this.opts.cover ?? 1, true);   // non-story surfaces: closed machine
     this.setFocus(this.opts.focus ?? 0, true);
@@ -161,25 +229,31 @@ export class Twin {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(34, w / h, 0.1, 60);
 
-    // environment: a small procedural studio for the metal to live in
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    const env = new THREE.Scene();
-    env.background = new THREE.Color(0xAAB7C5);   // neutral studio tone
-    const strip = (sw, sh, color, intensity, pos) => {
-      const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(sw, sh),
-        new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity), side: THREE.DoubleSide })
-      );
-      m.position.set(...pos);
-      m.lookAt(0, 0, 0);
-      env.add(m);
-    };
-    strip(14, 6, 0xDCE6F0, 5.2, [0, 9, 2]);      // neutral top key
-    strip(10, 7, 0xB9C7D5, 2.4, [-10, 2, -3]);   // neutral fill
-    strip(10, 7, 0x8CA0B7, 2.8, [10, 3, 2]);     // restrained cool side
-    strip(12, 9, 0x9BAABA, 1.8, [0, -8, 4]);     // neutral floor bounce
-    this.scene.environment = pmrem.fromScene(env, 0.06).texture;
-    pmrem.dispose();
+    // environment: a small procedural studio for the metal to live in. It is
+    // built one task AFTER the renderer: on a phone each is >100 ms of main
+    // thread, and together they were one long stall. Only the rig's metal
+    // reads it, and _buildRig waits for it before compiling.
+    this._envReady = new Promise((resolve) => setTimeout(() => {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      const env = new THREE.Scene();
+      env.background = new THREE.Color(0xAAB7C5);   // neutral studio tone
+      const strip = (sw, sh, color, intensity, pos) => {
+        const m = new THREE.Mesh(
+          new THREE.PlaneGeometry(sw, sh),
+          new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity), side: THREE.DoubleSide })
+        );
+        m.position.set(...pos);
+        m.lookAt(0, 0, 0);
+        env.add(m);
+      };
+      strip(14, 6, 0xDCE6F0, 5.2, [0, 9, 2]);      // neutral top key
+      strip(10, 7, 0xB9C7D5, 2.4, [-10, 2, -3]);   // neutral fill
+      strip(10, 7, 0x8CA0B7, 2.8, [10, 3, 2]);     // restrained cool side
+      strip(12, 9, 0x9BAABA, 1.8, [0, -8, 4]);     // neutral floor bounce
+      this.scene.environment = pmrem.fromScene(env, 0.06).texture;
+      pmrem.dispose();
+      resolve();
+    }, 0));
 
     // lights
     const key = new THREE.DirectionalLight(0xeaf2ff, 3.0);
@@ -261,6 +335,7 @@ export class Twin {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.set(0, -1.52, -0.3);
     this.scene.add(shadow);
+    this._shadow = shadow;
     const disc = new THREE.Mesh(
       new THREE.PlaneGeometry(3.4, 3.4),
       new THREE.MeshBasicMaterial({ map: glowDiscTexture(), transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending })
@@ -270,11 +345,165 @@ export class Twin {
     this.scene.add(disc);
     this._disc = disc;
 
+    this._buildArmStage();
+    // the stage's own programs link off the frame loop (KHR_parallel_shader_
+    // compile): the first frame no longer compiles them synchronously, which
+    // was the twin's longest single frame on a phone
+    this._stageReady = false;
+    this.renderer.compileAsync(this.scene, this.camera).catch(() => {}).then(() => { this._stageReady = true; });
+
     this._ro = new ResizeObserver(() => this._resize());
     this._ro.observe(this.container);
   }
 
+  // The "arm in space" stage: a faint limb (upper arm shoulder -> elbow,
+  // forearm elbow -> wrist, joint balls), the bone line, a short hand trail,
+  // and a world-fixed reference grid below the arm, so shoulder motion and
+  // arm translation read at a glance. All of it is quiet by design: the
+  // device stays the subject; this is the ruler it moves against.
+  _buildArmStage() {
+    const st = this.armStage = new THREE.Group();
+    st.visible = false;
+    this.scene.add(st);
+    const limbMat = this._matLimb = new THREE.MeshStandardMaterial({
+      color: 0x8FA6BF, roughness: 0.65, metalness: 0.0, transparent: true, opacity: 0.2,
+      depthWrite: false,
+    });
+    const jointMat = this._matJoint = new THREE.MeshStandardMaterial({
+      color: 0x8FA6BF, roughness: 0.5, metalness: 0.0, transparent: true, opacity: 0.32,
+      depthWrite: false,
+    });
+    // unit-length cylinders along +Y, scaled/oriented per frame
+    const cyl = (rTop, rBot) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, 1, 28, 1, true), limbMat);
+      m.renderOrder = 1;
+      st.add(m);
+      return m;
+    };
+    this._limbUpper = cyl(0.034 * ARM_S, 0.040 * ARM_S);   // elbow end narrower
+    this._limbFore = cyl(0.024 * ARM_S, 0.032 * ARM_S);    // wrist end narrower
+    const ball = (r) => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 16), jointMat);
+      m.renderOrder = 1;
+      st.add(m);
+      return m;
+    };
+    this._jShoulder = ball(0.044 * ARM_S);
+    this._jElbow = ball(0.034 * ARM_S);
+    // the bones: shoulder -> elbow -> wrist, a crisp accent line inside the limb
+    const boneGeo = new THREE.BufferGeometry();
+    boneGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    this._bones = new THREE.Line(boneGeo, new THREE.LineBasicMaterial({
+      color: 0x2F76BF, transparent: true, opacity: 0.55, depthWrite: false }));
+    this._bones.frustumCulled = false;
+    st.add(this._bones);
+    // hand trail: the last ~3 s of the palm centre, fading with age
+    const N = this._trailN = 96;
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+    tg.setAttribute("color", new THREE.BufferAttribute(new Float32Array(N * 4), 4));
+    this._trail = new THREE.Line(tg, new THREE.LineBasicMaterial({
+      vertexColors: true, transparent: true, depthWrite: false }));
+    this._trail.frustumCulled = false;
+    this._trailPts = [];
+    st.add(this._trail);
+    // world-fixed reference grid (lines from world position, faded radially
+    // around the followed point: an "infinite" floor that never swims)
+    const gridMat = this._matGrid = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false,
+      uniforms: {
+        uColor: { value: new THREE.Color(0x16181C) },
+        uAccent: { value: new THREE.Color(0x2F76BF) },
+        uOpacity: { value: 0.22 },
+        uCell: { value: 0.1 * ARM_S },                 // 10 cm cells
+        uCenter: { value: new THREE.Vector2(0, 0) },
+        uFade: { value: 1.1 * ARM_S },                 // fades out ~1.1 m from the hand
+      },
+      vertexShader: `
+        varying vec3 vW;
+        void main() {
+          vec4 w = modelMatrix * vec4(position, 1.0);
+          vW = w.xyz;
+          gl_Position = projectionMatrix * viewMatrix * w;
+        }`,
+      fragmentShader: `
+        uniform vec3 uColor; uniform vec3 uAccent; uniform float uOpacity;
+        uniform float uCell; uniform vec2 uCenter; uniform float uFade;
+        varying vec3 vW;
+        float gridLine(vec2 c) {
+          vec2 d = abs(fract(c - 0.5) - 0.5) / fwidth(c);
+          return 1.0 - min(min(d.x, d.y), 1.0);
+        }
+        void main() {
+          vec2 c = vW.xz / uCell;
+          float minor = gridLine(c) * 0.55;
+          float major = gridLine(c / 5.0);
+          float g = max(minor, major);
+          float r = length(vW.xz - uCenter);
+          float fade = 1.0 - smoothstep(uFade * 0.35, uFade, r);
+          // the body's sagittal line (x = shoulder) in accent: "forward" reads
+          float axis = 1.0 - min(abs(vW.x) / fwidth(vW.x), 1.0);
+          vec3 col = mix(uColor, uAccent, axis);
+          float a = max(g, axis * 0.9) * fade * uOpacity;
+          if (a < 0.003) discard;
+          gl_FragColor = vec4(col, a);
+        }`,
+    });
+    const grid = this._grid = new THREE.Mesh(new THREE.PlaneGeometry(4 * ARM_S, 4 * ARM_S), gridMat);
+    grid.rotation.x = -Math.PI / 2;
+    grid.position.y = (FLOOR_Y_M - NEUTRAL_WRIST_M[1]) * ARM_S;
+    grid.renderOrder = 0;
+    st.add(grid);
+    this._applyArmTheme();
+  }
+
+  _applyArmTheme() {
+    if (!this._matLimb) return;
+    const dark = this._theme === "dark";
+    this._matLimb.color.setHex(dark ? 0x9DB6D2 : 0x7E95AE);
+    this._matLimb.opacity = dark ? 0.16 : 0.2;
+    this._matJoint.color.setHex(dark ? 0xB5C9DF : 0x7E95AE);
+    this._bones.material.color.setHex(dark ? 0x5BA8F5 : 0x2F76BF);
+    this._matGrid.uniforms.uColor.value.setHex(dark ? 0xCCDCF0 : 0x16181C);
+    this._matGrid.uniforms.uAccent.value.setHex(dark ? 0x5BA8F5 : 0x2F76BF);
+    this._matGrid.uniforms.uOpacity.value = dark ? 0.2 : 0.22;
+    this._trailColor = dark ? [0.36, 0.66, 0.96] : [0.18, 0.46, 0.75];
+  }
+
+  _armActive() { return !!(this.opts && this.opts.armView) && this._view === "arm"; }
+
+  /** "arm" | "hand" for this surface (a surface without armView is always "hand"). */
+  get view() { return this.opts && this.opts.armView ? this._view : "hand"; }
+
+  /** Switch between the arm in space and the classic pinned hand; remembered. */
+  setView(v) {
+    v = v === "hand" ? "hand" : "arm";
+    if (v === this._view) return;
+    this._camByView[this._view] = { yaw: this._tyaw, pitch: this._tpitch, dist: this._tdist };
+    this._view = v;
+    try { localStorage.setItem(VIEW_KEY, v); } catch (_) {}
+    if (!this.opts.armView) return;
+    const f = this._camByView[v] ||
+      (v === "arm" ? { ...ARM_FRAMING, ...(this.opts.armFraming || {}) } : this._frameBaseView);
+    this._tyaw = f.yaw; this._tpitch = f.pitch; this._tdist = f.dist;
+    if (v === "hand") {
+      this.opts.targetX = this._frameBase.x;
+      this.opts.targetY = this._frameBase.y;
+      this.opts.targetZ = this._frameBase.z;
+    }
+    this._followInit = false;
+    this._armZoomManual = false;
+    this._trailPts.length = 0;
+    this._manualCameraUntil = 0;
+    this._autoFrameNext = 0;
+  }
+
+  /** Snapshot of what the arm stage drew last frame (tests, HUDs). */
+  armInfo() { return this._armInfo; }
+
   async _buildRig(gltf) {
+    await this._envReady;                 // the metal compiles against the studio
+    if (this._disposed) return;
     const model = gltf.scene.clone(true);
 
     // creased smooth normals: curved surfaces shade smoothly (no visible
@@ -285,7 +514,10 @@ export class Twin {
     // the GLB happened to finish loading. Processing per-mesh in ~8 ms
     // slices keeps every frame under budget; the rig simply becomes ready
     // a few frames later, which nothing can see (it fades in regardless).
+    // The web model arrives with this pass already baked (tools/bake-web-glb.mjs
+    // marks it with a takto_creased_32 node); any other drop still gets it here.
     const CREASE = THREE.MathUtils.degToRad(32);
+    const baked = !!model.getObjectByName("takto_creased_32");
     const meshes = [];
     model.traverse((o) => { if (o.isMesh) meshes.push(o); });
     // yield to the frame loop; the timeout fallback keeps a hidden tab
@@ -295,10 +527,12 @@ export class Twin {
     });
     let sliceT0 = performance.now();
     for (const o of meshes) {
-      if (performance.now() - sliceT0 > 8) { await yieldSlice(); sliceT0 = performance.now(); }
-      if (this._disposed) return;
-      let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
-      o.geometry = toCreasedNormals(g, CREASE);
+      if (!baked) {
+        if (performance.now() - sliceT0 > 8) { await yieldSlice(); sliceT0 = performance.now(); }
+        if (this._disposed) return;
+        let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+        o.geometry = toCreasedNormals(g, CREASE);
+      }
       if (o.name.startsWith("spool_")) o.material = this._matSpool;
       else if (o.name === "screen") { o.material = this._matScreen; this._screenMesh = o; }
       else if (o.name === "forearm_cover") o.material = this._matCover;
@@ -336,18 +570,28 @@ export class Twin {
     // Anatomical wrist pivot: the hand must rotate about the WRIST, not the
     // model origin, so wrist articulation also TRANSLATES the hand exactly as
     // the real one moves (IMUs converge when the wrist flexes). The pivot is
-    // the proximal end of the hand assembly (fingers point +Z), found from
-    // the palm geometry so it survives GLB re-exports.
-    this.root.updateMatrixWorld(true);
-    {
-      const bb = new THREE.Box3().setFromObject(handScaler);
-      if (!bb.isEmpty()) {
-        const cx = (bb.min.x + bb.max.x) / 2, cy = (bb.min.y + bb.max.y) / 2;
-        const wz = bb.min.z + (bb.max.z - bb.min.z) * 0.04;   // just inside the wrist edge
-        this._wristPivot = new THREE.Vector3(cx, cy, wz);
-        this.handGroup.position.copy(this._wristPivot);
-        handScaler.position.copy(this._wristPivot).negate();  // identity pose unchanged
-      }
+    // the measured one (arm_model.js WRIST_PIVOT_MM, derived from the bridge's
+    // lever arms and the GLB), no longer the hand's bounding box, which put it
+    // ~27 mm too far toward the fingers.
+    this._wristPivot = new THREE.Vector3(...WRIST_PIVOT_MM).multiplyScalar(MODEL_SCALE);
+    this.handGroup.position.copy(this._wristPivot);
+    handScaler.position.copy(this._wristPivot).negate();  // identity pose unchanged
+    this._buildCables(scaler, handScaler);
+
+    // dead-channel ghosting: every mesh of each finger (the abduction node's
+    // whole subtree), so a finger whose encoder is dead reads as absent
+    this._fingerMeshes = {};
+    this._fingerGhost = {};
+    this._matGhost = new THREE.MeshStandardMaterial({
+      color: 0x9AA7B6, roughness: 0.6, metalness: 0, transparent: true,
+      opacity: FINGER_GHOST_OPACITY, depthWrite: false,
+    });
+    for (const f of FINGERS) {
+      const n = palm.getObjectByName(`${f}_mcp`);
+      const list = [];
+      if (n) n.traverse((o) => { if (o.isMesh) list.push({ mesh: o, mat: o.material }); });
+      this._fingerMeshes[f] = list;
+      this._fingerGhost[f] = false;
     }
 
     // forearm reveal rig: the hero can open on the hand alone and let the
@@ -552,7 +796,7 @@ export class Twin {
       if (!this._dragging) return;
       this._tyaw += (e.clientX - this._px) * 0.006;
       if (this.opts.orbit) {   // spin mode is yaw-only: a simple turntable
-        this._tpitch = clamp(this._tpitch + (e.clientY - this._py) * 0.005, -0.15, 1.1);
+        this._tpitch = clamp(this._tpitch + (e.clientY - this._py) * 0.005, -0.15, 1.38);
       }
       this._px = e.clientX; this._py = e.clientY;
       this._manualCameraUntil = performance.now();
@@ -564,11 +808,13 @@ export class Twin {
       if (this.opts.orbit || this.opts.spin) c.style.cursor = "grab";
     };
     c.addEventListener("pointerup", up);
+    c.addEventListener("dblclick", () => { if (this.opts.orbit) this.recenter(); });
     c.addEventListener("pointercancel", up);
     c.addEventListener("wheel", (e) => {
       if (!this.opts.orbit) return;
       e.preventDefault();
-      this._tdist = clamp(this._tdist + e.deltaY * 0.004, 3.0, 9.5);
+      this._tdist = clamp(this._tdist + e.deltaY * 0.004, 3.0, this._armActive() ? 22 : Math.max(9.5, this.opts.autoFrameMaxDist || 0));
+      if (this._armActive()) this._armZoomManual = true;
       this._manualCameraUntil = performance.now() + 450;
       this._autoFrameNext = 0;
     }, { passive: false });
@@ -587,6 +833,7 @@ export class Twin {
   // sm = store.smooth; call every animation frame
   render(sm, dt = 16) {
     if (this._disposed || !this.container || !this.renderer.domElement.isConnected) return;
+    if (!this._stageReady) return;        // programs still linking (a beat after construction)
     this._t += dt / 1000;
     const t = this._t;
 
@@ -681,35 +928,30 @@ export class Twin {
       // host reports motors; else derived from the encoder joint angles)
       if (this._spools) {
         const md = this._motorsDeg || (this._motorsDeg = {});
-        for (const id in md) if (!(id in sm.motors)) delete md[id];  // vanished motor: stop driving its spool
-        for (const id in sm.motors) md[id] = sm.motors[id].pos;
+        // surfaces that synthesise their own frame state (mirror) may carry no
+        // motors map at all; `id in undefined` threw every frame there
+        const motors = sm.motors || {};
+        for (const id in md) if (!(id in motors)) delete md[id];  // vanished motor: stop driving its spool
+        for (const id in motors) md[id] = motors[id].pos;
         for (const s of this._spools) {
           this._qTmp.setFromAxisAngle(this._yAxis, spoolAngleDeg(s.name, poses, md) * D2R);
           s.node.quaternion.copy(s.baseQuat).multiply(this._qTmp);
         }
       }
-      // orientations: forearm absolute, hand relative to forearm. The bridge's
-      // rel.quat is mounting-corrected and projected onto the anatomical wrist
-      // envelope; old/mock sources without it retain the absolute-quat fallback.
-      this._qf.set(sm.forearmQuat[1], sm.forearmQuat[2], sm.forearmQuat[3], sm.forearmQuat[0]);
-      this._qh.set(sm.handQuat[1], sm.handQuat[2], sm.handQuat[3], sm.handQuat[0]);
-      this.forearmGroup.quaternion.copy(this._qf);
-      if (sm.wristQuat) {
-        const wr = sm.wristQuat;
-        this._q.set(wr[1], wr[2], wr[3], wr[0]);
-      } else {
-        this._q.copy(this._qf).invert().multiply(this._qh);
+      // dead encoder channels: ghost the whole finger (the store already holds
+      // its joints at a relaxed neutral instead of the bridge's 0.0 zero-fill)
+      if (this._fingerMeshes) {
+        const ok = sm.jointOk || {};
+        for (const f of FINGERS) {
+          const dead = ok[`${f}_mcp`] === false || ok[`${f}_pip`] === false || ok[`${f}_dip`] === false;
+          if (dead === this._fingerGhost[f]) continue;
+          this._fingerGhost[f] = dead;
+          for (const m of this._fingerMeshes[f]) m.mesh.material = dead ? this._matGhost : m.mat;
+        }
       }
-      this.handGroup.quaternion.copy(this._q);
 
-      // The wrist pivot is a mechanical connection, so it stays attached to
-      // the forearm. Rotating the hand about this pivot already produces the
-      // real distal side-to-side displacement. Translating the whole hand by
-      // the hand-IMU lever-arm delta moved the pivot a second time, opening gaps
-      // and driving the meshes through each other. rel.pos_mm remains useful
-      // telemetry, but it is not a free translational wrist DoF.
-      if (this._wristPivot) this.handGroup.position.copy(this._wristPivot);
-
+      this._poseArm(sm, dt);
+      this._updateCables();
       const a = sm.activation.level || 0;
       this._jewel.material.emissiveIntensity = (0.5 + a * 2.6) * em.jewel;
       // Spool emphasis remains a restrained material cue, never a light bloom.
@@ -719,11 +961,16 @@ export class Twin {
       this._rim.intensity = 22 + a * 18;
     }
 
-    // idle float
+    // idle float (the pinned hand only: the arm in space is measured position,
+    // and a decorative bob there would read as motion that never happened)
+    const armK = this._armK;
     if (this.opts.idle && !reducedMotion()) {
-      this.root.position.y = Math.sin(t * 0.6) * 0.045;
-      this.root.rotation.z = Math.sin(t * 0.4) * 0.012;
+      this.root.position.y = Math.sin(t * 0.6) * 0.045 * (1 - armK);
+      this.root.rotation.z = Math.sin(t * 0.4) * 0.012 * (1 - armK);
       if (!this._dragging && this.opts.idleSpin) this._tyaw += dt * 0.000045;
+    } else {
+      this.root.position.y = 0;
+      this.root.rotation.z = 0;
     }
 
     // Smart framing is deliberately opt-in for the live cockpit. At 10 Hz it
@@ -733,7 +980,48 @@ export class Twin {
     // these updates; yaw and pitch are never touched, so the camera does not
     // wrestle control away from the operator.
     const frameNow = performance.now();
-    if (this.opts.autoFrame && this._rigReady && !this._dragging &&
+    if (this._armActive() && this._armInfo) {
+      // arm in space: the aim FOLLOWS the arm (mostly the hand, some elbow and
+      // shoulder so the limb stays readable), eased on its own slower filter so
+      // the camera glides rather than chases. The user's orbit and zoom stay
+      // theirs; only the aim point moves.
+      const fk = this._followInit ? 1 - Math.exp(-dt / 320) : 1;
+      this._follow.lerp(this._armInfo.focus, fk);
+      this.opts.targetX = this._follow.x;
+      this.opts.targetY = this._follow.y;
+      this.opts.targetZ = this._follow.z;
+      // distance: fit a sphere holding the hand (plus the device's reach), the
+      // wrist, the elbow and the lower half of the upper arm, so the hand never
+      // leaves the frame; a manual zoom (wheel) takes over until the view resets
+      if (!this._armZoomManual && frameNow >= this._autoFrameNext) {
+        this._autoFrameNext = frameNow + 100;
+        const i = this._armInfo, f = this._follow;
+        // [round 3] frame the DEVICE, not the arm's reach: its own sphere
+        // (elbow end to fingertips, ~0.22 m) plus the aim's dead zone, as a
+        // constant, so the distance does not breathe with the motion either.
+        // The old 0.62 m reach envelope left the device a small object low in
+        // the frame (owner: "improve the camera centering of the console")
+        let r = this.opts.armFollow ? 0 : (0.22 + ARM_DEAD_M) * ARM_S;
+        const reach = (p, pad) => {
+          const NW = NEUTRAL_WRIST_M;
+          const dx = (p[0] - NW[0]) * ARM_S - f.x, dy = (p[1] - NW[1]) * ARM_S - f.y, dz = (p[2] - NW[2]) * ARM_S - f.z;
+          r = Math.max(r, Math.hypot(dx, dy, dz) + pad * ARM_S);
+        };
+        if (this.opts.armFollow) {
+        reach(i.hand, 0.06);
+        reach(i.tip, 0.04);
+        reach(i.wrist, 0.05);
+        reach(i.elbow, 0.05);
+        reach(i.shoulder.map((v, k) => (v + i.elbow[k]) / 2), 0.03);
+        }
+        const fv = this._freeView();
+        const d = fitSphereDistance(r, fv.fov, fv.aspect,
+          { margin: 1.06, min: 6.5, max: 22, fallback: this._tdist });
+        this._tdist = this._followInit ? lerp(this._tdist, d, 0.35) : d;
+        if (!this._followInit) this._dist = d;
+      }
+      this._followInit = true;
+    } else if (this.opts.autoFrame && this._rigReady && !this._dragging &&
         frameNow >= this._manualCameraUntil && frameNow >= this._autoFrameNext) {
       this._autoFrameNext = frameNow + 100;
       this.root.updateMatrixWorld(true);
@@ -746,8 +1034,9 @@ export class Twin {
         this.opts.targetX = clamp(centre.x, base.x - shift, base.x + shift);
         this.opts.targetY = clamp(centre.y, base.y - shift, base.y + shift);
         this.opts.targetZ = clamp(centre.z, base.z - shift, base.z + shift);
+        const fv = this._freeView();
         this._tdist = fitSphereDistance(
-          this._frameSphere.radius, this.camera.fov, this.camera.aspect,
+          this._frameSphere.radius, fv.fov, fv.aspect,
           { margin: this.opts.autoFrameMargin ?? 1.16,
             min: this.opts.autoFrameMinDist ?? Math.max(3, base.dist * 0.76),
             max: this.opts.autoFrameMaxDist ?? Math.min(9.5, base.dist * 1.48),
@@ -769,6 +1058,7 @@ export class Twin {
     this._aimX = lerp(this._aimX, this.opts.targetX, k);
     this._aimY = lerp(this._aimY, this.opts.targetY, k);
     this._aimZ = lerp(this._aimZ, this.opts.targetZ, k);
+    this._applyInsets(k);
     const cy = Math.cos(this._pitch), sy = Math.sin(this._pitch);
     this.camera.position.set(
       this._aimX + Math.sin(this._yaw) * cy * this._dist,
@@ -778,6 +1068,243 @@ export class Twin {
     this.camera.lookAt(this._aimX, this._aimY, this._aimZ);
 
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // Place forearm + hand. Two placements, eased into each other by _armK:
+  //   pinned (hand view, every non-arm surface): orientation only, the wrist
+  //     pivot stays put and the forearm swings about it;
+  //   body (arm view): the body model, contract section 7. The forearm module
+  //     is oriented by forearm_quat and translated so the model's wrist pivot
+  //     sits on wrist_m (so it pivots about the ELBOW, the wrist riding its
+  //     sphere), the hand turns about the wrist by inv(Qf)*Qh, and the whole
+  //     arm moves through space with the body model. Without a bridge body
+  //     block the contract's zero-evidence arm is synthesised (upper arm
+  //     hanging): no shoulder motion, and armInfo says so.
+  _poseArm(sm, dt) {
+    const armOn = this._armActive();
+    const goal = armOn ? 1 : 0;
+    this._armK = Math.abs(goal - this._armK) < 0.002 ? goal : lerp(this._armK, goal, 1 - Math.exp(-dt / 260));
+    const k = this._armK;
+
+    const b = sm.body;
+    const fq = (b && b.forearmQuat) || sm.forearmQuat;
+    const hq = (b && b.handQuat) || sm.handQuat;
+    this._qf.set(fq[1], fq[2], fq[3], fq[0]);
+    this._qh.set(hq[1], hq[2], hq[3], hq[0]);
+    this.forearmGroup.quaternion.copy(this._qf);
+    // hand relative to the forearm. The bridge's rel.quat is mounting-corrected
+    // and projected onto the anatomical wrist envelope; with a body model the
+    // two body quaternions are the truth (the bridge derives rel from them).
+    if (!b && sm.wristQuat) {
+      const wr = sm.wristQuat;
+      this._q.set(wr[1], wr[2], wr[3], wr[0]);
+    } else {
+      this._q.copy(this._qf).invert().multiply(this._qh);
+    }
+    this.handGroup.quaternion.copy(this._q);
+    // The wrist pivot is a mechanical connection, so it stays attached to
+    // the forearm. Rotating the hand about this pivot already produces the
+    // real distal side-to-side displacement (rel.pos_mm is telemetry, not a
+    // free translational wrist DoF).
+    this.handGroup.position.copy(this._wristPivot);
+
+    // pinned: forearmGroup.position = P - Qf*P keeps the pivot P fixed
+    const rotP = this._vB.copy(this._wristPivot).applyQuaternion(this._qf);
+    const pinned = this._vA.copy(this._wristPivot).sub(rotP);
+    if (k <= 0) {
+      this.forearmGroup.position.copy(pinned);
+      if (this.armStage.visible) this.armStage.visible = false;
+      this._disc.visible = true;
+      if (this._shadowHome) {
+        this._shadow.position.copy(this._shadowHome);
+        this._shadow.scale.setScalar(1);
+        this._shadow.material.opacity = 1;
+      }
+      this._armInfo = null;
+      return;
+    }
+
+    let B = b;
+    if (!B) {
+      const sb = synthBody(qValid(fq) || [1, 0, 0, 0], qValid(hq) || [1, 0, 0, 0]);
+      B = { shoulder: sb.shoulder_m, elbow: sb.elbow_m, wrist: sb.wrist_m, hand: sb.hand_m,
+            synthetic: true, posSource: "arm" };
+    }
+    const NW = NEUTRAL_WRIST_M;
+    const toS = (p, out) => out.set((p[0] - NW[0]) * ARM_S, (p[1] - NW[1]) * ARM_S, (p[2] - NW[2]) * ARM_S);
+    const vS = toS(B.shoulder, this._vS || (this._vS = new THREE.Vector3()));
+    const vE = toS(B.elbow, this._vE || (this._vE = new THREE.Vector3()));
+    const vW = toS(B.wrist, this._vW || (this._vW = new THREE.Vector3()));
+    const vH = toS(B.hand, this._vH || (this._vH = new THREE.Vector3()));
+    // body placement: model wrist pivot onto wrist_m
+    const placed = this._vC.copy(vW).sub(rotP);
+    this.forearmGroup.position.lerpVectors(pinned, placed, k);
+
+    const st = this.armStage;
+    st.visible = true;
+    const up = this._yAxis;
+    const seg = (mesh, a, c) => {
+      const d = this._vP || (this._vP = new THREE.Vector3());
+      d.subVectors(c, a);
+      const len = d.length();
+      if (len < 1e-6) { mesh.visible = false; return; }
+      mesh.visible = true;
+      mesh.position.addVectors(a, c).multiplyScalar(0.5);
+      mesh.scale.set(1, len, 1);
+      mesh.quaternion.setFromUnitVectors(up, d.divideScalar(len));
+    };
+    seg(this._limbUpper, vS, vE);
+    seg(this._limbFore, vE, vW);
+    this._jShoulder.position.copy(vS);
+    this._jElbow.position.copy(vE);
+    const dark = this._theme === "dark";
+    this._matLimb.opacity = (dark ? 0.12 : 0.15) * k;
+    this._matJoint.opacity = (dark ? 0.2 : 0.24) * k;
+    this._bones.material.opacity = 0.55 * k;
+    const bp = this._bones.geometry.attributes.position;
+    bp.setXYZ(0, vS.x, vS.y, vS.z); bp.setXYZ(1, vE.x, vE.y, vE.z); bp.setXYZ(2, vW.x, vW.y, vW.z);
+    bp.needsUpdate = true;
+
+    // trail: the palm centre, sampled at ~30 Hz, the newest opaque
+    this._trailT += dt;
+    if (this._trailT >= 33) {
+      this._trailT = 0;
+      this._trailPts.push(vH.x, vH.y, vH.z);
+      if (this._trailPts.length > this._trailN * 3) this._trailPts.splice(0, 3);
+    }
+    {
+      const n = this._trailPts.length / 3;
+      const pos = this._trail.geometry.attributes.position, col = this._trail.geometry.attributes.color;
+      const c = this._trailColor || [0.18, 0.46, 0.75];
+      for (let i = 0; i < n; i++) {
+        pos.setXYZ(i, this._trailPts[i * 3], this._trailPts[i * 3 + 1], this._trailPts[i * 3 + 2]);
+        col.setXYZW(i, c[0], c[1], c[2], Math.pow((i + 1) / n, 1.6) * 0.75 * k);
+      }
+      pos.needsUpdate = col.needsUpdate = true;
+      this._trail.geometry.setDrawRange(0, n);
+    }
+
+    // grid under the followed point; lines are world-fixed (shader), so moving
+    // the plane only moves the fade window, never the lines
+    const gy = (FLOOR_Y_M - NW[1]) * ARM_S;
+    // aim: mostly the hand (between palm centre and fingertips), some elbow and
+    // shoulder so the limb reads; the fingertips sit ~0.1 m past the palm centre
+    const vT = this._vT || (this._vT = new THREE.Vector3());
+    vT.subVectors(vH, vW).multiplyScalar(1.6).add(vH);
+    // [2026-09-29] ROOM-FIXED aim by default: halfway between the shoulder and
+    // the neutral wrist (the scene origin). A camera that follows the hand
+    // cancels exactly the translation this stage exists to show - the hand
+    // stayed centred and only the grid slid. opts.armFollow keeps the old
+    // hand-following aim for close-up work.
+    const focus = this._vF || (this._vF = new THREE.Vector3());
+    if (this.opts.armFollow) {
+      focus.set(0, 0, 0).addScaledVector(vS, 0.1).addScaledVector(vE, 0.15)
+        .addScaledVector(vH, 0.35).addScaledVector(vT, 0.4);
+    } else {
+      // [round 3] room-fixed around the DEVICE: home is the device's centre
+      // at the calibrated neutral (forearm unit + hand, from the CALIBRATED
+      // body origin, so a lean does not drag the view). Inside a dead zone of
+      // ARM_DEAD_M the aim stays put and the motion reads against the grid;
+      // past it the aim follows just enough to keep the device in frame.
+      // (Before: halfway to the shoulder, which centred empty space.)
+      const dev = this._vD || (this._vD = new THREE.Vector3());
+      dev.set(0, 0, 0).addScaledVector(vW, 0.5).addScaledVector(vE, 0.15).addScaledVector(vH, 0.35);
+      const home = this._devHome || (this._devHome = new THREE.Vector3(
+        0.35 * HAND_PALM_M[0] * ARM_S, 0.35 * HAND_PALM_M[1] * ARM_S, (0.35 * HAND_PALM_M[2] - 0.15 * L_FA_M) * ARM_S));
+      const off = this._vO || (this._vO = new THREE.Vector3());
+      off.subVectors(dev, home);
+      const len = off.length(), dz = ARM_DEAD_M * ARM_S;
+      focus.copy(home);
+      if (len > dz) focus.addScaledVector(off, (len - dz) / len);
+    }
+    this._grid.position.set(focus.x, gy, focus.z);
+    this._matGrid.uniforms.uCenter.value.set(vH.x, vH.z);
+    this._matGrid.uniforms.uOpacity.value = (dark ? 0.2 : 0.22) * k;
+    // the contact shadow drops onto the grid straight below the hand: its
+    // spread + fade encode height, which is what makes vertical motion legible
+    if (this._shadow) {
+      if (!this._shadowHome) this._shadowHome = this._shadow.position.clone();
+      const h = Math.max(0, vH.y - gy);
+      this._vP.set(vH.x, gy + 0.01, vH.z - 0.15);
+      this._shadow.position.lerpVectors(this._shadowHome, this._vP, k);
+      this._shadow.scale.setScalar(lerp(1, 0.55 + h * 0.06, k));
+      this._shadow.material.opacity = lerp(1, clamp(1.05 - h * 0.07, 0.25, 1), k);
+    }
+    this._disc.visible = k < 0.98;
+
+    this._armInfo = {
+      synthetic: !!B.synthetic, posSource: B.posSource || "arm",
+      shoulder: B.shoulder, elbow: B.elbow, wrist: B.wrist, hand: B.hand,
+      tip: [0, 1, 2].map((i) => B.hand[i] + (B.hand[i] - B.wrist[i]) * 1.6),
+      focus, k,
+    };
+  }
+
+  /** Screen insets (px) covered by floating panels. The projection centre
+   *  moves to the middle of the free area and the auto-fit sizes the twin for
+   *  it, so opening or hiding a panel glides the twin rather than covering it. */
+  setInsets({ left = 0, right = 0, top = 0, bottom = 0 } = {}) {
+    const n = (v) => Math.max(0, Number(v) || 0);
+    this._insT = { left: n(left), right: n(right), top: n(top), bottom: n(bottom) };
+    this._autoFrameNext = 0;
+  }
+
+  // the free area as a camera: vertical fov and aspect of the uncovered region
+  _freeView() {
+    const W = this.container ? this.container.clientWidth : 0;
+    const H = this.container ? this.container.clientHeight : 0;
+    const i = this._insT || { left: 0, right: 0, top: 0, bottom: 0 };
+    const wf = W - i.left - i.right, hf = H - i.top - i.bottom;
+    if (!(W > 2 && H > 2 && wf > 80 && hf > 80)) return { fov: this.camera.fov, aspect: this.camera.aspect };
+    const v = this.camera.fov * Math.PI / 180;
+    const fov = 2 * Math.atan(Math.tan(v / 2) * hf / H) * 180 / Math.PI;
+    return { fov, aspect: wf / hf };
+  }
+
+  _applyInsets(k) {
+    const W = this.container ? this.container.clientWidth : 0;
+    const H = this.container ? this.container.clientHeight : 0;
+    if (!(W > 2 && H > 2)) return;
+    const a = this._ins, b = this._insT;
+    let moved = false;
+    for (const key of ["left", "right", "top", "bottom"]) {
+      const v = Math.abs(b[key] - a[key]) < 0.5 ? b[key] : lerp(a[key], b[key], k);
+      if (v !== a[key]) { a[key] = v; moved = true; }
+    }
+    const dx = (a.left - a.right) / 2, dy = (a.top - a.bottom) / 2;
+    const key = `${W}x${H}:${dx.toFixed(1)},${dy.toFixed(1)}`;
+    if (!moved && key === this._insKey) return;
+    this._insKey = key;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) this.camera.clearViewOffset();
+    else this.camera.setViewOffset(W, H, -dx, -dy, W, H);
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Camera presets, named from the wearer's side of the arm:
+   *  wearer = behind the right shoulder, looking along the arm (the twin
+   *  turns the way the wearer sees their own arm turn); side = from the
+   *  wearer's right; top = from above, forward up the screen; front = facing
+   *  the wearer (a mirror: rotations read reversed, as in any mirror). */
+  cameraPreset(name) {
+    const arm = this._armActive();
+    const P = {
+      wearer: arm ? { yaw: ARM_FRAMING.yaw, pitch: ARM_FRAMING.pitch } : { yaw: Math.PI + 0.9, pitch: 0.78 },
+      side:   { yaw: -Math.PI / 2, pitch: 0.22 },
+      top:    { yaw: Math.PI, pitch: 1.36 },
+      front:  { yaw: 0.45, pitch: 0.34 },
+    }[name];
+    if (!P) return false;
+    this._tyaw = this._yaw + wrapPi(P.yaw - this._yaw);    // turn the short way round
+    this._tpitch = P.pitch;
+    this.recenter();
+    return true;
+  }
+
+  /** Drop any manual zoom and re-fit on the next frame. */
+  recenter() {
+    this._armZoomManual = false;
+    this._manualCameraUntil = 0;
+    this._autoFrameNext = 0;
   }
 
   setFraming({ yaw, pitch, dist, targetX, targetY, targetZ } = {}) {
@@ -817,6 +1344,11 @@ export class Twin {
     for (const m of [this._matSpool, this._matMotors, this._matInternals]) {
       m.emissive.copy(dark ? this._cFocusDark : this._cBone);
     }
+    if (this._matConduit) {
+      this._matConduit.color.setHex(dark ? 0x3A4452 : 0xE3E6EA);
+      this._matLead.color.setHex(dark ? 0x10151C : 0x1C1F24);
+    }
+    this._applyArmTheme();
     this._focusDirty = true;   // re-apply the focus lift on the new base
   }
 
@@ -850,6 +1382,111 @@ export class Twin {
     this._aimX = this.opts.targetX;
     this._aimY = this.opts.targetY;
     this._aimZ = this.opts.targetZ;
+  }
+
+  // ---------------------------------------------------------------- cables --
+  // The forearm unit and the palm plate are two bodies joined by the tendon
+  // conduits and two sensor leads, as on the real device and in every render
+  // (2026-10-01). Without them the hand floated 26 mm off the forearm. Each
+  // cable is a cubic Bezier from its exit on the forearm's distal face to its
+  // entry on the palm plate, leaving and arriving along each body's own axis,
+  // so the bundle bends with the wrist. Built in the forearm's local frame
+  // (model mm); the tubes are rewritten in place each frame - no allocation.
+  _buildCables(fore, hand) {
+    this._cableFore = fore; this._cableHand = hand;
+    this._matConduit = new THREE.MeshPhysicalMaterial({ color: 0xE3E6EA, roughness: 0.5, metalness: 0,
+      clearcoat: 0.25, clearcoatRoughness: 0.4, envMapIntensity: 0.7 });
+    this._matLead = new THREE.MeshPhysicalMaterial({ color: 0x1C1F24, roughness: 0.42, metalness: 0,
+      clearcoat: 0.35, clearcoatRoughness: 0.3, envMapIntensity: 0.6 });
+    this.setTheme(this._theme);
+    const spec = [];
+    // eight tendon conduits, two rows of four, converging onto the palm block
+    for (let i = 0; i < 8; i++) {
+      const col = i % 4, row = (i / 4) | 0;
+      spec.push({ a: [-15 + col * 10, 7 + row * 6, -6], b: [-10 + col * 8 + 2, 6 + row * 5, 31],
+        r: 1.1, lift: 3 + row * 2, mat: this._matConduit });
+    }
+    // two sensor leads arch higher, out at the sides
+    for (const sx of [-1, 1]) {
+      spec.push({ a: [sx * 24, 20, -8], b: [sx * 15 + 2, 13, 34], r: 1.5, lift: 15, mat: this._matLead });
+    }
+    const SEG = 14, RAD = 8;
+    this._cables = spec.map((c) => {
+      const geo = new THREE.BufferGeometry();
+      const n = (SEG + 1) * RAD;
+      geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+      geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+      const idx = [];
+      for (let i = 0; i < SEG; i++) for (let j = 0; j < RAD; j++) {
+        const a = i * RAD + j, b = (i + 1) * RAD + j, c2 = (i + 1) * RAD + (j + 1) % RAD, d = i * RAD + (j + 1) % RAD;
+        idx.push(a, b, d, b, c2, d);
+      }
+      geo.setIndex(idx);
+      const mesh = new THREE.Mesh(geo, c.mat);
+      mesh.frustumCulled = false;            // the bounds move every frame
+      fore.add(mesh);
+      return { ...c, a: new THREE.Vector3(...c.a), b: new THREE.Vector3(...c.b), geo, mesh, SEG, RAD };
+    });
+    this._cm = new THREE.Matrix4(); this._cmInv = new THREE.Matrix4();
+    this._cv = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    this._cT = new THREE.Vector3(); this._cN = new THREE.Vector3(); this._cB = new THREE.Vector3();
+    this._cP = new THREE.Vector3(); this._cPrevT = new THREE.Vector3(); this._cAx = new THREE.Vector3();
+  }
+
+  _updateCables() {
+    if (!this._cables) return;
+    const show = this._reveal > 0.98;
+    for (const c of this._cables) c.mesh.visible = show;
+    if (!show) return;
+    const fore = this._cableFore, hand = this._cableHand;
+    this.forearmGroup.updateMatrixWorld(true);
+    // hand frame -> forearm frame (model mm): only the relative pose matters
+    this._cmInv.copy(fore.matrixWorld).invert();
+    this._cm.multiplyMatrices(this._cmInv, hand.matrixWorld);
+    const e = this._cm.elements;
+    const hz = this._cAx.set(e[8], e[9], e[10]).normalize();   // the hand's +Z, in forearm mm
+    const hy = { x: e[4], y: e[5], z: e[6] };
+    const hyl = Math.hypot(hy.x, hy.y, hy.z) || 1;
+    const [P0, P1, P2, P3] = this._cv;
+    const T = this._cT, N = this._cN, B = this._cB, P = this._cP, prevT = this._cPrevT;
+    for (const c of this._cables) {
+      P0.copy(c.a);
+      P3.copy(c.b).applyMatrix4(this._cm);
+      const reach = Math.max(6, P0.distanceTo(P3) * 0.42);
+      P1.set(P0.x, P0.y + c.lift, P0.z + reach);
+      P2.copy(P3).addScaledVector(hz, -reach);
+      P2.x += hy.x / hyl * c.lift; P2.y += hy.y / hyl * c.lift; P2.z += hy.z / hyl * c.lift;
+      const pos = c.geo.attributes.position.array, nor = c.geo.attributes.normal.array;
+      for (let i = 0; i <= c.SEG; i++) {
+        const t = i / c.SEG, u = 1 - t;
+        const b0 = u * u * u, b1 = 3 * u * u * t, b2 = 3 * u * t * t, b3 = t * t * t;
+        P.set(b0 * P0.x + b1 * P1.x + b2 * P2.x + b3 * P3.x,
+              b0 * P0.y + b1 * P1.y + b2 * P2.y + b3 * P3.y,
+              b0 * P0.z + b1 * P1.z + b2 * P2.z + b3 * P3.z);
+        const d0 = 3 * u * u, d1 = 6 * u * t, d2 = 3 * t * t;
+        T.set(d0 * (P1.x - P0.x) + d1 * (P2.x - P1.x) + d2 * (P3.x - P2.x),
+              d0 * (P1.y - P0.y) + d1 * (P2.y - P1.y) + d2 * (P3.y - P2.y),
+              d0 * (P1.z - P0.z) + d1 * (P2.z - P1.z) + d2 * (P3.z - P2.z)).normalize();
+        if (i === 0) {
+          // first frame: any normal square to the tangent
+          N.set(0, 1, 0); if (Math.abs(T.y) > 0.9) N.set(1, 0, 0);
+          B.crossVectors(T, N).normalize(); N.crossVectors(B, T).normalize();
+        } else {
+          // carry the frame along (rotation-minimising enough for a gentle arc)
+          N.crossVectors(B, T).normalize(); B.crossVectors(T, N).normalize();
+        }
+        prevT.copy(T);
+        for (let j = 0; j < c.RAD; j++) {
+          const th = (j / c.RAD) * Math.PI * 2, cs = Math.cos(th), sn = Math.sin(th);
+          const nx = cs * N.x + sn * B.x, ny = cs * N.y + sn * B.y, nz = cs * N.z + sn * B.z;
+          const k = (i * c.RAD + j) * 3;
+          pos[k] = P.x + nx * c.r; pos[k + 1] = P.y + ny * c.r; pos[k + 2] = P.z + nz * c.r;
+          nor[k] = nx; nor[k + 1] = ny; nor[k + 2] = nz;
+        }
+      }
+      c.geo.attributes.position.needsUpdate = true;
+      c.geo.attributes.normal.needsUpdate = true;
+    }
   }
 
   // Views call this on unmount. The shared GL context, environment, and

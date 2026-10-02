@@ -36,8 +36,8 @@ import { saveSession, lastSession, personalBest } from "../sessions.js";
 // summary, never buried in a footer.
 const DISCLAIMER =
   "TAKTO ONE is a research prototype, not a medical device. These movement " +
-  "sequences are implemented from published rehabilitation literature; use " +
-  "them under the advice of your therapist or doctor.";
+  "sequences follow published rehabilitation literature, but this is a research " +
+  "demonstration, not a treatment, and it does not replace your therapist or doctor.";
 // Encouragement, never evaluation: nothing here grades the person.
 const PRAISE = ["That is the position.", "Well held.", "Good, exactly there.", "Yes, that one counted."];
 const FINGER_LABEL = { index: "INDEX", middle: "MIDDLE", ring: "RING", pinky: "LITTLE" };
@@ -136,13 +136,12 @@ GuidedHand._Y = new THREE.Vector3(0, 1, 0);
 GuidedHand.FIT_UNITS = 1.9;    // on-screen size of each hand, in world units
 
 export function mountGuided(rootHost) {
-  localStorage.setItem("zero.role", "guided");
   const root = el("div", { class: "surf gd" });
   const cleanups = [];
   let disposed = false;
 
   // ---------------- chrome ----------------
-  const exit = el("a", { href: "#/", class: "gd-exit", title: "Home", "aria-label": "Home" }, "✕");
+  const exit = el("a", { href: "#/operator", class: "gd-exit", title: "Back to the console", "aria-label": "Back to the console" }, "✕");
   // HONESTY BADGE. Being connected to a bridge is NOT the same as being
   // connected to hardware: `teensy_bridge.py --sim` is a live socket carrying
   // an entirely synthetic hand, and a therapy surface is the last place that
@@ -205,7 +204,7 @@ export function mountGuided(rootHost) {
   const sumStats = el("div", { class: "gd-sum-stats" });
   const sumCompare = el("div", { class: "gd-sum-compare" }, "");
   const againBtn = el("button", { class: "btn primary gd-big", type: "button" }, "Again");
-  const homeBtn = el("a", { class: "btn ghost gd-big", href: "#/" }, "Home");
+  const homeBtn = el("a", { class: "btn ghost gd-big", href: "#/operator" }, "Console");
   const summary = el("div", { class: "gd-summary" },
     el("div", { class: "kicker accent" }, "Session summary"),
     sumHead, sumStats, sumCompare,

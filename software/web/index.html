@@ -3,21 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
-<title>TAKTO ONE · Console</title>
-<meta name="description" content="TAKTO ONE is an open-hardware hand exoskeleton that reads, assists, and records the human hand - built end to end by one engineer. Explore the live consoles, download the full release, or write to the author.">
+<meta name="color-scheme" content="light">
+<title>TAKTO ONE · The hand, alive</title>
+<meta name="description" content="TAKTO ONE is an open-hardware hand exoskeleton that reads, assists, and records the human hand - built end to end by one engineer. Explore the device, open the live console, build it from the open release, or write to the author.">
+<meta name="theme-color" content="#F3F4F6">
+<link rel="canonical" href="https://takto.one/">
+<!-- link previews (messengers, LinkedIn, X): one local image, no third party -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="TAKTO">
+<meta property="og:title" content="TAKTO ONE · The hand, alive">
+<meta property="og:description" content="An open-hardware hand exoskeleton that reads, assists and records the human hand.">
+<meta property="og:url" content="https://takto.one/">
+<meta property="og:image" content="https://takto.one/assets/px/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="TAKTO ONE, a graphite hand exoskeleton, beside the TAKTO wordmark">
+<meta name="twitter:card" content="summary_large_image">
 
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='7' fill='%237FB2FF'/%3E%3C/svg%3E">
+<link rel="icon" href="assets/brand/takto-mark.svg" type="image/svg+xml">
+<link rel="icon" href="assets/brand/icon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/brand/icon-180.png">
 <link rel="stylesheet" href="styles/tokens.css">
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/surfaces.css">
+<link rel="stylesheet" href="styles/site.css">
 <!-- the twin's geometry starts downloading with the document, not after the
      module graph resolves (keep ?v= in lockstep with HAND_ASSET_VERSION in
      src/twin.js). crossorigin matches fetch() defaults so the preload is
-     actually reused - drop it and the browser downloads the 2.6 MB twice.
+     actually reused - drop it and the browser downloads the 1.5 MB twice.
      fetchpriority=low: the geometry must never contend with the script chain
      that paints the page - words first, machine seconds later. -->
-<link rel="preload" href="assets/zero_hand.glb?v=20" as="fetch" crossorigin fetchpriority="low">
+<link rel="preload" href="assets/zero_hand.web.glb.gz?v=21" as="fetch" crossorigin fetchpriority="low">
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.js" } }
 </script>

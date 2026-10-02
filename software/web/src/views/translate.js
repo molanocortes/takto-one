@@ -7,6 +7,7 @@
 // signs can be missed by the motion gate). No em dashes.
 
 import { el } from "../ui.js";
+import { isLocalOrigin } from "../telemetry.js";
 
 const WS = (new URLSearchParams(location.search).get("live")) || "ws://localhost:8771";
 
@@ -25,13 +26,12 @@ function confColor(c) {
 }
 
 export function mountTranslate(rootHost) {
-  localStorage.setItem("zero.role", "translate");
   const root = el("div", { class: "surf translate" });
 
   const linkPill = el("div", { class: "pill" }, el("span", { class: "dot warn" }), el("span", null, "connecting"));
   const bar = el("header", { class: "surf-bar" },
     el("div", { class: "surf-bar-left" },
-      el("a", { href: "#/", class: "surf-back", title: "Home" }, backGlyph()),
+      el("a", { href: "#/operator", class: "surf-back", title: "Back to the console" }, backGlyph()),
       el("a", { href: "#/", class: "wordmark sm", title: "Home" }, el("span", { class: "wordmark-dot" }), "TAKTO"),
       el("div", { class: "surf-name" }, "Live Sign Recognition")),
     el("div", { class: "surf-bar-mid" }, el("span", { class: "sub mono" }, "Tier 1: isolated signs, signer-dependent · motion-gated (low-motion signs may be missed)")),
@@ -108,7 +108,16 @@ export function mountTranslate(rootHost) {
     const d = Math.min(500 * 2 ** Math.min(retry++, 4), 5000);
     setTimeout(() => { if (!closed) connect(); }, d);
   }
-  connect();
+  // A public page never dials the visitor's own machine unasked (Chrome asks
+  // the visitor for local-network access when a site does): there, connecting
+  // to a recognizer takes a click, or an explicit ?live= URL.
+  if (isLocalOrigin() || new URLSearchParams(location.search).has("live")) connect();
+  else {
+    setPill("warn", "not connected");
+    const go = el("button", { type: "button", class: "btn primary sm" }, "Connect to my recognizer");
+    go.addEventListener("click", () => { go.remove(); setPill("warn", "connecting"); connect(); });
+    stat.replaceChildren("Runs with the TAKTO-SIGN server on your own computer (" + WS + "). ", go);
+  }
 
   return () => { closed = true; if (ws) try { ws.close(); } catch (_) {} root.remove(); };
 }

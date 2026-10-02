@@ -3,129 +3,270 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
+<!-- the legal notice must be reachable, not indexed: keeps the postal address
+     out of search results -->
+<meta name="robots" content="noindex, nofollow">
 <title>TAKTO · Impressum &amp; Datenschutz</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='7' fill='%237FB2FF'/%3E%3C/svg%3E">
+<link rel="icon" href="assets/brand/takto-mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/brand/icon-180.png">
 <link rel="stylesheet" href="styles/tokens.css">
 <link rel="stylesheet" href="styles/base.css">
 <style>
-  /* static legal page: Paper Studio language, no scripts, no requests */
-  .legal { max-width: 720px; margin: 0 auto; padding: 48px 24px 90px; }
+  /* static legal page: no scripts, no requests to anyone but this site */
+  .legal { max-width: 740px; margin: 0 auto; padding: 48px 24px 90px; }
   .legal-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; }
+  .legal-logo { display: block; height: 20px; width: auto; }
   .legal-back { font-size: 13px; color: var(--text-2); text-decoration: none; }
   .legal-back:hover { color: var(--accent); }
   .legal h1 { font-size: clamp(30px, 4.6vw, 44px); font-weight: 700; letter-spacing: -0.03em; margin: 8px 0 6px; color: var(--text-0); }
-  .legal h2 { font-size: 21px; font-weight: 700; letter-spacing: -0.015em; margin: 40px 0 10px; color: var(--text-0); }
+  .legal h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.015em; margin: 46px 0 10px; color: var(--text-0); }
   .legal h3 { font-size: 15px; font-weight: 700; margin: 24px 0 6px; color: var(--text-0); }
-  .legal p, .legal li { font-size: 14.5px; line-height: 1.7; color: var(--text-1); }
+  .legal p, .legal li, .legal address { font-size: 14.5px; line-height: 1.7; color: var(--text-1); font-style: normal; }
   .legal ul { padding-left: 20px; margin: 8px 0; }
   .legal .kicker { margin-top: 4px; }
-  .legal .fine { font-size: 12px; color: var(--text-2); margin-top: 40px; border-top: 1px solid var(--line-soft); padding-top: 14px; }
+  .legal .toc { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 18px; font-size: 13.5px; }
+  .legal .card-lite { margin-top: 12px; padding: 16px 20px; border-radius: 16px; background: var(--panel); }
+  .legal .fine { font-size: 12px; color: var(--text-2); margin-top: 44px; border-top: 1px solid var(--line-soft); padding-top: 14px; }
   .legal a { color: var(--accent); }
+  .legal hr { border: 0; border-top: 1px solid var(--line-soft); margin: 56px 0 0; }
 </style>
 </head>
 <body>
-<div class="legal">
+<main class="legal">
   <div class="legal-top">
-    <div class="wordmark">TAKTO</div>
-    <a class="legal-back" href="index.html">&larr; Back to the site</a>
+    <a href="./" aria-label="TAKTO"><img class="legal-logo" src="assets/brand/takto-logo.svg" alt="TAKTO" width="104" height="20"></a>
+    <a class="legal-back" href="./">&larr; Zur&uuml;ck zur Website / Back to the site</a>
   </div>
 
   <div class="kicker accent">Rechtliches / Legal</div>
   <h1>Impressum &amp; Datenschutz</h1>
-  <p>Legal notice (German, as required by German law) and privacy policy (English).
-     This page sets no cookies and loads nothing from third parties.</p>
+  <p>Diese Website setzt keine Cookies, nutzt keine Tracker und keine Analysedienste.
+     Inhalte von Dritten werden nur nach Ihrer ausdr&uuml;cklichen Zustimmung geladen
+     (siehe Abschnitt 5).</p>
+  <nav class="toc" aria-label="Inhalt">
+    <a href="#impressum">Impressum</a>
+    <a href="#datenschutz">Datenschutzerkl&auml;rung</a>
+    <a href="#privacy">Privacy policy (English)</a>
+  </nav>
 
-  <h2>Impressum</h2>
-  <p><strong>Diese Seite ist eine Vorlage, kein Impressum.</strong> Das TAKTO-ONE-Projekt
-     betreibt keine gehostete Instanz dieser Website; sie wird ausschlie&szlig;lich als
-     Quellcode ver&ouml;ffentlicht. Es gibt daher keinen Diensteanbieter im Sinne des
-     &sect; 5 DDG und folglich kein Impressum.</p>
-  <p><strong>Wenn Sie diese Website selbst ver&ouml;ffentlichen</strong>, sind Sie der
-     Diensteanbieter. Tragen Sie an dieser Stelle Ihren eigenen Namen und Ihre eigene
-     ladungsf&auml;hige Anschrift ein, sowie eine Kontaktm&ouml;glichkeit
-     (&sect; 5 DDG) und die nach &sect; 18 Abs. 2 MStV inhaltlich verantwortliche Person.
-     Eine unvollst&auml;ndige Angabe ist abmahnf&auml;hig.</p>
-  <p><em>This page is a template, not a legal notice.</em> The TAKTO ONE project does not
-     operate a hosted copy of this site; it ships as source only, so no operator and no
-     Impressum exist. If you deploy it, you are the operator: put your own name, postal
-     address and contact details here before serving it publicly.</p>
-  <p>Fragen zum Projekt selbst geh&ouml;ren in das
-     <a href="https://github.com/molanocortes/takto-one">GitHub-Repository</a>.</p>
-  <h3>Haftung f&uuml;r Inhalte und Links</h3>
-  <p>Diese Website dokumentiert ein pers&ouml;nliches Forschungsprojekt (Masterarbeit).
-     TAKTO ONE ist ein Forschungsprototyp und kein Medizinprodukt; die Inhalte stellen
-     keine medizinische Beratung dar. F&uuml;r Inhalte externer verlinkter Seiten
-     (z.&nbsp;B. GitHub) sind deren Betreiber verantwortlich; zum Zeitpunkt der
-     Verlinkung waren keine Rechtsverst&ouml;&szlig;e erkennbar.</p>
+  <!-- ================================================================ -->
+  <h2 id="impressum">Impressum</h2>
+  <h3>Angaben gem&auml;&szlig; &sect; 5 DDG</h3>
+  <address>
+    Juan Sebastian Molano Cortes<br>
+    Hubertus 5<br>
+    06366 K&ouml;then (Anhalt)<br>
+    Deutschland
+  </address>
 
-  <h2>Privacy policy (Datenschutzerkl&auml;rung)</h2>
-  <p><strong>Deutsche Kurzfassung:</strong> Diese Website setzt keine Cookies, keine Tracker
-     und keine Analysedienste ein, bindet keine Inhalte von Drittservern ein und
-     &uuml;bermittelt keine personenbezogenen Daten an Dritte. Beim Abruf fallen
-     technisch bedingte Server-Logs beim Hoster an (Art. 6 Abs. 1 lit. f DSGVO).
-     Bei Kontakt per E-Mail werden Ihre Angaben nur zur Beantwortung verarbeitet.
-     Ihre Rechte: Art. 15&ndash;21 DSGVO, Beschwerderecht Art. 77 DSGVO.</p>
+  <h3>Kontakt</h3>
+  <p>E-Mail: <a href="mailto:sebastianmolano.eng@gmail.com">sebastianmolano.eng@gmail.com</a></p>
 
-  <h3>1. Controller</h3>
-  <p>Whoever deploys this site is its data controller (Art. 4(7) GDPR) and must identify
-     themselves in the Impressum above. The project publishes the site as source only and
-     operates no copy of it, so it controls no visitor data. Everything below describes what
-     this code does and does not do, and stays true for any deployment of it.</p>
+  <h3>Verantwortlich f&uuml;r den Inhalt nach &sect; 18 Abs. 2 MStV</h3>
+  <address>
+    Juan Sebastian Molano Cortes<br>
+    Hubertus 5, 06366 K&ouml;then (Anhalt), Deutschland
+  </address>
 
-  <h3>2. The short version</h3>
+  <h3>Art des Angebots</h3>
+  <p>Diese Website stellt ein pers&ouml;nliches, nicht-kommerzielles Forschungs- und
+     Open-Source-Projekt vor. Es werden keine Waren oder Dienstleistungen verkauft.
+     TAKTO ONE ist ein Forschungsprototyp und kein zertifiziertes Medizinprodukt; die
+     Inhalte dieser Website stellen keine medizinische Beratung dar.</p>
+
+  <h3>Haftung f&uuml;r Inhalte</h3>
+  <p>Die Inhalte dieser Seiten wurden mit gr&ouml;&szlig;ter Sorgfalt erstellt. F&uuml;r die
+     Richtigkeit, Vollst&auml;ndigkeit und Aktualit&auml;t der Inhalte kann jedoch keine
+     Gew&auml;hr &uuml;bernommen werden. Als Diensteanbieter bin ich f&uuml;r eigene Inhalte
+     auf diesen Seiten nach den allgemeinen Gesetzen verantwortlich.</p>
+
+  <h3>Haftung f&uuml;r Links</h3>
+  <p>Diese Website enth&auml;lt Links zu externen Websites Dritter (z.&nbsp;B. GitHub), auf
+     deren Inhalte ich keinen Einfluss habe. F&uuml;r diese fremden Inhalte ist stets der
+     jeweilige Anbieter oder Betreiber verantwortlich. Zum Zeitpunkt der Verlinkung waren
+     keine Rechtsverst&ouml;&szlig;e erkennbar; bei Bekanntwerden von Rechtsverletzungen
+     werden derartige Links umgehend entfernt.</p>
+
+  <h3>Urheberrecht</h3>
+  <p>Texte, Bilder, Renderings und der Film auf dieser Website sind urheberrechtlich
+     gesch&uuml;tzt. Der Quellcode des Projekts steht unter den im
+     <a href="https://github.com/molanocortes/takto-one" rel="noopener">GitHub-Repository</a>
+     genannten Lizenzen.</p>
+
+  <!-- ================================================================ -->
+  <h2 id="datenschutz">Datenschutzerkl&auml;rung</h2>
+
+  <h3>1. Verantwortlicher</h3>
+  <p>Verantwortlich im Sinne der Datenschutz-Grundverordnung (DSGVO) ist:</p>
+  <div class="card-lite">
+    <address>
+      Juan Sebastian Molano Cortes<br>
+      Hubertus 5, 06366 K&ouml;then (Anhalt), Deutschland<br>
+      E-Mail: <a href="mailto:sebastianmolano.eng@gmail.com">sebastianmolano.eng@gmail.com</a>
+    </address>
+  </div>
+
+  <h3>2. Das Wichtigste in K&uuml;rze</h3>
   <ul>
-    <li><strong>No cookies.</strong> This site sets no cookies of any kind.</li>
-    <li><strong>No tracking, no analytics, no ads.</strong> No visitor profiles, no fingerprinting, no third-party analytics.</li>
-    <li><strong>No third-party content.</strong> All fonts, scripts, styles, and 3D assets are served from this site itself; your browser contacts no other server when you view it.</li>
-    <li><strong>No accounts, no forms.</strong> The site collects nothing you type; the only way to send us data is to write an e-mail yourself.</li>
+    <li><strong>Keine Cookies</strong>, keine Tracker, keine Analysedienste, keine Werbung, kein Fingerprinting.</li>
+    <li><strong>Keine Formulare, keine Konten.</strong> Die Website erhebt nichts, was Sie eingeben; Daten erhalte ich nur, wenn Sie mir selbst eine E-Mail schreiben.</li>
+    <li><strong>Alle Schriften, Skripte, Bilder und 3D-Modelle</strong> kommen von dieser Website selbst. Ausnahme: die Kamera-Funktionen der Konsole, und nur nach Ihrer Zustimmung (Abschnitt 5).</li>
+    <li><strong>Ger&auml;tedaten bleiben bei Ihnen.</strong> Die Konsole spricht nur mit einem TAKTO-Ger&auml;t auf Ihrem eigenen Computer, und nur, wenn Sie das ausdr&uuml;cklich ausl&ouml;sen.</li>
   </ul>
 
-  <h3>3. Server logs (hosting)</h3>
-  <p>When the site is retrieved, the hosting provider technically processes the data your
-     browser transmits (IP address, date and time, requested resource, user agent) in
-     server log files. Legal basis: Art. 6(1)(f) GDPR (legitimate interest in securely
-     operating and delivering the website). Logs are kept only as long as the provider's
-     standard retention requires and are not merged with other data.
-     Whoever deploys this site should name their hosting provider here, and have a data
-     processing agreement (Art. 28 GDPR) with them.</p>
+  <h3>3. Hosting und Server-Logs (Cloudflare)</h3>
+  <p>Diese Website wird von Cloudflare, Inc., 101 Townsend St., San Francisco, CA 94107, USA
+     (&bdquo;Cloudflare&ldquo;) bereitgestellt (Cloudflare Pages, Content Delivery Network). Beim
+     Aufruf verarbeitet Cloudflare technisch notwendige Daten, die Ihr Browser &uuml;bermittelt:
+     IP-Adresse, Datum und Uhrzeit, angeforderte Datei, Referrer, Browsertyp und Betriebssystem.
+     Dies dient der Auslieferung der Website sowie der Abwehr von Angriffen und Missbrauch.</p>
+  <p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; mein berechtigtes Interesse liegt in einer
+     sicheren, schnellen und zuverl&auml;ssigen Bereitstellung der Website. Cloudflare handelt
+     als Auftragsverarbeiter auf Grundlage eines Vertrags zur Auftragsverarbeitung
+     (Art. 28 DSGVO). Cloudflare ist unter dem EU-US Data Privacy Framework zertifiziert
+     (Angemessenheitsbeschluss der EU-Kommission, Art. 45 DSGVO); erg&auml;nzend gelten die
+     EU-Standardvertragsklauseln. Ich selbst werte keine Zugriffsdaten aus und f&uuml;hre sie
+     nicht mit anderen Daten zusammen. Weitere Informationen:
+     <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">cloudflare.com/privacypolicy</a>.</p>
 
-  <h3>4. Local storage (functional only)</h3>
-  <p>The console surfaces remember small functional settings (for example, which console
-     you last opened) in your browser's <em>localStorage</em>. This data never leaves your
-     device, is not transmitted to us or anyone else, contains no personal data, and you
-     can clear it at any time via your browser (site data &rarr; clear). As strictly
-     functional storage it requires no consent banner (&sect; 25 Abs. 2 Nr. 2 TDDDG).</p>
+  <h3>4. Lokale Speicherung in Ihrem Browser</h3>
+  <p>Die Website speichert keine Cookies. Damit Ihre Einstellungen erhalten bleiben, legt sie
+     einige Werte im lokalen Speicher Ihres Browsers (<em>localStorage</em>, bei der
+     Geb&auml;rdenaufnahme auch <em>IndexedDB</em>) ab: gew&auml;hlte Sprache und Darstellung,
+     das Layout der Konsole, die zuletzt ge&ouml;ffnete Konsolenansicht, eine von Ihnen
+     ausdr&uuml;cklich angegebene Ger&auml;teadresse (f&uuml;r 6 Stunden) sowie Aufnahmen und
+     Sitzungsergebnisse, die Sie in der Konsole selbst erstellen. Diese Daten verlassen Ihr
+     Ger&auml;t nicht, werden an niemanden &uuml;bermittelt und lassen sich jederzeit &uuml;ber
+     die Browsereinstellungen l&ouml;schen (Websitedaten l&ouml;schen). Die Speicherung ist
+     unbedingt erforderlich, um die von Ihnen gew&uuml;nschten Funktionen bereitzustellen
+     (&sect; 25 Abs. 2 Nr. 2 TDDDG); Rechtsgrundlage f&uuml;r etwaige Verarbeitung ist
+     Art. 6 Abs. 1 lit. f DSGVO.</p>
 
-  <h3>5. Live device data</h3>
-  <p>When you connect the console to a TAKTO device or its simulator, all telemetry is
-     exchanged between your browser and your own host machine on your own network.
-     It is not sent to us, stored by us, or shared with anyone. Data protection by
-     design (Art. 25 GDPR) is an architecture decision of this project: recordings live
-     on the device's SD card and your own computer only.</p>
+  <h3>5. Kamera-Funktionen der Konsole (nur mit Einwilligung)</h3>
+  <p>Drei Funktionen der Konsole (Spiegeltherapie, Geb&auml;rdenaufnahme und der
+     Kamera-Armtracker) verfolgen Hand und Arm mit der Kamera. Dazu nutzen sie
+     Google MediaPipe, das in Ihrem Browser l&auml;uft. Bevor diese Funktionen etwas laden,
+     fragt die Website Sie ausdr&uuml;cklich um Erlaubnis. Erst nach Ihrer Zustimmung l&auml;dt
+     Ihr Browser den MediaPipe-Code von jsDelivr (cdn.jsdelivr.net, ein &ouml;ffentliches
+     Open-Source-CDN) und das Modell von Google (storage.googleapis.com, Google LLC, USA,
+     zertifiziert unter dem EU-US Data Privacy Framework). Wie bei jedem Download erhalten
+     diese Anbieter dabei Ihre IP-Adresse und technische Browserdaten.</p>
+  <p>Ihr Kamerabild verl&auml;sst Ihr Ger&auml;t nie: Es wird ausschlie&szlig;lich lokal in Ihrem
+     Browser ausgewertet und weder hochgeladen noch gespeichert. Rechtsgrundlage ist Ihre
+     Einwilligung (Art. 6 Abs. 1 lit. a DSGVO, ggf. Art. 49 Abs. 1 lit. a DSGVO). Die
+     Einwilligung gilt nur f&uuml;r den aktuellen Seitenaufruf und wird nicht gespeichert; Sie
+     k&ouml;nnen sie jederzeit widerrufen, indem Sie die Seite neu laden oder die Kamera
+     ausschalten. Ohne Einwilligung bleiben diese Funktionen aus; der Rest der Website ist
+     davon unber&uuml;hrt.</p>
 
-  <h3>6. Contact by e-mail</h3>
-  <p>If you write to us, we process your e-mail address and message content to answer
-     you (Art. 6(1)(b) or (f) GDPR). Correspondence about job or research opportunities
-     is kept only as long as the conversation requires, then deleted on request or when
-     no longer needed.</p>
+  <h3>6. Verbindung zu einem TAKTO-Ger&auml;t</h3>
+  <p>Wenn Sie in der Konsole ausdr&uuml;cklich eine Verbindung zu einem TAKTO-Ger&auml;t herstellen,
+     tauscht Ihr Browser Messdaten nur mit Software auf Ihrem eigenen Computer aus (z.&nbsp;B.
+     <code>localhost</code>). Diese Daten werden nicht an mich oder Dritte &uuml;bermittelt und
+     von mir nicht gespeichert. Ohne Ihre Aktion stellt die &ouml;ffentliche Website keine
+     solche Verbindung her; angezeigt wird dann eine gekennzeichnete Simulation.</p>
 
-  <h3>7. Downloads</h3>
-  <p>Any files offered for download on this site are static files; downloading them
-     transmits no personal data beyond the server log described above.</p>
+  <h3>7. Kontakt per E-Mail</h3>
+  <p>Wenn Sie mir schreiben, verarbeite ich Ihre E-Mail-Adresse und den Inhalt Ihrer
+     Nachricht, um Ihre Anfrage zu beantworten (Art. 6 Abs. 1 lit. b DSGVO bei Anfragen zu
+     Zusammenarbeit oder Anstellung, sonst Art. 6 Abs. 1 lit. f DSGVO). Mein Postfach wird
+     von Google (Gmail; Google Ireland Limited, Gordon House, Barrow Street, Dublin 4,
+     Irland) betrieben. Ich l&ouml;sche die Korrespondenz, sobald sie f&uuml;r den Zweck nicht
+     mehr erforderlich ist und keine gesetzlichen Aufbewahrungspflichten entgegenstehen,
+     oder fr&uuml;her auf Ihren Wunsch.</p>
+
+  <h3>8. Externe Links</h3>
+  <p>Links zu GitHub und anderen Websites werden erst beim Anklicken aufgerufen. Ab dann gelten
+     die Datenschutzbestimmungen des jeweiligen Anbieters.</p>
+
+  <h3>9. Ihre Rechte</h3>
+  <p>Sie haben das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16), L&ouml;schung
+     (Art. 17), Einschr&auml;nkung der Verarbeitung (Art. 18), Daten&uuml;bertragbarkeit (Art. 20)
+     und Widerspruch gegen Verarbeitungen auf Grundlage berechtigter Interessen (Art. 21).
+     Eine erteilte Einwilligung k&ouml;nnen Sie jederzeit mit Wirkung f&uuml;r die Zukunft
+     widerrufen (Art. 7 Abs. 3). Sie haben au&szlig;erdem das Recht, sich bei einer
+     Datenschutz-Aufsichtsbeh&ouml;rde zu beschweren (Art. 77 DSGVO); zust&auml;ndig ist
+     der Landesbeauftragte f&uuml;r den Datenschutz Sachsen-Anhalt. Schreiben Sie mir
+     formlos an die oben genannte E-Mail-Adresse.</p>
+
+  <h3>10. Datensicherheit</h3>
+  <p>Die Website wird ausschlie&szlig;lich verschl&uuml;sselt &uuml;ber HTTPS (TLS)
+     ausgeliefert und sendet strenge Sicherheits-Header (u.&nbsp;a. Content Security Policy),
+     die das Laden fremder Inhalte technisch unterbinden.</p>
+
+  <h3>11. Keine automatisierte Entscheidungsfindung</h3>
+  <p>Es findet keine automatisierte Entscheidungsfindung einschlie&szlig;lich Profiling
+     (Art. 22 DSGVO) statt.</p>
+
+  <!-- ================================================================ -->
+  <hr>
+  <h2 id="privacy">Privacy policy (English)</h2>
+  <p><em>Courtesy translation; the German version above is authoritative.</em></p>
+
+  <h3>1. Controller</h3>
+  <p>Juan Sebastian Molano Cortes, Hubertus 5, 06366 K&ouml;then (Anhalt), Germany,
+     <a href="mailto:sebastianmolano.eng@gmail.com">sebastianmolano.eng@gmail.com</a>.</p>
+
+  <h3>2. In short</h3>
+  <ul>
+    <li><strong>No cookies</strong>, no trackers, no analytics, no ads, no fingerprinting.</li>
+    <li><strong>No forms, no accounts.</strong> I only receive data if you write me an e-mail.</li>
+    <li><strong>Everything is served by this site itself</strong>, except the console's camera features, and only after you agree (section 5).</li>
+    <li><strong>Device data stays with you.</strong> The console only talks to a TAKTO device on your own computer, and only when you explicitly ask it to.</li>
+  </ul>
+
+  <h3>3. Hosting and server logs (Cloudflare)</h3>
+  <p>The site is delivered by Cloudflare, Inc., 101 Townsend St., San Francisco, CA 94107, USA,
+     which processes the technical data your browser sends (IP address, date and time,
+     requested file, referrer, browser and operating system) to deliver and protect the site.
+     Legal basis: Art. 6(1)(f) GDPR (secure, fast and reliable delivery). Cloudflare acts as a
+     processor under a data processing agreement (Art. 28 GDPR), is certified under the EU-US
+     Data Privacy Framework (Art. 45 GDPR), with the EU Standard Contractual Clauses in
+     addition. I do not analyse access data or combine it with other data.</p>
+
+  <h3>4. Storage in your browser</h3>
+  <p>No cookies. To keep your settings, the site stores a few values in your browser's
+     localStorage (and IndexedDB for sign capture): language and theme, the console layout and
+     last opened view, a device address you explicitly enter (kept for 6 hours), and
+     recordings and session results you create in the console. This data never leaves your
+     device and can be cleared at any time in your browser settings. It is strictly necessary
+     for the features you request (Section 25(2) no. 2 TDDDG).</p>
+
+  <h3>5. Console camera features (consent only)</h3>
+  <p>Mirror therapy, sign capture and the camera arm tracker use Google MediaPipe in your
+     browser. Before anything loads, the site asks for your permission. Only then does your
+     browser download MediaPipe's code from jsDelivr (cdn.jsdelivr.net) and its model from
+     Google (storage.googleapis.com, Google LLC, USA, certified under the EU-US Data Privacy
+     Framework); like any download, they receive your IP address and technical browser data.
+     Your camera image never leaves your device; it is processed only in your browser and is
+     never uploaded or stored. Legal basis: your consent (Art. 6(1)(a) GDPR, where applicable
+     Art. 49(1)(a) GDPR). Consent lasts for the current page view only and is not stored;
+     reload the page or turn the camera off to withdraw it.</p>
+
+  <h3>6. Connecting a TAKTO device</h3>
+  <p>When you explicitly connect the console to a TAKTO device, your browser exchanges
+     measurement data only with software on your own computer (e.g. localhost). Nothing is
+     sent to me or to third parties. The public site never opens such a connection on its own;
+     it shows a labelled simulation instead.</p>
+
+  <h3>7. Contact by e-mail</h3>
+  <p>If you write to me, I process your address and message to reply (Art. 6(1)(b) GDPR for
+     collaboration or job enquiries, otherwise Art. 6(1)(f)). My mailbox is hosted by Google
+     (Gmail; Google Ireland Limited, Dublin). I delete correspondence once it is no longer
+     needed, or earlier at your request.</p>
 
   <h3>8. Your rights</h3>
-  <p>Under the GDPR you have the right of access (Art. 15), rectification (Art. 16),
-     erasure (Art. 17), restriction of processing (Art. 18), data portability (Art. 20),
-     and objection to processing based on legitimate interest (Art. 21). You may lodge a
-     complaint with a supervisory authority (Art. 77), for example the data protection
-     authority of the German federal state in which the controller resides.</p>
+  <p>Access (Art. 15), rectification (Art. 16), erasure (Art. 17), restriction (Art. 18),
+     portability (Art. 20), objection (Art. 21), withdrawal of consent at any time
+     (Art. 7(3)), and the right to lodge a complaint with a supervisory authority (Art. 77),
+     here the State Commissioner for Data Protection of Saxony-Anhalt. Just e-mail me.</p>
 
-  <h3>9. No automated decision-making</h3>
-  <p>No automated decision-making or profiling (Art. 22 GDPR) takes place.</p>
+  <h3>9. Security and automated decisions</h3>
+  <p>The site is served over HTTPS only, with strict security headers including a Content
+     Security Policy. No automated decision-making or profiling (Art. 22 GDPR) takes place.</p>
 
-  <p class="fine">Version 1.0 &middot; 2026-07-18 &middot; This page will be updated if the
-     site's data processing ever changes; the architecture goal is that it never has to.</p>
-</div>
+  <p class="fine">Stand / Version 2.0 &middot; 1. Oktober 2026 &middot; Diese Seite wird
+     aktualisiert, falls sich die Datenverarbeitung der Website &auml;ndert.</p>
+</main>
 </body>
 </html>

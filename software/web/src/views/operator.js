@@ -8,6 +8,11 @@ import { Twin } from "../twin.js";
 import { StripChart, drawSpark } from "../charts.js";
 import { unwrapCircularValues } from "../circular.js";
 import { DeviceScreen, MODES, MODE_LABEL } from "../device_screen.js";
+import { sourceBadges } from "../sim_badge.js";
+import { buildCalibPrompt } from "../calib_prompt.js";
+import { forearmElevationDeg, wristAnglesDeg, qValid } from "../arm_model.js";
+import { buildVisionArm } from "../vision_arm.js";
+import { getTheme, applyTheme } from "../theme.js";
 
 const FINGERS = ["index", "middle", "ring", "pinky"];
 const SEGS = ["mcp", "pip", "dip"];
@@ -223,7 +228,6 @@ function deriveDeviceUi(sm, snap) {
 }
 
 export function mountOperator(rootHost) {
-  localStorage.setItem("zero.role", "operator");
   const root = el("div", { class: "surf op" });
   const cleanups = [];
 
@@ -234,42 +238,25 @@ export function mountOperator(rootHost) {
   const segLive = el("button", { class: "on" }, "Live");
   const segHealth = el("button", null, "Health");
   const seg = el("div", { class: "seg" }, segLive, segHealth);
-  const btnDemo = el("button", { class: "btn ghost sm" }, "Demo");
-  // The developer-tools drawer is GONE (2026-08-06, owner's call): motors, PID
-  // tuning, the scope, the sweep and fit/sizing were instruments nobody reached
-  // for, and the one control that mattered - the watch face - was buried five
-  // sections down behind a door. It now lives in the right column under the
-  // device screen it actually drives. The drawer also held the only links to the
-  // bench surfaces, so that one link survives here rather than stranding pages
-  // that are reachable by typing a hash and no other way.
-  const btnBench = el("a", { class: "btn ghost sm", href: "#/imu", title: "IMU bench: orientation, full sensor set, motion" }, "IMU bench");
-  // MOCK badge: the console silently defaults to simulated data when it is not
-  // pointed at the live bridge. Make that state loud, and one click connects live.
-  const mockBadge = el("button", { class: "mock-badge", title: "Showing simulated data. Click to connect to the live bridge (ws://localhost:8765/ws)." }, "MOCK DATA");
-  mockBadge.addEventListener("click", () => {
-    const u = new URL(location.href);
-    u.searchParams.set("ws", "ws://localhost:8765/ws");
-    location.href = u.toString();   // full reload into live mode (also remembered)
-  });
-  if (store.live) mockBadge.style.display = "none";
-  // LINK badge: live mode with the bridge unreachable is NOT the same as mock
-  // data; say so instead of silently holding the last frame.
-  const linkBadge = el("button", { class: "mock-badge",
-    title: "The live bridge is not answering. Reconnecting automatically; click to reload now." }, "LINK DOWN");
-  linkBadge.addEventListener("click", () => location.reload());
-  linkBadge.style.display = "none";
-  if (store.live) {
-    const updLink = (up) => { linkBadge.style.display = up ? "none" : ""; };
-    updLink(store.connected);
-    cleanups.push(store.onLink(updLink));
-  }
+  // MODES [2026-09-30, owner's call]: the console is the one door. Every
+  // surface beyond the live view (therapy sessions, capture, sign language,
+  // the bench tools, the presentation overlay) is listed here instead of at
+  // the bottom of the product page, and each of them leads back here. The old
+  // Demo and IMU bench buttons were built but never placed in the bar, which
+  // left the bench reachable only by typing a hash; both live in this menu.
+  const modes = buildModesMenu(() => demo.open());
+  // SIMULATED DATA / LINK DOWN: the default source tries the live bridge and
+  // falls back to the simulation; the badge follows the source as it changes
+  // (sim_badge.js), so simulated data can never pass for a live device.
+  const [mockBadge, linkBadge] = sourceBadges(cleanups);
   const bar = el("header", { class: "surf-bar" },
     el("div", { class: "surf-bar-left" },
       el("a", { href: "#/", class: "surf-back", title: "Home" }, backGlyph()),
-      el("a", { href: "#/", class: "wordmark sm", title: "Home" }, el("span", { class: "wordmark-dot" }), "TAKTO"),
-      el("div", { class: "surf-name" }, "Operator")),
+      // the product page's logo, light or dark with the theme (round 3)
+      el("a", { href: "#/", class: "op-logo", title: "Home", "aria-label": "TAKTO" }),
+      el("div", { class: "surf-name" }, "Console")),
     el("div", { class: "surf-bar-mid" }, seg),
-    el("div", { class: "surf-bar-right" }, mockBadge, linkBadge, statePill));
+    el("div", { class: "surf-bar-right" }, modes.button, mockBadge, linkBadge, statePill));
 
   // ============ LIVE tab ============
   // --- vitals column ---
@@ -277,9 +264,20 @@ export function mountOperator(rootHost) {
   const dotMotors = el("span", { class: "dot ok" });
   const vDevice = el("span", { class: "num vital-v" }, "30 Hz");
   const vMotors = el("span", { class: "num vital-v" }, "2");
+  // v16 device block: the SD card and power state live next to the link
+  const dotSd = el("span", { class: "dot" });
+  const vSd = el("span", { class: "num vital-v" }, "—");
+  const rowSd = el("div", { class: "vital-row", title: "Device SD card (the archival copy of every take)" },
+    dotSd, el("span", { class: "vital-k" }, "sd card"), vSd);
+  rowSd.style.display = "none";
+  // device row: the device's own frame rate; hover for the timing detail
+  // (pose lane rate, latency inside the bridge and to this page, IMU ages)
+  const rowDevice = el("div", { class: "vital-row", title: "Device link" },
+    dotDevice, el("span", { class: "vital-k" }, "device"), vDevice);
   const linkDots = el("div", { class: "vital-rows" },
-    el("div", { class: "vital-row" }, dotDevice, el("span", { class: "vital-k" }, "device"), vDevice),
-    el("div", { class: "vital-row" }, dotMotors, el("span", { class: "vital-k" }, "motors"), vMotors));
+    rowDevice,
+    el("div", { class: "vital-row" }, dotMotors, el("span", { class: "vital-k" }, "motors"), vMotors),
+    rowSd);
   const vLink = el("div", { class: "card vital" }, el("div", { class: "kicker" }, "Link"), linkDots);
 
   // transparency crown: the device pot sweeps fully transparent (zero force,
@@ -338,6 +336,12 @@ export function mountOperator(rootHost) {
   const framesRate = el("span", { class: "num frames-rate" }, "— Hz");
   const framesZero = el("button", { class: "frames-zero", title: "Set home: hold the straight pose, then click" }, "zero");
   framesZero.addEventListener("click", () => {
+    // a v16 bridge (body model) takes the real neutral capture; an older one
+    // keeps its instant IMU tare
+    if (store.snap && store.snap.body) {
+      if (store.send({ cmd: "calibrate", what: "neutral" })) toast("Neutral capture started: hold the pose", { tone: "live" });
+      return;
+    }
     store.send({ cmd: "calibrate", what: "imu" });
     toast("Home set to current pose", { tone: "ok" });
   });
@@ -346,15 +350,57 @@ export function mountOperator(rootHost) {
       el("span", { class: "frames-head-right" }, framesZero, framesRate)),
     el("div", { class: "vital-rows" }, fHand.node, fFore.node));
 
-  // effort ring = EMG activation (Fable module: BayesianAmplitude + auto MVC)
+  // effort ring = EMG activation (bridge emg_engine: 2 kHz sEMG features,
+  // Sanger Bayesian amplitude, % of a measured MVC, CUSUM onset, MDF fatigue)
   const effortGauge = ringGauge(96, 5);
   const effortVal = el("div", { class: "effort-val num" }, "0 %");
+  const effortUnit = el("div", { class: "effort-unit" }, "");
   const effortTag = el("span", { class: "effort-tag" }, "EMG");
   const effortFoot = el("div", { class: "vital-foot num effort-foot" }, "no EMG");
-  const vEffort = el("div", { class: "card vital vital-effort", title: "A calm, display-only view of normalized EMG activity. It does not affect assistance control." },
-    el("div", { class: "vital-krow effort-krow" }, el("span", { class: "kicker" }, "Effort"), effortTag),
-    el("div", { class: "effort-wrap" }, effortGauge.node, effortVal),
+  const effortQDot = el("span", { class: "dot" });
+  const effortQ = el("span", { class: "effort-q" }, "");
+  const fatigueFill = el("div", { class: "blend-fill fatigue-fill" });
+  const fatigueRow = el("div", { class: "effort-fatigue", title: "Median-frequency drop within the current contraction (25 % = full scale)" },
+    el("span", { class: "vital-k" }, "fatigue"), el("div", { class: "blend-track" }, fatigueFill));
+  fatigueRow.style.display = "none";
+  const emgCalBtn = el("button", { type: "button", class: "frames-zero emg-cal-btn",
+    title: "Guided MVC calibration: relax 3 s, then three maximal squeezes" }, "calibrate");
+  const emgCalMsg = el("div", { class: "emg-cal-msg" }, "");
+  emgCalMsg.style.display = "none";
+  emgCalBtn.addEventListener("click", () => {
+    if (!store.send({ cmd: "calibrate", what: "emg" })) { toast("Link down - not sent", { tone: "warn" }); return; }
+    emgCalMsg.style.display = "";
+    emgCalMsg.textContent = "Relax your hand completely…";
+  });
+  const vEffort = el("div", { class: "card vital vital-effort", title: "Muscle activation from the forearm sEMG. Display only: it does not affect assistance control." },
+    el("div", { class: "vital-krow effort-krow" }, el("span", { class: "kicker" }, "Effort"),
+      el("span", { class: "frames-head-right" }, effortTag, emgCalBtn)),
+    el("div", { class: "effort-wrap" }, effortGauge.node, el("div", { class: "effort-val num" }, effortVal, effortUnit)),
+    emgCalMsg,
+    el("div", { class: "vital-row effort-qrow" }, effortQDot, effortQ),
+    fatigueRow,
     effortFoot);
+  // the guided calibration speaks through the card
+  cleanups.push(store.onAck((a) => {
+    if (a.event !== "emg_cal") return;
+    const say = {
+      requested: "Relax your hand completely…",
+      rest: "Relax your hand completely…",
+      squeeze: `SQUEEZE as hard as you can · ${a.rep || 1} of ${a.reps || 3}`,
+      relax: "Relax…",
+      done: `Calibrated · MVC ${(a.mvc_mv ?? 0).toFixed(2)} mV · SNR ${a.snr_db ?? "–"} dB`,
+      failed: `Calibration failed: ${a.reason || "no signal"}`,
+      cancelled: "Calibration cancelled",
+    }[a.phase];
+    if (!say) return;
+    emgCalMsg.style.display = "";
+    emgCalMsg.textContent = say;
+    emgCalMsg.dataset.phase = a.phase;
+    if (a.phase === "done" || a.phase === "failed" || a.phase === "cancelled") {
+      setTimeout(() => { emgCalMsg.style.display = "none"; }, a.phase === "done" ? 5000 : 8000);
+    }
+  }));
+
 
   // EMG is sampled quickly so the control system can remain responsive.  The
   // person wearing the device should not have to watch a nervous 50–60 Hz
@@ -374,7 +420,11 @@ export function mountOperator(rootHost) {
     }
     const dt = Math.min(250, Math.max(0, now - calmEffort.lastT));
     calmEffort.lastT = now;
-    const alpha = 1 - Math.exp(-dt / 1600);
+    // [2026-09-30] the bridge's Bayesian amplitude filter now does the
+    // smoothing properly; a 1.6 s display lag on top made a squeeze look
+    // sluggish. The ring follows within ~150 ms; the NUMBER stays calm
+    // (5 % steps, at most 4 Hz).
+    const alpha = 1 - Math.exp(-dt / 150);
     calmEffort.value += (target - calmEffort.value) * alpha;
     const pct = Math.round(clamp(calmEffort.value, 0, 1) * 20) * 5;
     const paint = pct !== calmEffort.shownPct && now - calmEffort.lastPaintT >= 250;
@@ -393,7 +443,20 @@ export function mountOperator(rootHost) {
 
   // --- stage (twin) ---
   const stage = el("div", { class: "op-stage panel" });
-  const stageTag = el("div", { class: "stage-tag" }, el("span", { class: "dot live" }), el("span", { class: "mono" }, "LIVE TWIN"));
+  // A "live" tag only ever names live data: while the simulation is the source the
+  // same tag says SIMULATED (the sim_badge.js rule, applied to the twin's own tags).
+  const sourceTag = (liveText, simText) => {
+    const dot = el("span", { class: "dot live" }), word = el("span", { class: "mono" }, liveText);
+    const paint = () => {
+      const live = store.sourceKind === "ws";
+      dot.className = "dot " + (live ? "live" : "sim");
+      word.textContent = live ? liveText : simText;
+    };
+    paint();
+    cleanups.push(store.onSource(paint));
+    return [dot, word];
+  };
+  const stageTag = el("div", { class: "stage-tag" }, ...sourceTag("LIVE TWIN", "SIMULATED TWIN"));
   const stageHint = el("div", { class: "stage-hint mono" }, "drag to orbit");
   // "Correct the twin" lives ON the stage, because the moment you want it is the
   // moment you are looking at a wrong pose. It captures the pose the device is
@@ -414,7 +477,34 @@ export function mountOperator(rootHost) {
       stageFix.textContent = "Correct the twin";
     }, 1200);
   });
-  stage.append(stageTag, stageHint, stageFix, stageFixNote);
+  stage.append(stageFix, stageFixNote);
+  // Arm in space (body frame, translating, limb + floor grid) or the classic
+  // pinned hand (orientation only). The twin remembers the choice.
+  const viewArm = el("button", { type: "button", title: "The whole arm, moving through space (body model)" }, "Arm in space");
+  const viewHand = el("button", { type: "button", title: "The device pinned in place: orientation only" }, "Hand only");
+  const viewSeg = el("div", { class: "seg seg-sm stage-view" }, viewArm, viewHand);
+  const stageNote = el("div", { class: "stage-note mono" }, "");
+  // camera presets, named from the wearer's side of the arm (twin.cameraPreset)
+  const CAMS = [["wearer", "Wearer", "Behind your shoulder, looking along the arm: turns the way you see your own arm turn"],
+    ["side", "Side", "From your right"], ["top", "Top", "From above, forward pointing up the screen"],
+    ["front", "Front", "Facing you, like a mirror: rotations read reversed"]];
+  const camBtns = new Map();
+  const camSeg = el("div", { class: "seg seg-sm op-cam" });
+  let camNow = "wearer";
+  const paintCam = () => { for (const [k, b] of camBtns) b.classList.toggle("on", k === camNow); };
+  for (const [key, label, tip] of CAMS) {
+    const b = el("button", { type: "button", title: tip }, label);
+    b.addEventListener("click", () => { camNow = key; twin.cameraPreset(key); paintCam(); });
+    camBtns.set(key, b);
+    camSeg.append(b);
+  }
+  const recenterBtn = el("button", { type: "button", class: "op-dock-btn", title: "Recenter the twin (double-click the stage)" },
+    svg("svg", { viewBox: "0 0 16 16", width: 15, height: 15 },
+      svg("circle", { cx: 8, cy: 8, r: 2.2, fill: "currentColor" }),
+      svg("path", { d: "M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3", stroke: "currentColor", "stroke-width": 1.5, "stroke-linecap": "round" })));
+  recenterBtn.addEventListener("click", () => twin.recenter());
+  const calibPrompt = buildCalibPrompt(cleanups, { variant: "stage" });
+  stage.append(calibPrompt.node);
 
   // --- charts column ---
   const mkChart = (label, sub) => {
@@ -549,7 +639,85 @@ export function mountOperator(rootHost) {
   // full-width copy beneath the grid: it was the element covering the lower
   // cards on shorter desktop viewports.
   const motorStrip = el("div", { class: "op-motorstrip card" });
-  const liveGrid = el("div", { class: "op-live" }, vitals, stage, charts);
+  // ---- full-screen twin, instruments in liquid-glass drawers ----
+  // [2026-09-29, owner's call] The twin IS the page. The two instrument
+  // columns float over it as glass drawers that slide away to a pull tab
+  // ([ and ] toggle one, \ toggles both, remembered), and the camera centres
+  // the twin in whatever the drawers leave free (twin.setInsets).
+  const PANELS_KEY = "takto.op.panels";
+  const panels = { left: window.innerWidth >= 900, right: window.innerWidth >= 1200 };
+  try { Object.assign(panels, JSON.parse(localStorage.getItem(PANELS_KEY) || "null") || {}); } catch (_) {}
+  const chevron = () => svg("svg", { viewBox: "0 0 10 16", width: 10, height: 16 },
+    svg("path", { d: "M3 3l4 5-4 5", fill: "none", stroke: "currentColor", "stroke-width": 1.8,
+      "stroke-linecap": "round", "stroke-linejoin": "round" }));
+  const drawers = {};
+  const mkDrawer = (side, content, label, key) => {
+    const pull = el("button", { type: "button", class: "op-pull lg", title: `${label} (${key})`, "aria-label": label }, chevron());
+    const node = el("aside", { class: `op-float lg ${side}`, "aria-label": label },
+      el("div", { class: "op-float-scroll" }, content), pull);
+    pull.addEventListener("click", () => setPanel(side, !panels[side]));
+    drawers[side] = node;
+    return node;
+  };
+  const leftDrawer = mkDrawer("left", vitals, "Status panel", "[");
+  const rightDrawer = mkDrawer("right", charts, "Instruments panel", "]");
+  const panelsBtn = el("button", { type: "button", class: "op-dock-btn", title: "Show / hide the panels (\\)" },
+    svg("svg", { viewBox: "0 0 16 16", width: 15, height: 15 },
+      svg("rect", { x: 1.5, y: 2.5, width: 13, height: 11, rx: 2.5, fill: "none", stroke: "currentColor", "stroke-width": 1.4 }),
+      svg("path", { d: "M5.5 2.5v11M10.5 2.5v11", stroke: "currentColor", "stroke-width": 1.4 })));
+  panelsBtn.addEventListener("click", () => {
+    const show = !(panels.left || panels.right);
+    setPanel("left", show, false); setPanel("right", show);
+  });
+  // the webcam measures the upper arm the IMUs cannot see (vision_arm.js)
+  const visionArm = buildVisionArm(cleanups);
+  const dock = el("div", { class: "op-dock lg", title: "drag to orbit · wheel to zoom · double-click to recenter" },
+    el("div", { class: "op-dock-tag" }, stageTag, stageNote),
+    viewSeg, camSeg, recenterBtn, visionArm.button, panelsBtn);
+  const liveGrid = el("div", { class: "op-live" }, stage, leftDrawer, rightDrawer, dock, visionArm.node);
+
+  function syncInsets() {
+    if (!twin) return;
+    const W = window.innerWidth, gap = 12;
+    const r = (n) => n.getBoundingClientRect();
+    const left = panels.left ? r(leftDrawer).width + gap * 2 : 0;
+    const right = panels.right ? r(rightDrawer).width + gap * 2 : 0;
+    // the calibration prompt counts as covered while it is open over the stage
+    const cp = calibPrompt.node;
+    const cpOpen = !cp.hidden && !cp.classList.contains("collapsed") && cp.offsetParent !== null;
+    const top = tab === "live" ? Math.max(r(bar).bottom, cpOpen ? r(cp).bottom : 0) + gap : 0;
+    const bottom = r(dock).height + gap * 3;
+    const fits = W - left - right > 260;          // narrow screens: drawers overlay
+    twin.setInsets(fits ? { left, right, top, bottom } : { top, bottom });
+    root.style.setProperty("--free-cx", `${fits ? (left + (W - right)) / 2 : W / 2}px`);
+    root.style.setProperty("--free-l", `${fits ? left : gap}px`);
+  }
+  function setPanel(side, open, sync = true, save = true) {
+    panels[side] = !!open;
+    drawers[side].classList.toggle("closed", !open);
+    panelsBtn.classList.toggle("on", panels.left || panels.right);
+    if (save) { try { localStorage.setItem(PANELS_KEY, JSON.stringify(panels)); } catch (_) {} }
+    if (sync) syncInsets();
+  }
+  const onKey = (e) => {
+    if (tab !== "live" || e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    if (e.key === "[") setPanel("left", !panels.left);
+    else if (e.key === "]") setPanel("right", !panels.right);
+    else if (e.key === "\\") { const show = !(panels.left || panels.right); setPanel("left", show, false); setPanel("right", show); }
+    else return;
+    e.preventDefault();
+  };
+  window.addEventListener("keydown", onKey);
+  // the prompt opens, collapses and changes height on its own
+  const cpWatch = new ResizeObserver(() => syncInsets());
+  cpWatch.observe(calibPrompt.node);
+  const cpMut = new MutationObserver(() => syncInsets());
+  cpMut.observe(calibPrompt.node, { attributes: true, attributeFilter: ["class", "hidden"] });
+  cleanups.push(() => { cpWatch.disconnect(); cpMut.disconnect(); });
+  window.addEventListener("resize", syncInsets);
+  cleanups.push(() => { window.removeEventListener("keydown", onKey); window.removeEventListener("resize", syncInsets); });
 
   // ============ HEALTH tab ============
   const healthSummary = el("h2", { class: "health-summary" }, "All streams healthy");
@@ -572,7 +740,9 @@ export function mountOperator(rootHost) {
   }
 
   const body = el("main", { class: "surf-body" }, liveGrid);
-  root.append(bar, body);
+  root.append(bar, modes.menu, body);
+  cleanups.push(modes.dispose);
+  root.classList.add("op-full");
 
   // ============ tab switching ============
   let tab = "live";
@@ -581,7 +751,11 @@ export function mountOperator(rootHost) {
     tab = t;
     segLive.classList.toggle("on", t === "live");
     segHealth.classList.toggle("on", t === "health");
-    const swap = () => { body.replaceChildren(t === "live" ? liveGrid : healthWrap); };
+    const swap = () => {
+      body.replaceChildren(t === "live" ? liveGrid : healthWrap);
+      root.classList.toggle("op-full", t === "live");
+      if (t === "live") requestAnimationFrame(syncInsets);
+    };
     document.startViewTransition ? document.startViewTransition(swap) : swap();
   }
   segLive.addEventListener("click", () => setTab("live"));
@@ -607,12 +781,29 @@ export function mountOperator(rootHost) {
 
   // ============ life ============
   const COCKPIT_FRAMING = {
-    orbit: true, idle: true, autoFrame: true,
-    yaw: -0.75, pitch: 0.34, dist: 6.4, targetY: -0.1, targetZ: 0.1,
-    autoFrameMinDist: 4.8, autoFrameMaxDist: 9.2, autoFrameMargin: 1.18,
+    orbit: true, idle: true, autoFrame: true, armView: true,
+    // behind + above the right shoulder, high enough that the forearm module
+    // does not hide the hand: the wearer's own view (twin.cameraPreset "wearer")
+    yaw: Math.PI + 0.9, pitch: 0.78, dist: 7.6, targetY: -0.1, targetZ: 0.6,
+    autoFrameMinDist: 4.8, autoFrameMaxDist: 12.5, autoFrameMargin: 1.3,
   };
   const twin = Twin.acquire(stage, COCKPIT_FRAMING);
   cleanups.push(() => twin.dispose());
+  const paintView = () => {
+    const v = twin.view;
+    viewArm.classList.toggle("on", v === "arm");
+    viewHand.classList.toggle("on", v === "hand");
+    stage.classList.toggle("arm-view", v === "arm");
+  };
+  viewArm.addEventListener("click", () => { twin.setView("arm"); paintView(); camNow = "wearer"; paintCam(); });
+  viewHand.addEventListener("click", () => { twin.setView("hand"); paintView(); camNow = "wearer"; paintCam(); });
+  paintView();
+  paintCam();
+  setPanel("left", panels.left, false, false);
+  setPanel("right", panels.right, false, false);
+  requestAnimationFrame(syncInsets);
+  // the drawers slide; re-measure once they land
+  for (const d of [leftDrawer, rightDrawer]) d.addEventListener("transitionend", (e) => { if (e.target === d) syncInsets(); });
 
   let motorRows = {};
   const frameKin = { prevT: null, prevHand: null, prevFore: null, rate: 0,
@@ -627,8 +818,37 @@ export function mountOperator(rootHost) {
     dotDevice.className = "dot " + (s.link?.device ? "ok" : "stop");
     dotMotors.className = "dot " + (s.link?.motors ? "ok" : "stop");
     const linkH = (s.health || []).find((x) => x.stream === "link");
-    if (linkH) vDevice.textContent = `${linkH.rate_hz} Hz`;
+    const lt = store.linkTiming();
+    const f1 = (v) => (Number.isFinite(v) ? v.toFixed(1) : "–");
+    if (s.link?.device && Number.isFinite(lt.frameHz)) vDevice.textContent = `${Math.round(lt.frameHz)} Hz`;
+    else if (linkH) vDevice.textContent = `${linkH.rate_hz} Hz`;
+    const tip = [`device frames ${f1(lt.frameHz)} Hz · snapshot ${linkH ? linkH.rate_hz : "–"} Hz`];
+    if (lt.active) {
+      tip.push(`twin: pose lane ${f1(lt.hz)} Hz` + (lt.missed ? ` (${lt.missed} frames not seen)` : ""));
+      const br = lt.bridgeReported || (lt.bridge && { median: lt.bridge.p50, p95: lt.bridge.p95 });
+      const f2 = (v) => (Number.isFinite(v) ? v.toFixed(2) : "–");
+      if (br) tip.push(`inside the bridge ${f2(br.median)} / ${f2(br.p95)} ms (p50 / p95)`);
+      if (lt.page) tip.push(`bridge to this page ${f1(lt.page.p50)} / ${f1(lt.page.p95)} ms`);
+    } else tip.push(lt.requested ? "twin: 60 Hz snapshot (no pose lane on this bridge)" : "twin: 60 Hz snapshot (?pose=0)");
+    if (lt.serialJitter) tip.push(`serial jitter ${f1(lt.serialJitter.median)} / ${f1(lt.serialJitter.p95)} ms`);
+    if (lt.imuAge) tip.push(`IMU sample age hand ${f1(lt.imuAge.hand)} · forearm ${f1(lt.imuAge.forearm)} ms`);
+    rowDevice.title = tip.join("\n");
     vMotors.textContent = String((s.motors || []).length);
+    const dev = s.device;
+    rowSd.style.display = dev ? "" : "none";
+    if (dev) {
+      if (dev.standby) { dotSd.className = "dot warn"; vSd.textContent = "standby"; }
+      else if (!dev.sd_present) { dotSd.className = "dot stop"; vSd.textContent = "no card"; }
+      else if (dev.sd_recording) {
+        dotSd.className = "dot rec";
+        vSd.textContent = `REC TK${String(dev.sd_take || 0).padStart(5, "0")} · ${(dev.sd_rows || 0).toLocaleString()}`;
+      } else { dotSd.className = "dot ok"; vSd.textContent = dev.standalone_auto_record ? "ready · auto" : "ready"; }
+    }
+    // a v16 bridge calibrates through the neutral prompt on the stage; the
+    // old instant tare button stays for bridges without a body model
+    const hasBody = !!s.body;
+    stageFix.style.display = hasBody ? "none" : "";
+    stageFixNote.style.display = hasBody ? "none" : "";
 
     // motors: which are online + working
     const motorsArr = s.motors || [];
@@ -691,8 +911,31 @@ export function mountOperator(rootHost) {
 
     // effort = EMG activation (Fable module output); onset flashes the card
     const act = s.activation || {};
-    effortFoot.textContent = act.present ? ("EMG · " + (act.quality || "live")) : "no EMG (pin 14)";
+    effortTag.textContent = act.present ? (act.source === "raw" ? "RAW" : "ENV") : "EMG";
+    effortTag.title = act.source === "raw" ? "MyoWare RAW on pin 15: band-passed 20-450 Hz, 2 kHz"
+      : "MyoWare envelope on pin 14 (wire RAW to pin 15 for spectrum, fatigue and contact quality)";
     effortTag.classList.toggle("on", !!act.present);
+    emgCalBtn.style.display = act.present ? "" : "none";
+    effortUnit.textContent = act.present ? (act.calibrated ? "MVC" : "auto") : "";
+    effortUnit.title = act.calibrated ? "percent of your measured maximal voluntary contraction"
+      : "automatic scale (calibrate for % of your MVC)";
+    if (act.present) {
+      const sqi = act.sqi ?? 1;
+      effortQDot.className = "dot " + (sqi >= 0.8 ? "ok" : sqi >= 0.5 ? "warn" : "stop");
+      const bits = [act.quality || "live"];
+      if (act.snr_db != null) bits.push(`SNR ${act.snr_db} dB`);
+      if (act.source === "raw" && act.mdf_hz) bits.push(`MDF ${Math.round(act.mdf_hz)} Hz`);
+      effortQ.textContent = bits.join(" · ");
+      effortFoot.textContent = `${(act.amp_mv ?? 0).toFixed(act.source === "raw" ? 3 : 1)} mV` +
+        (act.active ? " · active" : "");
+      fatigueRow.style.display = act.fatigue_available ? "" : "none";
+      fatigueFill.style.width = `${Math.round((act.fatigue || 0) * 100)}%`;
+    } else {
+      effortQDot.className = "dot";
+      effortQ.textContent = "";
+      effortFoot.textContent = "no EMG (pin 14)";
+      fatigueRow.style.display = "none";
+    }
     // Raw onset can flicker around a threshold; only the calm presentation
     // below changes the visual state.
 
@@ -731,9 +974,12 @@ export function mountOperator(rootHost) {
       const r = motorRows[m.id];
       r.mode.textContent = m.mode;
       r.torque.className = "dot " + (m.torque_on ? "ok" : "");
-      r.pos.textContent = m.pos_deg.toFixed(1);
-      r.cur.textContent = m.current_ma.toFixed(0);
-      r.temp.textContent = m.temp_c.toFixed(0);
+      // real servos report no temperature (the bridge sends null): show a dash,
+      // never a number the device did not measure
+      const num = (v, d) => (typeof v === "number" && isFinite(v)) ? v.toFixed(d) : "\u2014";
+      r.pos.textContent = num(m.pos_deg, 1);
+      r.cur.textContent = num(m.current_ma, 0);
+      r.temp.textContent = num(m.temp_c, 0);
     }
   });
   cleanups.push(offSnap);
@@ -747,12 +993,35 @@ export function mountOperator(rootHost) {
     frameNo++;
     const draw2d = (frameNo & 1) === 0;
     if (tab === "live" && !demo.isOpen() && draw2d) {
-      fHand.needle.style.transform = `rotate(${(sm.handQuat[3] * 180)}deg)`;
-      fFore.needle.style.transform = `rotate(${(sm.forearmQuat[3] * 180)}deg)`;
+      // Needles are ANGLES now (they used to rotate by quat.z * 180, which is
+      // not an angle of anything): forearm = elevation above horizontal,
+      // hand = wrist flexion (+ palm-ward tips the needle down). Body model
+      // values when the bridge sends them, else derived from the segment quats.
+      {
+        const b = sm.body;
+        const qf = (b && b.forearmQuat) || qValid(sm.forearmQuat) || [1, 0, 0, 0];
+        const qh = (b && b.handQuat) || qValid(sm.handQuat) || [1, 0, 0, 0];
+        const elev = forearmElevationDeg(qf);
+        const flex = b && b.hasWristDeg ? b.wristDeg.flex : wristAnglesDeg(qf, qh).flex;
+        fFore.needle.style.transform = `rotate(${(-elev).toFixed(1)}deg)`;
+        fHand.needle.style.transform = `rotate(${flex.toFixed(1)}deg)`;
+        fFore.needle.parentElement.title = `forearm elevation ${elev.toFixed(0)}°`;
+        fHand.needle.parentElement.title = `wrist flexion ${flex.toFixed(0)}°`;
+      }
+      {
+        const info = twin.armInfo();
+        const txt = twin.view === "hand" ? "pinned · orientation only"
+          : !info ? ""
+          : info.synthetic ? "arm synthesised · no body model from the bridge"
+          : sm.body && !sm.body.live ? "arm held · an IMU dropped out"
+          : `arm · ${info.posSource === "arm+vision" ? "arm model + camera"
+              : info.posSource === "arm+inertial" ? "arm model + inertial" : "arm model"}`;
+        if (stageNote.textContent !== txt) stageNote.textContent = txt;
+      }
       const calm = presentEffort(sm.activation.level, performance.now());
       effortGauge.set(calm.value);
       if (calm.paint) effortVal.textContent = `${calm.pct} %`;
-      vEffort.classList.toggle("onset", calm.value >= 0.6);
+      vEffort.classList.toggle("onset", !!(store.snap && store.snap.activation && store.snap.activation.onset) || calm.value >= 0.6);
 
       // encoder board: raw channel lights + live angles
       let encLive = 0;
@@ -1208,7 +1477,21 @@ export function mountOperator(rootHost) {
         result.textContent = a.error || "Capture failed; hold the pose and retry.";
         return;
       }
-      if (a.event === "calibrated") {
+      // a v16 bridge runs the neutral as a device capture with phases; show
+      // them, and treat "done" as this step's confirmation
+      if (a.event === "neutral") {
+        if (a.phase === "countdown") { actionBtn.textContent = `Hold the pose in ${a.t ?? ""}…`; return; }
+        if (a.phase === "hold") { actionBtn.textContent = "Hold still…"; return; }
+        if (a.phase === "abort") {
+          waiting = false;
+          actionBtn.disabled = false;
+          actionBtn.textContent = STEPS[step].btn;
+          result.textContent = "Capture aborted" + (a.why ? ` (${a.why})` : "") + "; hold the pose and retry.";
+          return;
+        }
+        if (a.phase !== "done") return;
+      }
+      if (a.event === "calibrated" || (a.event === "neutral" && a.phase === "done")) {
         waiting = false;
         const t = a.travel, parts = [];
         if (t && t["8"] != null) parts.push("MCP " + Math.round(t["8"]) + "°");
@@ -1240,6 +1523,76 @@ export function mountOperator(rootHost) {
   }
 
   // ----------------------------------------------------------------- demo --
+  // the Modes menu: a glass directory under the bar. Links are plain hash
+  // routes (the router owns navigation); Presentation is the in-page overlay.
+  function buildModesMenu(openPresentation) {
+    const GROUPS = [
+      ["Sessions", [
+        ["guided", "Guided therapy", "Poses, with every rep measured"],
+        ["mirror", "Mirror therapy", "Camera biofeedback: the good hand leads"],
+        ["capture", "Capture", "Record labelled takes"],
+        ["replay", "Replay", "A take, played back as the whole arm"],
+      ]],
+      ["Sign language", [
+        ["sign", "Sign capture", "German Sign Language, prompt by prompt"],
+        ["translate", "Live recognition", "Signs decoded as you stream them"],
+      ]],
+      ["Bench", [
+        ["imu", "IMU bench", "Mounting orientation, full sensor set"],
+        ["tendon", "Tendon calibration", "Centre, range, guarded power-up"],
+        ["jog", "Motor jog", "Relative nudges, never an absolute target"],
+        ["bench", "SEA bench", "Series-elastic tuning aid"],
+        ["pair", "Pair a phone", "QR code for the companion app"],
+      ]],
+    ];
+    const row = (tag, attrs, name, line) => el(tag, { class: "op-mode-row", role: "menuitem", ...attrs },
+      el("span", { class: "op-mode-name" }, name), el("span", { class: "op-mode-line" }, line));
+    const button = el("button", { type: "button", class: "op-modes-btn", "aria-haspopup": "menu",
+      "aria-expanded": "false", title: "Sessions, sign language and bench tools" },
+      el("span", null, "Modes"),
+      el("span", { class: "op-modes-ico" }, svg("svg", { viewBox: "0 0 16 16", width: 13, height: 13, "aria-hidden": "true" },
+        ...[[2, 2], [9, 2], [2, 9], [9, 9]].map(([x, y]) =>
+          svg("rect", { x, y, width: 5, height: 5, rx: 1.4, fill: "none", stroke: "currentColor", "stroke-width": 1.5 })))));
+    const present = row("button", { type: "button" }, "Presentation", "Full-screen twin with large readouts");
+    present.addEventListener("click", () => { close(); openPresentation(); });
+    const themeBtns = ["light", "dark"].map((t) => {
+      const b = el("button", { type: "button" }, t === "light" ? "Light" : "Dark");
+      b.addEventListener("click", () => { applyTheme(t); paintTheme(); });
+      return b;
+    });
+    const paintTheme = () => themeBtns.forEach((b, i) => b.classList.toggle("on", (i === 0 ? "light" : "dark") === getTheme()));
+    const menu = el("div", { class: "op-modes lg", role: "menu", "aria-label": "Modes" },
+      ...GROUPS.map(([g, items]) => el("div", { class: "op-modes-group" },
+        el("div", { class: "kicker" }, g),
+        ...items.map(([route, name, line]) => row("a", { href: "#/" + route }, name, line)))),
+      el("div", { class: "op-modes-group" }, el("div", { class: "kicker" }, "Show"), present),
+      el("div", { class: "op-modes-foot" },
+        el("span", null, "Appearance"), el("div", { class: "seg" }, ...themeBtns)));
+    menu.hidden = true;
+    const open = () => {
+      paintTheme();
+      menu.hidden = false;
+      button.setAttribute("aria-expanded", "true");
+      menu.querySelector(".op-mode-row")?.focus({ preventScroll: true });
+    };
+    const close = () => {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      button.setAttribute("aria-expanded", "false");
+    };
+    button.addEventListener("click", () => (menu.hidden ? open() : close()));
+    // a link closes it on the way out; a click anywhere else or Escape too
+    menu.addEventListener("click", (e) => { if (e.target.closest("a")) close(); });
+    const onDown = (e) => { if (!menu.hidden && !menu.contains(e.target) && !button.contains(e.target)) close(); };
+    const onKey = (e) => { if (e.key === "Escape" && !menu.hidden) { close(); button.focus(); } };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("keydown", onKey);
+    return { button, menu, close, dispose: () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("keydown", onKey);
+    } };
+  }
+
   function buildDemo(cleanups) {
     let open = false;
     const stageD = el("div", { class: "demo-stage" });
@@ -1251,7 +1604,7 @@ export function mountOperator(rootHost) {
       stageD,
       el("div", { class: "demo-top" },
         el("div", { class: "wordmark" }, el("span", { class: "wordmark-dot" }), "TAKTO"),
-        el("div", { class: "pill" }, el("span", { class: "dot live" }), "LIVE"),
+        el("div", { class: "pill" }, ...sourceTag("LIVE", "SIMULATED")),
         el("button", { class: "surf-back demo-close", onclick: () => api.close() }, "✕")),
       el("div", { class: "demo-reads" },
         el("div", { class: "demo-read-block" }, rCurl, el("div", { class: "kicker" }, "Curl %")),
@@ -1268,7 +1621,7 @@ export function mountOperator(rootHost) {
         open = true; t0 = performance.now();
         node.classList.add("open");
         document.addEventListener("keydown", esc);
-        Twin.acquire(stageD, { orbit: true, idle: true, idleSpin: true, yaw: -0.8, pitch: 0.3, dist: 7.6, targetY: -0.2, targetZ: 0.3 });
+        Twin.acquire(stageD, { orbit: true, idle: true, idleSpin: true, armView: true, yaw: -0.8, pitch: 0.3, dist: 7.6, targetY: -0.2, targetZ: 0.3 });
       },
       close() {
         open = false;

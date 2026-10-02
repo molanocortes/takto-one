@@ -16,6 +16,7 @@
 // EN/DE strings live here (the signer may prefer German). Reuses the console
 // theme + ui helpers. No em dashes.
 
+import { askMediaPipe } from "../consent.js";
 import { el, toast } from "../ui.js";
 import { store } from "../store.js";
 import { SignCapture, STATE } from "../sign/capture_core.js";
@@ -86,8 +87,9 @@ function hasNeutralBlock(plan) {
 }
 
 export function mountSign(rootHost) {
-  localStorage.setItem("zero.role", "sign");
-  const lang = (localStorage.getItem("takto.sign.lang") || (navigator.language || "en").slice(0, 2));
+  let saved = null;
+  try { saved = localStorage.getItem("takto.sign.lang"); } catch (_) {}   // throws where site data is blocked
+  const lang = (saved || (navigator.language || "en").slice(0, 2));
   const L = STR[lang] || STR.en;
   const root = el("div", { class: "surf sign" });
   const cleanups = [];
@@ -101,12 +103,12 @@ export function mountSign(rootHost) {
   const linkPill = el("div", { class: "pill" }, el("span", { class: "dot warn" }), el("span", null, L.connect));
   const langBtn = el("button", { class: "chip" }, lang.toUpperCase());
   langBtn.addEventListener("click", () => {
-    localStorage.setItem("takto.sign.lang", lang === "en" ? "de" : "en");
+    try { localStorage.setItem("takto.sign.lang", lang === "en" ? "de" : "en"); } catch (_) {}
     location.reload();
   });
   const bar = el("header", { class: "surf-bar" },
     el("div", { class: "surf-bar-left" },
-      el("a", { href: "#/", class: "surf-back", title: "Home" }, backGlyph()),
+      el("a", { href: "#/operator", class: "surf-back", title: "Back to the console" }, backGlyph()),
       el("a", { href: "#/", class: "wordmark sm", title: "Home" }, el("span", { class: "wordmark-dot" }), "TAKTO"),
       el("div", { class: "surf-name" }, L.title)),
     el("div", { class: "surf-bar-mid" }),
@@ -425,6 +427,9 @@ export function mountSign(rootHost) {
     // face is never shown, and to a coarse wrist proxy.
     let vision = null, hasMP = false;
     try {
+      // the public site asks before MediaPipe loads from jsDelivr and Google;
+      // a "no" takes the offline path below (head blurred, coarse wrist)
+      if (!(await askMediaPipe("Sign capture"))) throw new Error("declined");
       vision = await import(/* @vite-ignore */ `${VISION_CDN}/vision_bundle.mjs`);
       const files = await vision.FilesetResolver.forVisionTasks(`${VISION_CDN}/wasm`);
       faceDet = await vision.FaceDetector.createFromOptions(files, {

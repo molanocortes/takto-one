@@ -12,9 +12,11 @@
 // unavailable, the view explains why and never breaks the console. When a real
 // device is attached it receives the per-finger targets over the same socket.
 
+import { askMediaPipe } from "../consent.js";
 import { el, clamp } from "../ui.js";
 import { store } from "../store.js";
 import { Twin } from "../twin.js";
+import { sourceBadges } from "../sim_badge.js";
 import { MCP_MAX_DEG, PIP_MAX_DEG } from "../kinematics.js";
 
 // The present wearable has two independently driven DOFs on the index finger.
@@ -141,39 +143,22 @@ function fingerJoints(lms, f) {
 }
 
 export function mountMirror(rootHost) {
-  localStorage.setItem("zero.role", "mirror");
   styleOnce();
   const cleanups = [];
   const root = el("div", { class: "mir" });
 
   const stage = el("div", { class: "mir-stage" });
-  const exit = el("a", { href: "#/", class: "mir-exit", title: "Home" }, "✕");
+  const exit = el("a", { href: "#/operator", class: "mir-exit", title: "Back to the console", "aria-label": "Back to the console" }, "✕");
 
   // HONESTY: this surface streams mirror targets to a device. With no bridge
   // (the default when the page is opened without ?ws=) nothing receives them and
   // the twin is a local simulation, so say which of the two the therapist is
   // looking at instead of implying a device is following.
-  const mockBadge = el("button", { class: "mock-badge",
-    title: "No bridge: the twin is a local simulation and no device is receiving these targets. Click to connect to the live bridge (ws://localhost:8765/ws)." },
-    "MOCK · NO DEVICE");
-  mockBadge.addEventListener("click", () => {
-    const u = new URL(location.href);
-    u.searchParams.set("ws", "ws://localhost:8765/ws");
-    location.href = u.toString();
-  });
-  if (store.live) mockBadge.style.display = "none";
-  const linkBadge = el("button", { class: "mock-badge",
-    title: "The live bridge is not answering: mirror targets are being dropped. Reconnecting automatically; click to reload now." }, "LINK DOWN");
-  linkBadge.addEventListener("click", () => location.reload());
-  linkBadge.style.display = "none";
-  if (store.live) {
-    const updLink = (up) => { linkBadge.style.display = up ? "none" : ""; };
-    updLink(store.connected);
-    cleanups.push(store.onLink(updLink));
-  }
+  const [mockBadge, linkBadge] = sourceBadges(cleanups, {
+    linkTitle: "The live bridge is not answering: mirror targets are being dropped. Reconnecting automatically; click to reload now." });
 
   const hud = el("div", { class: "mir-hud" },
-    el("div", { class: "mir-kicker" }, "Rehabilitation · Mirror therapy"),
+    el("div", { class: "mir-kicker" }, "Research demo · Mirror therapy"),
     el("h2", { class: "mir-title" }, "Your good hand leads."),
     el("p", { class: "mir-sub" },
       "The camera reads the healthy index finger. Tracking is visual until you complete the explicit, safety-gated physical follow setup."),
@@ -302,8 +287,10 @@ export function mountMirror(rootHost) {
   // target. Quats are WIRE order [w,x,y,z] (store convention) - identity is
   // [1,0,0,0]; the old [0,0,0,1] was three.js (x,y,z,w) identity, which the
   // wire order reads as a 180 deg roll and rendered the device upside down.
+  // motors: {} - the twin's spool driver iterates it; without it, `id in
+  // sm.motors` threw every frame once any motor had ever been seen
   const sm = { joints: {}, curl: 0, fingers: {}, activation: { level: 0, fatigue: 0, direction: 0 },
-    handQuat: [1, 0, 0, 0], forearmQuat: [1, 0, 0, 0] };
+    handQuat: [1, 0, 0, 0], forearmQuat: [1, 0, 0, 0], motors: {}, jointOk: {}, body: null };
   // per-finger, per-JOINT normalized flexion: {m: MCP 0..1, p: PIP 0..1}.
   // Two independent channels because the device drives MCP and PIP flexion
   // independently (and has no DIP at all).
@@ -459,7 +446,7 @@ export function mountMirror(rootHost) {
       const failed = cf.reason && cf.reason !== "disarmed"
         && /no |could not|refused|unavailable|stale/i.test(cf.reason);
       nextLine.className = "mir-next" + (failed ? " warn" : "");
-      nextLine.textContent = failed ? cf.reason : "Next: " + current.why();
+      nextLine.textContent = failed ? cf.reason : "Next: " + current.why(state);
     } else {
       nextLine.className = "mir-next";
       nextLine.textContent = "Ready.";
@@ -657,6 +644,14 @@ export function mountMirror(rootHost) {
       showState("Camera unavailable", "This browser did not expose a camera. Mirror therapy needs a webcam to read the healthy hand.");
       return;
     }
+    // the public site asks before MediaPipe loads, and asks first: without it
+    // the camera has nothing to do, so a "no" never turns it on
+    if (!(await askMediaPipe("Mirror therapy"))) {
+      showState("Hand tracking is off", "You chose not to load Google MediaPipe, so the camera stays off. Choose Retry to decide again.",
+        { label: "Retry", fn: () => start() });
+      return;
+    }
+    if (disposed) return;
     showState("Starting the camera", "Allow camera access when your browser asks. Nothing is recorded or uploaded; the video stays on this machine.");
     let stream;
     try {
@@ -686,6 +681,14 @@ export function mountMirror(rootHost) {
     // A failed dynamic import is remembered by the module map, so re-importing
     // the SAME url resolves to the same failure without touching the network.
     // Retries therefore need a fresh specifier, or "Retry" can never succeed.
+    // the public site asks before MediaPipe loads from jsDelivr and Google
+    if (!(await askMediaPipe("Mirror therapy"))) {
+      showState("Hand tracking is off", "You chose not to load Google MediaPipe, so the camera cannot follow your hand. Choose Retry to decide again.",
+        { label: "Retry", fn: () => {
+          loadModel().then((ok) => { if (ok && !disposed) { clearState(); loop(); } });
+        } });
+      return false;
+    }
     const bust = modelTry++ ? `?retry=${modelTry}` : "";
     try {
       const vision = await import(/* @vite-ignore */ `${HANDLANDMARKER_CDN}/vision_bundle.mjs${bust}`);

@@ -1,0 +1,31 @@
+# Cloudflare Pages response headers (https://developers.cloudflare.com/pages/configuration/headers/)
+# Security: nothing loads from anywhere but this site, except
+#   - Google MediaPipe for the console's camera features, and only after the
+#     visitor agrees (src/consent.js): cdn.jsdelivr.net + storage.googleapis.com
+#   - a TAKTO bridge on the visitor's own computer (ws://localhost), opt-in only
+# The script hash is the inline import map in index.html: if that block
+# changes, recompute it (sha256, base64) or the site will not start.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-JmFPMM6hqTDeOhh+5pDmskMz2dW/Br0dXHziUxIC+BA=' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' ws://localhost:* ws://127.0.0.1:* https://cdn.jsdelivr.net https://storage.googleapis.com; worker-src 'self' blob:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none'
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), browsing-topics=()
+  Cross-Origin-Opener-Policy: same-origin
+
+# images, renders, the film and the 3D model: a day in the browser, then
+# refreshed in the background (file names are not fingerprinted)
+/assets/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/vendor/*
+  Cache-Control: public, max-age=604800
+
+# the legal notice is reachable from every page, but kept out of search engines
+/legal.html
+  X-Robots-Tag: noindex, nofollow
+
+# Pages serves /legal.html as /legal (pretty URLs)
+/legal
+  X-Robots-Tag: noindex, nofollow

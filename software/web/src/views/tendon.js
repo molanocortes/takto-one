@@ -135,7 +135,7 @@ export function mountTendon(rootHost) {
 
   const wrap = el("div", { class: "tdn" },
     el("div", { class: "tdn-head" },
-      el("a", { class: "tdn-back", href: "#/" }, "back"),
+      el("a", { class: "tdn-back", href: "#/operator" }, "← Console"),
       el("span", { class: "tdn-kicker" }, "bench"), chip),
     el("h1", { class: "tdn-title" }, "Tendon calibration"),
     el("p", { class: "tdn-sub" },

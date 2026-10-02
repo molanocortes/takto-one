@@ -144,6 +144,7 @@ canvas { display: block; }
 .dot.ok   { background: var(--ok);   box-shadow: 0 0 0 3px rgba(78, 125, 87, 0.14); animation: breathe 2.6s var(--ease) infinite; }
 .dot.live { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow-12); animation: breathe 2.6s var(--ease) infinite; }
 .dot.warn { background: var(--warn); box-shadow: 0 0 0 3px rgba(169, 123, 30, 0.16); }
+.dot.sim { background: var(--sim); box-shadow: 0 0 0 3px var(--sim-glow); }   /* simulated data, never mistaken for live */
 .dot.stop { background: var(--stop); box-shadow: 0 0 0 3px rgba(176, 46, 32, 0.16); animation: blink 1s step-end infinite; }
 .dot.rec  { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow-12); animation: breathe 1.6s var(--ease) infinite; }
 
