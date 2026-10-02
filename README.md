@@ -90,6 +90,49 @@ into a hand.
 
 ---
 
+## Two custom boards
+
+Designed from scratch in KiCad for this device and published in full: schematic, layout and
+manufacturing outputs for each board are in [`electronics/`](electronics/). The renders come
+straight from those files.
+
+<table>
+<tr>
+<td width="58%"><img src="docs/media/pcb-palm-carrier.png" alt="Palm carrier board, KiCad 3D render" width="100%"></td>
+<td width="42%"><img src="docs/media/pcb-encoder-board.png" alt="Encoder board, KiCad 3D render" width="100%"></td>
+</tr>
+<tr>
+<td valign="top"><b>Palm carrier</b> (<code>palm_carrier/</code>). Shaped to the curved palm plate. Two
+TCA9548A I²C multiplexers fan the bus out to fourteen encoder channels: twelve joints, plus two
+reserved for a thumb.</td>
+<td valign="top"><b>Encoder board</b> (<code>encoder_board/</code>), one per joint. An AS5600
+magnetic angle sensor centred under a through-board aperture, so the joint's magnet sits on
+the sensor's axis.</td>
+</tr>
+</table>
+
+Both were fabricated and assembled in one JLCPCB order (June 2026, USD 170.73 delivered),
+itemised in the [bill of materials](docs/BOM.md).
+One known erratum, documented rather than hidden: on the palm carrier the second multiplexer's
+SDA and SCL net labels are swapped on channels 8 to 13, so those six channels are wired
+crossed. [`electronics/README.md`](electronics/README.md) has the detail. The 74HC241 servo-bus
+interface is separate from these boards; its pins are in the firmware and in the wiring below.
+
+## How it fits together
+
+Sensing → aggregation → control → interface:
+
+![System architecture](docs/system-architecture.svg)
+
+And the full point-to-point wiring: every pin terminated, both I²C multiplexers, all fourteen
+encoder channels, all three IMU positions, and the 74HC241 servo bus. The
+[PDF](docs/global-wiring.pdf) is the printable version.
+
+<a href="docs/global-wiring.pdf"><img src="docs/media/global-wiring.png" alt="Global wiring schematic" width="100%"></a>
+
+
+---
+
 ## Session replay: motion, played back in space
 
 Record a hand once and it replays anywhere the twin runs. The viewer rebuilds the session as a
@@ -186,8 +229,10 @@ this page.
 ## The device screen
 
 The Teensy drives a round display, and the face engine that paints it is part of the firmware.
-Three faces ship, each covering every device state: battery, boot, calibrate, fault, idle,
-linked, recording, saved, standalone, stop and teleop.
+One face ships, **thesis**, in three colourways (Sapphire Depth, Graphite and Amber), and it
+covers every device state: battery, boot, calibrate, fault, idle, linked, recording, saved,
+standalone, stop and teleop. Two earlier design studies, **rams** and **ferro**, stay in the
+source for reference; they are not built into the firmware.
 
 **None of these are static screens.** Every face animates: boot sweeps and self-tests, the
 teleop ring tracking assist, the recording counter and its take meter, idle breathing while
@@ -196,11 +241,11 @@ paint never starves the control tick.
 
 <div align="center">
 
-<img src="docs/media/watch-faces-live.gif" alt="The three watch faces animating: boot sequences across thesis, rams and ferro, then recording counters and an idle face in motion" width="100%">
+<img src="docs/media/watch-faces-live.gif" alt="The thesis face and the two design studies animating: boot sequences, then recording counters and an idle face in motion" width="100%">
 
-<sub>Live faces, rendered by the firmware's own rasterizer from a mock feed and played at the
-speed they were authored: the three boot sequences, then <b>recording</b> counting a take up in
-two design languages, and <b>idle</b> breathing.</sub>
+<sub>Faces rendered by the firmware's own rasterizer from a mock feed and played at the speed
+they were authored: the boot sequence of the shipping <b>thesis</b> face and of the two studies,
+then <b>recording</b> counting a take up, and <b>idle</b> breathing.</sub>
 
 </div>
 
@@ -208,29 +253,40 @@ two design languages, and <b>idle</b> breathing.</sub>
 
 <img src="docs/media/watch-faces.png" alt="Three watch faces across every device state" width="100%">
 
-<sub>Every face against every state. These are renders, not photographs of the physical screen.</sub>
+<sub>The shipping face and the two studies against every state. These are renders, not
+photographs of the physical screen.</sub>
 
 </div>
 
-The **thesis** face is the one used throughout the thesis work. Source, the face engine, the
-frame budget and the flashing runbook are in
+The **thesis** face is the one the firmware builds. Source, the face engine, the frame budget
+and the flashing runbook are in
 [`firmware/takto_one/watch/`](firmware/takto_one/watch/).
 
 ---
 
 ## The website
 
-**[takto.one](https://takto.one)** is the official home of TAKTO ONE: the public front end from
-[`software/web/`](software/web/), live. Turn the device through 360°, walk through the six parts
-that make it, read every spec, spin the digital twin and open the operator console, all in the
-browser and none of it needing hardware. Without a device the console runs a clearly labelled
-simulation; it talks to a real TAKTO ONE only on your own machine, and only when you connect it.
+**[takto.one](https://takto.one)** is the official home of TAKTO ONE, and its source is
+[`software/web/`](software/web/) in this repository. One scrolling page: the device in three
+finishes, the six parts that make it, the numbers behind it, a full 360° turn, and the live twin
+and operator console, all in the browser and none of it needing hardware. Without a device the
+console runs a clearly labelled simulation; it talks to a real TAKTO ONE only on your own
+machine, and only when you connect it.
+
+<div align="center">
+<a href="https://takto.one"><img src="docs/media/site-hero.jpg" alt="takto.one: the TAKTO wordmark behind the graphite device floating over a white plinth" width="100%"></a>
+</div>
 
 - **English, German and Spanish.**
 - **Private by design.** No cookies, no analytics, no trackers. The camera modes ask before
   anything loads from a third party, and the video never leaves the browser.
+- **Honest about its data.** Every view that shows the simulation says SIMULATED; nothing is
+  labelled live unless a real device is delivering it.
 - **Fast.** Served from Cloudflare's edge over HTTP/3. The console's code loads only when you
   open it, and the twin's 3D model is baked and compressed for the web.
+- **One build script.** `node software/web/tools/build-site.mjs <outDir>` bundles, minifies and
+  hashes the site into a folder any static host can serve (it uses `esbuild`, or fetches it with
+  `npx`).
 
 ---
 
@@ -290,9 +346,10 @@ both draw the live effort channel.
 
 <img src="docs/media/emg-fusion.png" alt="Research figure: passive activation shared control in stick-slip, intent-to-engage improving from 172 to 12 ms when activation is fused with the encoder observer" width="100%">
 
-<sub>From the project's intent-fusion research: in a stick-slip scenario the encoder-only
-observer takes 172 ms to engage assist; fusing the activation channel cuts that to 12 ms,
-inside an energy-budgeted control law that provably cannot drive motion on its own.</sub>
+<sub><b>Simulation</b>, from the project's intent-fusion research on a documented synthetic
+signal model: in a stick-slip scenario the encoder-only observer takes 172 ms to engage assist;
+fusing the activation channel cuts that to 12 ms, inside an energy-budgeted control law that
+provably cannot drive motion on its own. Not a measurement on a person.</sub>
 
 </div>
 
@@ -349,47 +406,14 @@ Current status is stated plainly in [Where the project really stands](#where-the
 | --- | --- |
 | **Mechanism** | Tendon-driven, four instrumented long-finger assemblies |
 | **Actuation** | Series-elastic, through elastic tendons and ratchet-based spools |
-| **Joint sensing** | 12 × AS5600 magnetic encoders, 3 per finger, read live together |
+| **Joint sensing** | 12 × AS5600 magnetic encoders, 3 per finger |
 | **EMG** | Embedded Ag/AgCl electrode interface for standard snap gel electrodes; envelope + RMS in every frame |
 | **Controller** | Teensy 4.1 |
 | **Motor bus** | Dynamixel Protocol 2.0 over a 74HC241 half-duplex interface, **the microcontroller owns the bus; no host PC required** |
 | **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
 | **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
 | **Structure** | 3D printed; as built, a mix of PETG and PLA |
-| **Parts** | 71 printed parts, 8 servos, 12 encoder boards. Full [bill of materials](docs/BOM.md) |
-
-
----
-
-## Inside it
-
-Two custom boards, designed from scratch. Full KiCad sources and manufacturing outputs are in
-[`electronics/`](electronics/); these renders come straight from those files.
-
-<table>
-<tr>
-<td width="42%"><img src="docs/media/pcb-encoder-board.png" alt="Encoder board" width="100%"></td>
-<td width="58%"><img src="docs/media/pcb-palm-carrier.png" alt="Palm carrier board" width="100%"></td>
-</tr>
-<tr>
-<td align="center"><sub><b>Encoder board</b>, AS5600 magnetic angle sensor, one per joint</sub></td>
-<td align="center"><sub><b>Palm carrier</b>, shaped to the hand, multiplexes the encoder fan-out</sub></td>
-</tr>
-</table>
-
----
-
-## How it fits together
-
-Sensing → aggregation → control → interface:
-
-![System architecture](docs/system-architecture.svg)
-
-And the full point-to-point wiring: every pin terminated, both I²C multiplexers, all fourteen
-encoder channels, all three IMU positions, and the 74HC241 servo bus. The
-[PDF](docs/global-wiring.pdf) is the printable version.
-
-<a href="docs/global-wiring.pdf"><img src="docs/media/global-wiring.png" alt="Global wiring schematic" width="100%"></a>
+| **Parts** | 71 printed parts, 8 servos, 12 encoder boards as designed. Full [bill of materials](docs/BOM.md) |
 
 
 ---
@@ -448,12 +472,18 @@ The embedded Dynamixel driver is also maintained standalone as
 Precision here matters more than a longer feature list.
 
 **Verified on hardware.** The firmware runs on the device. The Teensy owns the Dynamixel bus
-through the 74HC241 and drives the fingers: motor-controlled finger movement was demonstrated
-and tested on the bench, with the transmission run both with and without its elastic element
-in series. All twelve magnetic encoders read live together
-and feed the browser twin in real time. Two BNO085 IMUs are fitted, on the hand and the
-forearm. Four long-finger assemblies are built and instrumented, and both PCBs exist as
-manufactured designs with complete sources.
+through the 74HC241 and drives one finger with two XC330 servos: motor-controlled finger
+movement was demonstrated and tested on the bench, with the transmission run both with and
+without its elastic element in series. The full design takes eight servos; the other six are
+not fitted yet. All twelve magnetic encoders have read live together on the worn device and fed
+the browser twin in real time. Two BNO085 IMUs are fitted, on the hand and the forearm. Four
+long-finger assemblies are built and instrumented, and both PCBs exist as manufactured designs
+with complete sources.
+
+**On the bench today (October 2026).** After a wiring fault, four encoder channels (00, 04, 05
+and 11: the middle finger and the ring finger's abduction) answer nothing on I²C, so eight of
+the twelve joints read live until the harness is repaired. The fault is in the wiring, not the
+firmware.
 
 The firmware and the wiring carry a third IMU channel for a thumb-tip unit that is **not
 fitted**, in the same way the two multiplexers carry fourteen encoder channels for twelve
@@ -477,7 +507,9 @@ Loop rate, sampling rate, telemetry rate and console update rate are four differ
 collapsing them into one is the easiest way to mislead someone.
 
 - **Browser console: 60 Hz.** Snapshot broadcast to connected browsers. A display rate.
-- **Firmware streaming default: 50 Hz.** `SAMPLE_HZ` in the shipped sketch, the serial-line rate.
+- **Firmware streaming default: 50 Hz.** `SAMPLE_HZ` in the sketch in this release, the
+  serial-line rate. The development firmware, not yet released here, streams 100 Hz; that is
+  the figure on takto.one.
 - **Embedded control loop: up to 2 kHz.** The control law runs on the Teensy, next to the actuator.
 - **On-device capture is bound by none of the above.** The streaming rate is a firmware
   constant, and logging can run considerably faster than what the console displays.
