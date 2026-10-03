@@ -24,13 +24,18 @@ contributions of every size are welcome.
 The README is deliberately image-led and is meant to keep growing. To add to it:
 
 1. Put the file in `docs/media/`, named for what it shows (`pcb-palm-carrier.png`, not `img3.png`).
-2. Strip metadata; PNG for renders and diagrams. Keep stills under ~1 MB. Motion is the
-   deliberate exception: `docs/media/turntable.gif` is 6.2 MB because GitHub never autoplays
-   real video (an uploaded `.mp4` sits behind a click and `<video autoplay>` is stripped), so
-   an autoplaying loop has to be a GIF. Keep such a loop as small as the content allows -- this
-   one is 900 px at 15 fps on a 64-colour palette, which is indistinguishable from the 1080 px
-   20 fps original at the width GitHub actually renders. If you add one, say in the pull request
-   why the size is earned, and keep it the only loop on its page. A film that needs the inline
+2. Strip metadata. JPEG for renders and photographs; PNG for diagrams, plots and screenshots
+   (a 128-colour palette is usually indistinguishable, but check coloured strokes on dark
+   grounds, which drift). Keep stills under ~250 KB: GitHub loads every image in a README at
+   once and strips `loading="lazy"`, so the page's total is what a phone downloads before it
+   settles. Motion is the deliberate exception: GitHub never autoplays real video (an uploaded
+   `.mp4` sits behind a click and `<video autoplay>` is stripped), so an autoplaying loop has to
+   be a GIF, and GIFs are heavy (`docs/media/turntable.gif` is 6.2 MB). Keep a loop as small
+   as the content allows -- that one is 900 px at 15 fps on a 64-colour palette, which is
+   indistinguishable from the 1080 px 20 fps original at the width GitHub actually renders --
+   and never embed one bare. Put it in a `<picture>` whose `<source>` serves a still frame,
+   `docs/media/<name>-still.jpg` (or `.png`), to phones, tablets and reduce-motion readers;
+   copy an existing block from the README, media query included. A film that needs the inline
    player is a separate case and must be under 10 MB, the ceiling for the attachment URL that
    player needs.
 3. Reference it from `README.md` with a relative path and a one-line `<sub>` caption saying what

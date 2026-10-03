@@ -4,7 +4,12 @@ A digital twin and instrument panel for TAKTO ONE, for iOS, Android and the
 browser from one codebase.
 
 <div align="center">
-<img src="../../docs/media/app-live.gif" alt="Overview, Analytics and Logs running on one clock" width="100%">
+<a href="../../docs/media/app-live.gif">
+<picture>
+  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="../../docs/media/app-live-still.png">
+  <img src="../../docs/media/app-live.gif" alt="Overview, Analytics and Logs running on one clock" width="100%">
+</picture>
+</a>
 </div>
 
 Three surfaces on one data path:

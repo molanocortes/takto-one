@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/media/hero.png" alt="TAKTO ONE" width="100%">
+<img src="docs/media/hero.jpg" alt="TAKTO ONE" width="100%">
 
 # TAKTO ONE
 
@@ -48,7 +48,7 @@ twin and the console, right in your browser.
 
 <div align="center">
 
-<img src="docs/media/personalize.png" alt="Personalize it, three colourways" width="100%">
+<img src="docs/media/personalize.jpg" alt="Personalize it, three colourways" width="100%">
 
 </div>
 
@@ -99,7 +99,7 @@ straight from those files.
 <table>
 <tr>
 <td width="58%"><img src="docs/media/pcb-palm-carrier.png" alt="Palm carrier board, KiCad 3D render" width="100%"></td>
-<td width="42%"><img src="docs/media/pcb-encoder-board.png" alt="Encoder board, KiCad 3D render" width="100%"></td>
+<td width="42%"><img src="docs/media/pcb-encoder-board.jpg" alt="Encoder board, KiCad 3D render" width="100%"></td>
 </tr>
 <tr>
 <td valign="top"><b>Palm carrier</b> (<code>palm_carrier/</code>). Shaped to the curved palm plate. Two
@@ -140,9 +140,21 @@ Record a hand once and it replays anywhere the twin runs. The viewer rebuilds th
 the 6-DoF path the headset measured, the room drawn from the environment mesh stored with the
 take, and the flexion and effort traces under the scrubber. Any speed, any angle, forever.
 
+<!-- Loops on phones. GitHub loads every image in a README at once (it strips loading="lazy"),
+     and the five GIFs on this page weigh 16 MB, too much for a phone. So each loop sits in a
+     <picture> whose <source> gives phones, tablets and reduce-motion readers a still frame
+     (docs/media/<name>-still.*), and a tap opens the loop; desktops get the GIF as before. Keep
+     "prefers-color-scheme" out of that media query: GitHub's <themed-picture> rewrites any
+     <source> that mentions it. -->
+
 <div align="center">
 
-<img src="docs/media/ui-replay.gif" alt="A recorded take replaying: the device hand banking along its full trajectory ribbon through a wireframe room, with live joint, effort and position read-outs" width="100%">
+<a href="docs/media/ui-replay.gif">
+<picture>
+  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="docs/media/ui-replay-still.jpg">
+  <img src="docs/media/ui-replay.gif" alt="A recorded take replaying: the device hand banking along its full trajectory ribbon through a wireframe room, with live joint, effort and position read-outs" width="100%">
+</picture>
+</a>
 
 <sub><b>take_demo_signature</b>, played at 2× in the shipped viewer. One of three sample takes
 in [`software/bridge/samples/`](software/bridge/samples/) — choreographed, synthetic, and
@@ -170,7 +182,12 @@ plain browser on the desktop, which is how the frames below were captured.
 
 <div align="center">
 
-<img src="docs/media/ar-modes-live.gif" alt="Three modes of the AR layer running: the hand twin seen from a moving viewpoint, a touch object deforming under contact, and the atelier hub with its four reachable objects" width="100%">
+<a href="docs/media/ar-modes-live.gif">
+<picture>
+  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="docs/media/ar-modes-live-still.jpg">
+  <img src="docs/media/ar-modes-live.gif" alt="Three modes of the AR layer running: the hand twin seen from a moving viewpoint, a touch object deforming under contact, and the atelier hub with its four reachable objects" width="100%">
+</picture>
+</a>
 
 <sub>Running live in the desktop preview: <b>twin</b>, the articulated hand driven by joint
 angles and seen from a moving viewpoint &nbsp;·&nbsp; <b>touch</b>, objects that answer the wearer's fingers &nbsp;·&nbsp;
@@ -203,7 +220,12 @@ and protocol as everything else here. One Expo codebase for iOS, Android and the
 
 <div align="center">
 
-<img src="docs/media/app-live.gif" alt="The companion app running: Overview, Analytics and Logs side by side on one clock, the twin curling finger by finger while the joint read-outs and the effort trace follow" width="100%">
+<a href="docs/media/app-live.gif">
+<picture>
+  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="docs/media/app-live-still.png">
+  <img src="docs/media/app-live.gif" alt="The companion app running: Overview, Analytics and Logs side by side on one clock, the twin curling finger by finger while the joint read-outs and the effort trace follow" width="100%">
+</picture>
+</a>
 
 <sub><b>Overview</b>, the device at a glance &nbsp;·&nbsp; <b>Analytics</b>, the twelve joints and
 the activation channel &nbsp;·&nbsp; <b>Logs</b>, the source, the bundled sessions and the rates</sub>
@@ -241,7 +263,12 @@ paint never starves the control tick.
 
 <div align="center">
 
-<img src="docs/media/watch-faces-live.gif" alt="The thesis face and the two design studies animating: boot sequences, then recording counters and an idle face in motion" width="100%">
+<a href="docs/media/watch-faces-live.gif">
+<picture>
+  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="docs/media/watch-faces-live-still.png">
+  <img src="docs/media/watch-faces-live.gif" alt="The thesis face and the two design studies animating: boot sequences, then recording counters and an idle face in motion" width="100%">
+</picture>
+</a>
 
 <sub>Faces rendered by the firmware's own rasterizer from a mock feed and played at the speed
 they were authored: the boot sequence of the shipping <b>thesis</b> face and of the two studies,
@@ -251,7 +278,7 @@ then <b>recording</b> counting a take up, and <b>idle</b> breathing.</sub>
 
 <div align="center">
 
-<img src="docs/media/watch-faces.png" alt="Three watch faces across every device state" width="100%">
+<img src="docs/media/watch-faces.jpg" alt="Three watch faces across every device state" width="100%">
 
 <sub>The shipping face and the two studies against every state. These are renders, not
 photographs of the physical screen.</sub>
@@ -400,7 +427,12 @@ Current status is stated plainly in [Where the project really stands](#where-the
 
 ## The machine
 
-<img src="docs/media/turntable.gif" alt="TAKTO ONE, one full turn" width="100%">
+<a href="docs/media/turntable.gif">
+<picture>
+  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="docs/media/turntable-still.jpg">
+  <img src="docs/media/turntable.gif" alt="TAKTO ONE, one full turn" width="100%">
+</picture>
+</a>
 
 | | |
 | --- | --- |
