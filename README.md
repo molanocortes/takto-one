@@ -102,14 +102,16 @@ straight from those files.
 <td width="42%"><img src="docs/media/pcb-encoder-board.jpg" alt="Encoder board, KiCad 3D render" width="100%"></td>
 </tr>
 <tr>
-<td valign="top"><b>Palm carrier</b> (<code>palm_carrier/</code>). Shaped to the curved palm plate. Two
-TCA9548A I²C multiplexers fan the bus out to fourteen encoder channels: twelve joints, plus two
-reserved for a thumb.</td>
-<td valign="top"><b>Encoder board</b> (<code>encoder_board/</code>), one per joint. An AS5600
-magnetic angle sensor centred under a through-board aperture, so the joint's magnet sits on
-the sensor's axis.</td>
+<td align="center"><b>Palm carrier</b></td>
+<td align="center"><b>Encoder board</b></td>
 </tr>
 </table>
+
+- **Palm carrier** (`palm_carrier/`). Shaped to the curved palm plate. Two TCA9548A I²C
+  multiplexers fan the bus out to fourteen encoder channels: twelve joints, plus two reserved
+  for a thumb.
+- **Encoder board** (`encoder_board/`), one per joint. An AS5600 magnetic angle sensor centred
+  under a through-board aperture, so the joint's magnet sits on the sensor's axis.
 
 Both were fabricated and assembled in one JLCPCB order (June 2026, USD 170.73 delivered),
 itemised in the [bill of materials](docs/BOM.md).
@@ -412,14 +414,21 @@ Read every finger and drive every finger, and a whole class of problems opens up
 platform is how they happen in parallel instead of one at a time. Every one of them starts
 from the files already in this repository.
 
-| | |
-| --- | --- |
-| **Drive a robot hand** | Per-joint angles map onto a robot hand with no camera rig and no capture volume. The exciting version is reach: a manipulator underwater, in a hot cell, or on another continent, driven by a hand that stays somewhere safe. |
-| **Train models on better data** | The capture above already produces clean per-joint ground truth. What is missing is scale: many hands, many tasks, a shared schema, a published dataset. That is community work. |
-| **Sign language** | Already begun. See [Sign language](#sign-language-a-worked-example). |
-| **Force feedback, per finger** | A tendon and a motor behind each finger means resistance that varies as you move: a surface that stops you, the give of soft tissue, the weight of a load, felt finger by finger instead of as one buzz through a handle. The control modes ship; the haptic rendering does not. |
-| **Rehabilitation and assessment** | Range of motion measured objectively across sessions, and assisted movement for a hand that cannot finish the motion alone. |
-| **Precision machine control** | Wherever a joystick is too blunt and a touchscreen impossible: gloved, wet, in the dark, eyes needed elsewhere. |
+- **Drive a robot hand.** Per-joint angles map onto a robot hand with no camera rig and no
+  capture volume. The exciting version is reach: a manipulator underwater, in a hot cell, or on
+  another continent, driven by a hand that stays somewhere safe.
+- **Train models on better data.** The capture above already produces clean per-joint ground
+  truth. What is missing is scale: many hands, many tasks, a shared schema, a published
+  dataset. That is community work.
+- **Sign language.** Already begun. See [Sign language](#sign-language-a-worked-example).
+- **Force feedback, per finger.** A tendon and a motor behind each finger means resistance that
+  varies as you move: a surface that stops you, the give of soft tissue, the weight of a load,
+  felt finger by finger instead of as one buzz through a handle. The control modes ship; the
+  haptic rendering does not.
+- **Rehabilitation and assessment.** Range of motion measured objectively across sessions, and
+  assisted movement for a hand that cannot finish the motion alone.
+- **Precision machine control.** Wherever a joystick is too blunt and a touchscreen impossible:
+  gloved, wet, in the dark, eyes needed elsewhere.
 
 Current status is stated plainly in [Where the project really stands](#where-the-project-really-stands).
 
