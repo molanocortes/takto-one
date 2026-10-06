@@ -33,9 +33,11 @@ The README is deliberately image-led and is meant to keep growing. To add to it:
    be a GIF, and GIFs are heavy (`docs/media/turntable.gif` is 6.2 MB). Keep a loop as small
    as the content allows -- that one is 900 px at 15 fps on a 64-colour palette, which is
    indistinguishable from the 1080 px 20 fps original at the width GitHub actually renders --
-   and never embed one bare. Put it in a `<picture>` whose `<source>` serves a still frame,
-   `docs/media/<name>-still.jpg` (or `.png`), to phones, tablets and reduce-motion readers;
-   copy an existing block from the README, media query included. A film that needs the inline
+   and never embed one bare: the GitHub Android app cannot show a README that loads a GIF (the
+   page flickers on every frame and reads as empty), and it ignores `<source>`. Put the loop in
+   a `<picture>` whose `<img>` is a still frame, `docs/media/<name>-still.jpg` (or `.png`), and
+   whose `<source>` hands the GIF only to a wide screen with a mouse; copy an existing block
+   from the README, media query included. A film that needs the inline
    player is a separate case and must be under 10 MB, the ceiling for the attachment URL that
    player needs.
 3. Reference it from `README.md` with a relative path and a one-line `<sub>` caption saying what

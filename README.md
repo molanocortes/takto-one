@@ -143,18 +143,20 @@ the 6-DoF path the headset measured, the room drawn from the environment mesh st
 take, and the flexion and effort traces under the scrubber. Any speed, any angle, forever.
 
 <!-- Loops on phones. GitHub loads every image in a README at once (it strips loading="lazy"),
-     and the five GIFs on this page weigh 16 MB, too much for a phone. So each loop sits in a
-     <picture> whose <source> gives phones, tablets and reduce-motion readers a still frame
-     (docs/media/<name>-still.*), and a tap opens the loop; desktops get the GIF as before. Keep
-     "prefers-color-scheme" out of that media query: GitHub's <themed-picture> rewrites any
-     <source> that mentions it. -->
+     and the five GIFs on this page weigh 16 MB. The GitHub Android app also cannot show a README
+     with a GIF in it: the page flickers on every frame and reads as empty (github.com/orgs/
+     community/discussions/158337), and the app ignores <source>. So each loop is a <picture>
+     whose <img> is a still frame (docs/media/<name>-still.*), which phones, the app and
+     reduce-motion readers get, and whose <source> hands the GIF only to a wide screen with a
+     mouse; a tap on the still opens the loop. Keep "prefers-color-scheme" out of that media
+     query: GitHub's <themed-picture> rewrites any <source> that mentions it. -->
 
 <div align="center">
 
 <a href="docs/media/ui-replay.gif">
 <picture>
-  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="docs/media/ui-replay-still.jpg">
-  <img src="docs/media/ui-replay.gif" alt="A recorded take replaying: the device hand banking along its full trajectory ribbon through a wireframe room, with live joint, effort and position read-outs" width="100%">
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/ui-replay.gif">
+  <img src="docs/media/ui-replay-still.jpg" alt="A recorded take replaying: the device hand banking along its full trajectory ribbon through a wireframe room, with live joint, effort and position read-outs" width="100%">
 </picture>
 </a>
 
@@ -186,8 +188,8 @@ plain browser on the desktop, which is how the frames below were captured.
 
 <a href="docs/media/ar-modes-live.gif">
 <picture>
-  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="docs/media/ar-modes-live-still.jpg">
-  <img src="docs/media/ar-modes-live.gif" alt="Three modes of the AR layer running: the hand twin seen from a moving viewpoint, a touch object deforming under contact, and the atelier hub with its four reachable objects" width="100%">
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/ar-modes-live.gif">
+  <img src="docs/media/ar-modes-live-still.jpg" alt="Three modes of the AR layer running: the hand twin seen from a moving viewpoint, a touch object deforming under contact, and the atelier hub with its four reachable objects" width="100%">
 </picture>
 </a>
 
@@ -224,8 +226,8 @@ and protocol as everything else here. One Expo codebase for iOS, Android and the
 
 <a href="docs/media/app-live.gif">
 <picture>
-  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="docs/media/app-live-still.png">
-  <img src="docs/media/app-live.gif" alt="The companion app running: Overview, Analytics and Logs side by side on one clock, the twin curling finger by finger while the joint read-outs and the effort trace follow" width="100%">
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/app-live.gif">
+  <img src="docs/media/app-live-still.png" alt="The companion app running: Overview, Analytics and Logs side by side on one clock, the twin curling finger by finger while the joint read-outs and the effort trace follow" width="100%">
 </picture>
 </a>
 
@@ -267,8 +269,8 @@ paint never starves the control tick.
 
 <a href="docs/media/watch-faces-live.gif">
 <picture>
-  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="docs/media/watch-faces-live-still.png">
-  <img src="docs/media/watch-faces-live.gif" alt="The thesis face and the two design studies animating: boot sequences, then recording counters and an idle face in motion" width="100%">
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/watch-faces-live.gif">
+  <img src="docs/media/watch-faces-live-still.png" alt="The thesis face and the two design studies animating: boot sequences, then recording counters and an idle face in motion" width="100%">
 </picture>
 </a>
 
@@ -438,8 +440,8 @@ Current status is stated plainly in [Where the project really stands](#where-the
 
 <a href="docs/media/turntable.gif">
 <picture>
-  <source media="(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)" srcset="docs/media/turntable-still.jpg">
-  <img src="docs/media/turntable.gif" alt="TAKTO ONE, one full turn" width="100%">
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/turntable.gif">
+  <img src="docs/media/turntable-still.jpg" alt="TAKTO ONE, one full turn" width="100%">
 </picture>
 </a>
 
