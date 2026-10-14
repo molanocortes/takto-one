@@ -11,8 +11,9 @@ itself and pulls them back through tendons, with the control loop on the device,
 instrument: every motion measured, recorded, and answered with force. This repository is
 every file needed to build one.
 
-**[takto.one](https://takto.one)**, the official website: the device in 360°, the live digital
-twin and the console, right in your browser.
+### [Try it in your browser: takto.one](https://takto.one)
+
+The device in 360°, the live digital twin and the console. No hardware needed.
 
 [![Website: takto.one](https://img.shields.io/badge/website-takto.one-2F76BF.svg)](https://takto.one)
 [![YouTube: the film](https://img.shields.io/badge/YouTube-watch%20the%20film-FF0000.svg?logo=youtube&logoColor=white)](https://youtu.be/t-M-R6erIa0)
@@ -85,6 +86,49 @@ AR layer is a prototype.</sub>
 
   <sub>▶ <a href="https://youtu.be/t-M-R6erIa0"><b>Watch the film on YouTube</b></a></sub>
 </div>
+
+---
+
+## Try it in your browser: takto.one
+
+**[takto.one](https://takto.one)** is the official home of TAKTO ONE, and its source is
+[`software/web/`](software/web/) in this repository. One scrolling page: the device in three
+finishes, the six parts that make it, the numbers behind it, a full 360° turn, and the live twin
+and operator console, all in the browser and none of it needing hardware. Without a device the
+console runs a clearly labelled simulation; it talks to a real TAKTO ONE only on your own
+machine, and only when you connect it.
+
+<div align="center">
+<a href="https://takto.one"><img src="docs/media/site-home.jpg" alt="takto.one: the TAKTO wordmark behind the graphite device floating over a white plinth" width="100%"></a>
+
+<sub><b>The main page.</b> Pick a finish, scroll through the parts and the numbers, turn it through 360°.</sub>
+</div>
+
+<div align="center">
+
+<a href="https://takto.one/#/operator">
+<picture>
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/console-live.gif">
+  <img src="docs/media/console-live-still.jpg" alt="The takto.one console: the twin's fingers curling while the encoder channels and the effort gauge update, labelled SIMULATED DATA" width="100%">
+</picture>
+</a>
+
+<sub><b>The console.</b> The twin, the twelve encoder channels, the motors and the effort gauge, here on the
+built-in simulation (top right: SIMULATED DATA). Connect a real TAKTO ONE on your own machine and the
+same view runs live.</sub>
+
+</div>
+
+- **English, German and Spanish.**
+- **Private by design.** No cookies, no analytics, no trackers. The camera modes ask before
+  anything loads from a third party, and the video never leaves the browser.
+- **Honest about its data.** Every view that shows the simulation says SIMULATED; nothing is
+  labelled live unless a real device is delivering it.
+- **Fast.** Served from Cloudflare's edge over HTTP/3. The console's code loads only when you
+  open it, and the twin's 3D model is baked and compressed for the web.
+- **One build script.** `node software/web/tools/build-site.mjs <outDir>` bundles, minifies and
+  hashes the site into a folder any static host can serve (it uses `esbuild`, or fetches it with
+  `npx`).
 
 ---
 
@@ -359,32 +403,6 @@ photographs of the physical screen.</sub>
 The **thesis** face is the one the firmware builds. Source, the face engine, the frame budget
 and the flashing runbook are in
 [`firmware/takto_one/watch/`](firmware/takto_one/watch/).
-
----
-
-## The website
-
-**[takto.one](https://takto.one)** is the official home of TAKTO ONE, and its source is
-[`software/web/`](software/web/) in this repository. One scrolling page: the device in three
-finishes, the six parts that make it, the numbers behind it, a full 360° turn, and the live twin
-and operator console, all in the browser and none of it needing hardware. Without a device the
-console runs a clearly labelled simulation; it talks to a real TAKTO ONE only on your own
-machine, and only when you connect it.
-
-<div align="center">
-<a href="https://takto.one"><img src="docs/media/site-hero.jpg" alt="takto.one: the TAKTO wordmark behind the graphite device floating over a white plinth" width="100%"></a>
-</div>
-
-- **English, German and Spanish.**
-- **Private by design.** No cookies, no analytics, no trackers. The camera modes ask before
-  anything loads from a third party, and the video never leaves the browser.
-- **Honest about its data.** Every view that shows the simulation says SIMULATED; nothing is
-  labelled live unless a real device is delivering it.
-- **Fast.** Served from Cloudflare's edge over HTTP/3. The console's code loads only when you
-  open it, and the twin's 3D model is baked and compressed for the web.
-- **One build script.** `node software/web/tools/build-site.mjs <outDir>` bundles, minifies and
-  hashes the site into a folder any static host can serve (it uses `esbuild`, or fetches it with
-  `npx`).
 
 ---
 
