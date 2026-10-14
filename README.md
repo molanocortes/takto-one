@@ -38,14 +38,6 @@ twin and the console, right in your browser.
 
 <table>
 <tr>
-<td width="24%">
-<a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-WORN.mp4">
-<picture>
-  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/worn-loop.gif">
-  <img src="docs/media/worn-poster.jpg" alt="TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="100%">
-</picture>
-</a>
-</td>
 <td width="76%">
 <a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-AR.mp4">
 <picture>
@@ -54,10 +46,18 @@ twin and the console, right in your browser.
 </picture>
 </a>
 </td>
+<td width="24%">
+<a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-WORN.mp4">
+<picture>
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/worn-loop.gif">
+  <img src="docs/media/worn-poster.jpg" alt="TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="100%">
+</picture>
+</a>
+</td>
 </tr>
 <tr>
-<td align="center"><sub><b>On the arm.</b> The black build, filmed with a phone on 14 October 2026.</sub></td>
 <td align="center"><sub><b>In AR.</b> Recorded through a Quest headset. Nothing from the headset moves the twin's fingers: the twelve encoders bend them and the two IMUs turn the wrist. The web twin runs on the monitor behind. The AR layer is a prototype.</sub></td>
+<td align="center"><sub><b>On the arm.</b> The black build, filmed with a phone on 14 October 2026.</sub></td>
 </tr>
 </table>
 
