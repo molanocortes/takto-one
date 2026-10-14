@@ -26,6 +26,29 @@ twin and the console, right in your browser.
 
 ---
 
+## The real thing
+
+People asked for real footage instead of renders. This is the device itself, the black build,
+filmed on 14 October 2026: on the arm with a phone, and through a headset next to its live twin.
+
+<!-- Real footage. The posters link to the in-repo films (docs/media/TAKTO-WORN.mp4 and
+     TAKTO-AR.mp4, both under 10 MB), which play in the blob player on desktop. To make them play
+     in the GitHub mobile app too, mint attachment URLs the same way as the film below (drag each
+     file into a comment on PR #1 and POST it) and swap the hrefs. -->
+
+<table>
+<tr>
+<td width="24%"><a href="docs/media/TAKTO-WORN.mp4"><img src="docs/media/worn-poster.jpg" alt="Watch: TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="100%"></a></td>
+<td width="76%"><a href="docs/media/TAKTO-AR.mp4"><img src="docs/media/ar-poster.jpg" alt="Watch: recorded through a Quest headset, the virtual TAKTO hand follows the wearer's real hand, with the web twin on the monitor behind" width="100%"></a></td>
+</tr>
+<tr>
+<td align="center"><sub><b>On the arm.</b> Phone footage, 5 s.</sub></td>
+<td align="center"><sub><b>In the room.</b> Through a Quest headset: the virtual hand follows the real one, the web twin runs on the monitor behind. The AR layer is a prototype. 24 s.</sub></td>
+</tr>
+</table>
+
+---
+
 <!-- The film: a poster image linking to a GitHub attachment URL. This is the ONE form that
      works on desktop web AND in the GitHub mobile app, verified 2026-09-04. How the others fail:
        - a <video> tag is stripped by GitHub's sanitiser everywhere; only what is inside survives
@@ -183,6 +206,7 @@ contributions this project has to offer. See [Contributing](#contributing).
 A spatial layer that puts the hand twin and its data into the room instead of on a monitor.
 It reads the same WebSocket stream as the console, needs no separate backend, and runs in a
 plain browser on the desktop, which is how the frames below were captured.
+Through a headset it looks like [this recording](docs/media/TAKTO-AR.mp4) from October 2026.
 
 <div align="center">
 
