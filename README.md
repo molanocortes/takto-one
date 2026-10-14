@@ -31,15 +31,17 @@ twin and the console, right in your browser.
 People asked for real footage instead of renders. This is the device itself, the black build,
 filmed on 14 October 2026: on the arm with a phone, and through a headset next to its live twin.
 
-<!-- Real footage. The posters link to the in-repo films (docs/media/TAKTO-WORN.mp4 and
-     TAKTO-AR.mp4, both under 10 MB), which play in the blob player on desktop. To make them play
-     in the GitHub mobile app too, mint attachment URLs the same way as the film below (drag each
-     file into a comment on PR #1 and POST it) and swap the hrefs. -->
+<!-- Real footage. The films live in docs/media (TAKTO-WORN.mp4, TAKTO-AR.mp4, both under 10 MB).
+     GitHub's blob page will not play a file this size, and raw.githubusercontent serves it as a
+     download, so the posters link to the same files through jsDelivr, pinned to the commit that
+     added them; jsDelivr serves video/mp4 inline, so a click or a tap plays it in the browser,
+     the GitHub mobile app included. A GitHub attachment URL (the PR #1 method, see the film
+     below) would also work; swap the hrefs if one is minted. -->
 
 <table>
 <tr>
-<td width="24%"><a href="docs/media/TAKTO-WORN.mp4"><img src="docs/media/worn-poster.jpg" alt="Watch: TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="100%"></a></td>
-<td width="76%"><a href="docs/media/TAKTO-AR.mp4"><img src="docs/media/ar-poster.jpg" alt="Watch: recorded through a Quest headset, the virtual TAKTO hand follows the wearer's real hand, with the web twin on the monitor behind" width="100%"></a></td>
+<td width="24%"><a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-WORN.mp4"><img src="docs/media/worn-poster.jpg" alt="Watch: TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="100%"></a></td>
+<td width="76%"><a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-AR.mp4"><img src="docs/media/ar-poster.jpg" alt="Watch: recorded through a Quest headset, the virtual TAKTO hand follows the wearer's real hand, with the web twin on the monitor behind" width="100%"></a></td>
 </tr>
 <tr>
 <td align="center"><sub><b>On the arm.</b> Phone footage, 5 s.</sub></td>
@@ -206,7 +208,7 @@ contributions this project has to offer. See [Contributing](#contributing).
 A spatial layer that puts the hand twin and its data into the room instead of on a monitor.
 It reads the same WebSocket stream as the console, needs no separate backend, and runs in a
 plain browser on the desktop, which is how the frames below were captured.
-Through a headset it looks like [this recording](docs/media/TAKTO-AR.mp4) from October 2026.
+Through a headset it looks like [this recording](https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-AR.mp4) from October 2026.
 
 <div align="center">
 
