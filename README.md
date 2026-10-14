@@ -31,21 +31,27 @@ twin and the console, right in your browser.
 People asked for real footage instead of renders. This is the device itself, the black build,
 filmed on 14 October 2026: on the arm with a phone, and through a headset next to its live twin.
 
-<!-- Real footage. The films live in docs/media (TAKTO-WORN.mp4, TAKTO-AR.mp4, both under 10 MB).
-     GitHub's blob page will not play a file this size, and raw.githubusercontent serves it as a
-     download, so the posters link to the same files through jsDelivr, pinned to the commit that
-     added them; jsDelivr serves video/mp4 inline, so a click or a tap plays it in the browser,
-     the GitHub mobile app included. A GitHub attachment URL (the PR #1 method, see the film
-     below) would also work; swap the hrefs if one is minted. -->
+<!-- Real footage. On a desktop each clip loops as a GIF (worn-loop.gif, the whole 5 s clip;
+     ar-loop.gif, seconds 8 to 17 of the 24 s film), with no click. Phones and the GitHub app get
+     the still poster instead, by the same <picture> rule as every loop on this page, because the
+     Android app cannot show a README that loads a GIF. A click or tap opens the full film: the
+     in-repo files in docs/media, served through jsDelivr pinned to the commit that added them,
+     because GitHub's blob page will not play a file this size and raw links download it. -->
 
 <table>
 <tr>
-<td width="24%"><a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-WORN.mp4"><img src="docs/media/worn-poster.jpg" alt="Watch: TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="100%"></a></td>
-<td width="76%"><a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-AR.mp4"><img src="docs/media/ar-poster.jpg" alt="Watch: recorded through a Quest headset, the virtual TAKTO hand follows the wearer's real hand, with the web twin on the monitor behind" width="100%"></a></td>
+<td width="24%"><a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-WORN.mp4"><picture>
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/worn-loop.gif">
+  <img src="docs/media/worn-poster.jpg" alt="TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="100%">
+</picture></a></td>
+<td width="76%"><a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-AR.mp4"><picture>
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/ar-loop.gif">
+  <img src="docs/media/ar-poster.jpg" alt="Recorded through a Quest headset: the virtual TAKTO hand follows the wearer's real hand, with the web twin on the monitor behind" width="100%">
+</picture></a></td>
 </tr>
 <tr>
-<td align="center"><sub><b>On the arm.</b> Phone footage, 5 s.</sub></td>
-<td align="center"><sub><b>In the room.</b> Through a Quest headset: the virtual hand follows the real one, the web twin runs on the monitor behind. The AR layer is a prototype. 24 s.</sub></td>
+<td align="center"><sub><b>On the arm.</b> Phone footage.</sub></td>
+<td align="center"><sub><b>In the room.</b> Through a Quest headset: the virtual hand follows the real one, the web twin runs on the monitor behind. The AR layer is a prototype. Click for the full 24 s.</sub></td>
 </tr>
 </table>
 
