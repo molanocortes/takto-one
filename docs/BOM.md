@@ -1,8 +1,9 @@
 # Bill of materials
 
-**Scope: the four-finger configuration — eight motors, twelve instrumented joints.** That is
-what the device controls today, and it is what the published CAD, boards and firmware were
-dimensioned around.
+**Scope: the four-finger configuration — eight motors, twelve instrumented joints.** TAKTO ONE
+is designed for ten motors, two per digit; this page prices the eight for the four long fingers,
+and the thumb pair waits for a thumb mechanism. The prototype itself is built with two, on one
+finger, because it was self-funded: the limit is the budget, not the design.
 
 **Two builds come from these files.** **TAKTO ONE** is everything below. **TAKTO Lite** reads
 the hand without driving it: it leaves out the eight servos, the tendons and conduit, the

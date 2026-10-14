@@ -504,7 +504,8 @@ Current status is stated plainly in [Where the project really stands](#where-the
 | **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
 | **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
 | **Structure** | 3D printed; as built, a mix of PETG and PLA |
-| **Parts** | 71 printed parts, 8 servos, 12 encoder boards as designed. Full [bill of materials](docs/BOM.md) |
+| **Actuation** | Designed for ten servos, two per digit: eight for the long fingers, two for the thumb |
+| **Parts** | 71 printed parts, 12 encoder boards, ten servo bays. Full [bill of materials](docs/BOM.md) |
 
 
 ---
@@ -515,7 +516,7 @@ TAKTO comes in two builds from the same files:
 
 | | **TAKTO Lite** | **TAKTO ONE** |
 | --- | --- | --- |
-| What it does | Reads the hand: 12 joint encoders, 2 IMUs, EMG, on-device display and SD logging, the live twin in browser, phone and AR | Reads and drives the hand: everything in Lite, plus 8 servos pulling the fingers through tendons |
+| What it does | Reads the hand: 12 joint encoders, 2 IMUs, EMG, on-device display and SD logging, the live twin in browser, phone and AR | Reads and drives the hand: everything in Lite, plus servos pulling the fingers through tendons, two per digit (priced here for the four long fingers: 8) |
 | Priced parts | **EUR 164.48** | **EUR 1,222.25** |
 | Both circuit boards, one JLCPCB order | USD 170.73 | USD 170.73 |
 
@@ -576,11 +577,15 @@ The embedded Dynamixel driver is also maintained standalone as
 
 Precision here matters more than a longer feature list.
 
+**Designed for ten motors, built with two.** TAKTO ONE was designed from the start for ten
+servos, two per digit: the forearm carries ten spool bays, and the bus and the bill of materials
+are laid out for them. The prototype was self-funded, so it is built with two, on one finger;
+the limit is the budget, not the design.
+
 **Verified on hardware.** The firmware runs on the device. The Teensy owns the Dynamixel bus
-through the 74HC241 and drives one finger with two XC330 servos: motor-controlled finger
+through the 74HC241 and drives that finger with its two XC330 servos: motor-controlled finger
 movement was demonstrated and tested on the bench, with the transmission run both with and
-without its elastic element in series. The full design takes eight servos; the other six are
-not fitted yet. All twelve magnetic encoders have read live together on the worn device and fed
+without its elastic element in series. All twelve magnetic encoders have read live together on the worn device and fed
 the browser twin in real time. Two BNO085 IMUs are fitted, on the hand and the forearm. Four
 long-finger assemblies are built and instrumented, and both PCBs exist as manufactured designs
 with complete sources.
@@ -599,7 +604,7 @@ behavior are not characterized by measurements here. Verify the actuator count, 
 safety behavior on your own hardware before any worn experiment.
 Repository-preparation checks are in the [verification record](docs/RELEASE_VERIFICATION.md).
 
-**Known limitations.** Eight motors makes TAKTO ONE an expensive build; TAKTO Lite removes that cost for anyone who only needs the sensing. The series-elastic
+**Known limitations.** Its servos make TAKTO ONE an expensive build; TAKTO Lite removes that cost for anyone who only needs the sensing. The series-elastic
 actuation is a simple implementation, elastic tendons and ratchet spools, not an advanced SEA
 design. Recent soft-robotics work achieves comparable sensing with simpler mechanisms. This is
 a working, well-instrumented research platform, not a claim to the state of the art, and those
@@ -637,7 +642,8 @@ experiment.
 
 **What is TAKTO ONE?**
 An open-source hand exoskeleton. It measures twelve finger joints with magnetic encoders at the
-joints themselves and drives the fingers through tendons from servos on the forearm. A Teensy 4.1
+joints themselves and drives the fingers through tendons from servos on the forearm, designed for ten, two per
+digit. A Teensy 4.1
 runs the control loop on the device, so no PC is needed. Sebastian Molano designed and built it
 for his master's thesis in biomedical engineering at Hochschule Anhalt, Germany, and released it
 as open source in September 2026. Website: [takto.one](https://takto.one).
@@ -667,7 +673,8 @@ a clearly labelled simulation.
 
 **What works today, and what doesn't?**
 Working on hardware: all twelve encoders, two IMUs, on-device logging, the browser, phone and
-AR twins, and motor-driven finger movement on the bench. The EMG input is in the firmware and is
+AR twins, and motor-driven finger movement on the bench. The device is designed for ten servos, two
+per digit; the prototype is built with two, on one finger, because it was self-funded. The EMG input is in the firmware and is
 logged with every frame. Not done yet: the thumb, and
 measured force, latency and assistance. The details, with dates, are in
 [Where the project really stands](#where-the-project-really-stands).
@@ -693,8 +700,8 @@ interesting problems are still unclaimed.
 - **Improve the actuation.** The current transmission runs on the bench with and without its
   elastic element in series; a better series-elastic design is the most interesting open
   problem here.
-- **Reduce the motor count.** Eight is expensive; underactuation would widen who can build this.
-- **Build the thumb.** The forearm carries ten spool bays and only eight are used, so the room
+- **Reduce the motor count.** Two per digit is expensive; underactuation would widen who can build this.
+- **Build the thumb.** The forearm carries ten spool bays and eight are assigned to the long fingers, so the room
   for a thumb pair is already in the mechanism, and the firmware already addresses two spare
   encoder channels. A thumb's linkage, tendon routing and kinematics are yours to invent;
   the fingers' already exist and work.
