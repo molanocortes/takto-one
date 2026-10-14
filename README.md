@@ -27,34 +27,40 @@ twin and the console, right in your browser.
 
 ---
 
-## The real thing
+## On the arm
 
-People asked for real footage instead of renders. This is the device itself, the black build,
-filmed on 14 October 2026: on the arm with a phone, and through a headset next to its live twin.
+<!-- Real footage, one clip per section so each gets the full width. On a desktop the clip loops
+     as a GIF with no click; phones and the GitHub app get the still poster (the Android app cannot
+     show a README that loads a GIF), and a click or tap opens the full film through jsDelivr,
+     pinned to the commit that added it, because GitHub's blob page will not play a file this size. -->
 
-<!-- Real footage. On a desktop each clip loops as a GIF (worn-loop.gif, the whole 5 s clip;
-     ar-loop.gif, seconds 8 to 17 of the 24 s film), with no click. Phones and the GitHub app get
-     the still poster instead, by the same <picture> rule as every loop on this page, because the
-     Android app cannot show a README that loads a GIF. A click or tap opens the full film: the
-     in-repo files in docs/media, served through jsDelivr pinned to the commit that added them,
-     because GitHub's blob page will not play a file this size and raw links download it. -->
+<div align="center">
 
-<table>
-<tr>
-<td width="24%"><a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-WORN.mp4"><picture>
+<a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-WORN.mp4"><picture>
   <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/worn-loop.gif">
-  <img src="docs/media/worn-poster.jpg" alt="TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="100%">
-</picture></a></td>
-<td width="76%"><a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-AR.mp4"><picture>
+  <img src="docs/media/worn-poster.jpg" alt="TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="400">
+</picture></a>
+
+<sub>The black build, filmed with a phone on 14 October 2026.</sub>
+
+</div>
+
+---
+
+## In AR, driven by its own sensors
+
+<div align="center">
+
+<a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-AR.mp4"><picture>
   <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/ar-loop.gif">
-  <img src="docs/media/ar-poster.jpg" alt="Recorded through a Quest headset: the virtual TAKTO hand follows the wearer's real hand, with the web twin on the monitor behind" width="100%">
-</picture></a></td>
-</tr>
-<tr>
-<td align="center"><sub><b>On the arm.</b> Phone footage.</sub></td>
-<td align="center"><sub><b>In the room.</b> Through a Quest headset: the virtual hand follows the real one, the web twin runs on the monitor behind. The AR layer is a prototype. Click for the full 24 s.</sub></td>
-</tr>
-</table>
+  <img src="docs/media/ar-poster.jpg" alt="Recorded through a Quest headset: the TAKTO twin floats beside the real device, with the web twin on the monitor behind" width="100%">
+</picture></a>
+
+<sub>Recorded through a Quest headset. Nothing from the headset moves the twin's fingers: the twelve
+encoders bend them and the two IMUs turn the wrist. The web twin runs on the monitor behind. The
+AR layer is a prototype. Click for the full 24 s.</sub>
+
+</div>
 
 ---
 
