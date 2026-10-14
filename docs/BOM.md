@@ -4,6 +4,19 @@
 what the device controls today, and it is what the published CAD, boards and firmware were
 dimensioned around.
 
+**Two builds come from these files.** **TAKTO ONE** is everything below. **TAKTO Lite** reads
+the hand without driving it: it leaves out the eight servos, the tendons and conduit, the
+elastic elements, the printed ratchets, the 74HC241 bus driver and the motor supply. It keeps
+the twelve encoders, both IMUs, the EMG input, the Teensy with its display and SD logging, and
+both circuit boards. The firmware never touches the motor bus until it is told to take it
+(`M,t,1`), so a Lite build runs the same firmware. The `in_lite` column of [`bom.csv`](bom.csv)
+marks every line.
+
+| | TAKTO Lite | TAKTO ONE |
+| --- | ---: | ---: |
+| Priced parts (EUR) | **164.48** | **1,222.25** |
+| Both circuit boards, one JLCPCB order (USD) | 170.73 | 170.73 |
+
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="media/bom-cost-dark.svg">
@@ -172,7 +185,8 @@ build is claimed here. Machine time for in-house LPBF is not costed.
 | Control — Teensy 4.1, GC9A01A, SN74HC241N | 43.97 |
 | Joint sensing — 12 magnets | 26.40 |
 | Transmission — tendon | 17.50 |
-| **Priced subtotal** | **1222.25** |
+| **Priced subtotal, TAKTO ONE** | **1222.25** |
+| **Priced subtotal, TAKTO Lite** (without the actuation, the tendon and the 74HC241) | **164.48** |
 
 Both custom boards came to a further **USD 170.73** as one delivered order. These lines carry no
 published price and are not in the subtotal: EMG sensor, microSD, crown pot, button, piezo, motor

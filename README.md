@@ -511,9 +511,23 @@ Current status is stated plainly in [Where the project really stands](#where-the
 
 ## What it costs to build
 
-Eight motors, twelve instrumented joints, seventy-one printed parts. The servos are nearly the
-whole bill; every other group put together is under a fifth of it, which is why cutting the
-motor count is the most useful thing anyone could contribute.
+TAKTO comes in two builds from the same files:
+
+| | **TAKTO Lite** | **TAKTO ONE** |
+| --- | --- | --- |
+| What it does | Reads the hand: 12 joint encoders, 2 IMUs, EMG, on-device display and SD logging, the live twin in browser, phone and AR | Reads and drives the hand: everything in Lite, plus 8 servos pulling the fingers through tendons |
+| Priced parts | **EUR 164.48** | **EUR 1,222.25** |
+| Both circuit boards, one JLCPCB order | USD 170.73 | USD 170.73 |
+
+Lite leaves out only what serves the motors: the eight servos, the tendons and conduit, the
+74HC241 bus driver and the motor supply. It runs the same firmware, which never touches the
+motor bus until it is told to take it (`M,t,1`), so a Lite build streams, logs and drives the
+twins with no servos fitted. The forearm keeps its ten spool bays, so a Lite becomes a ONE by
+adding the actuation.
+
+In TAKTO ONE the servos are nearly the whole bill; every other group put together is under a
+fifth of it, which is why cutting the motor count is the most useful thing anyone could
+contribute.
 
 <div align="center">
   <picture>
@@ -571,10 +585,9 @@ the browser twin in real time. Two BNO085 IMUs are fitted, on the hand and the f
 long-finger assemblies are built and instrumented, and both PCBs exist as manufactured designs
 with complete sources.
 
-**On the bench today (October 2026).** After a wiring fault, four encoder channels (00, 04, 05
-and 11: the middle finger and the ring finger's abduction) answer nothing on I²C, so eight of
-the twelve joints read live until the harness is repaired. The fault is in the wiring, not the
-firmware.
+**Status on 14 October 2026.** All twelve encoders read live on the current black build and
+drive both the browser twin and the AR twin in a Meta Quest 3S (the recording at the top of this
+page). A wiring fault had cut four channels earlier in October; the harness is repaired.
 
 The firmware and the wiring carry a third IMU channel for a thumb-tip unit that is **not
 fitted**, in the same way the two multiplexers carry fourteen encoder channels for twelve
@@ -586,7 +599,7 @@ behavior are not characterized by measurements here. Verify the actuator count, 
 safety behavior on your own hardware before any worn experiment.
 Repository-preparation checks are in the [verification record](docs/RELEASE_VERIFICATION.md).
 
-**Known limitations.** Eight motors makes this an expensive build. The series-elastic
+**Known limitations.** Eight motors makes TAKTO ONE an expensive build; TAKTO Lite removes that cost for anyone who only needs the sensing. The series-elastic
 actuation is a simple implementation, elastic tendons and ratchet spools, not an advanced SEA
 design. Recent soft-robotics work achieves comparable sensing with simpler mechanisms. This is
 a working, well-instrumented research platform, not a claim to the state of the art, and those
@@ -619,6 +632,55 @@ Keep actuator power independently removable, begin with torque disabled, test aw
 body, confirm mechanical limits, and validate watchdog and fault behavior before any worn
 experiment.
 
+
+## Frequently asked questions
+
+**What is TAKTO ONE?**
+An open-source hand exoskeleton. It measures twelve finger joints with magnetic encoders at the
+joints themselves and drives the fingers through tendons from servos on the forearm. A Teensy 4.1
+runs the control loop on the device, so no PC is needed. Sebastian Molano designed and built it
+for his master's thesis in biomedical engineering at Hochschule Anhalt, Germany, and released it
+as open source in September 2026. Website: [takto.one](https://takto.one).
+
+**How much does it cost to build?**
+TAKTO ONE, the full build, comes to EUR 1,222.25 in priced parts; TAKTO Lite, sensing only,
+to EUR 164.48. Both need the two custom circuit boards, USD 170.73 as one JLCPCB order. Every
+line is in [`docs/BOM.md`](docs/BOM.md).
+
+**Can I build it without motors?**
+Yes. TAKTO Lite is the same device without the actuation: twelve joint encoders, two IMUs, EMG,
+the display, SD logging and the live twin. It uses the same firmware and can be upgraded to
+TAKTO ONE later.
+
+**How is it different from camera hand tracking or a flex-sensor glove?**
+A camera loses fingers when they cross, curl or leave the frame, and flex sensors drift. TAKTO
+reads each joint angle with a magnetic encoder at the joint, so a hidden finger is still
+measured.
+
+**Does it work in VR or AR?**
+Yes, as a prototype. LUMEN runs in WebXR on a Meta Quest 3S, and its twin is moved by the
+device's own encoders and IMUs, not by the headset's hand tracking.
+
+**Can I try it without building it?**
+Yes. [takto.one](https://takto.one) runs the 3D twin and the operator console in any browser on
+a clearly labelled simulation.
+
+**What works today, and what doesn't?**
+Working on hardware: all twelve encoders, two IMUs, on-device logging, the browser, phone and
+AR twins, and motor-driven finger movement on the bench. The EMG input is in the firmware and is
+logged with every frame. Not done yet: the thumb, and
+measured force, latency and assistance. The details, with dates, are in
+[Where the project really stands](#where-the-project-really-stands).
+
+**Is it a medical device?**
+No. It is a research prototype, not certified for clinical use. Read [Safety](#safety) before
+wearing a build with motors.
+
+**Under what licence?**
+Hardware CERN-OHL-S-2.0, software Apache-2.0, documentation and media CC BY 4.0. The TAKTO name
+is not licensed; see [License](#license).
+
+---
 
 ## Contributing
 

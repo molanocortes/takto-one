@@ -14,6 +14,8 @@ abstract: >-
   half-duplex interface, two custom PCBs, and browser-based operator and public
   consoles with a live 3D digital twin. The control law runs on the device itself,
   and motion capture is written to the controller's own SD card.
+  Two builds share the files: TAKTO ONE, which reads and drives the fingers through
+  tendons, and TAKTO Lite, a sensing-only build without the actuation.
 keywords:
   - robotics
   - exoskeleton
@@ -22,6 +24,13 @@ keywords:
   - tendon-driven
   - open hardware
   - embedded systems
+  - hand exoskeleton
+  - data glove
+  - hand tracking
+  - haptics
+  - teleoperation
+  - digital twin
+  - mixed reality
 license:
   - Apache-2.0
   - CERN-OHL-S-2.0
