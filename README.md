@@ -370,36 +370,6 @@ machine, and only when you connect it.
 
 ---
 
-## The browser surfaces
-
-There are four of them and they all read the same stream: the front end and the console
-here, plus the AR layer and the phone companion above. None of them needs hardware.
-Run the bridge with `--sim` and they animate on synthetic joints instead. What reaches the
-browser is 60 Hz, which is a display rate and says nothing about how fast the device itself
-runs (see [On rates](#a-note-on-rates)). Every twin renders the same articulated geometry
-that ships in [`cad/`](cad/).
-
-<!-- Poster linking to a posted GitHub attachment, for the reasons given at the film above.
-     docs/media/TAKTO-SURFACES.mp4 is the durable in-repo copy; the URL was minted from the same
-     PR #1 comment. Renders the same on desktop and in the mobile app. -->
-
-<div align="center">
-  <a href="https://github.com/user-attachments/assets/ecce7c24-ec8f-4421-8bff-ab142f2db214"><img src="docs/media/surfaces-poster.jpg" alt="Watch the browser surfaces: front end, console, AR layer and phone companion" width="100%"></a>
-</div>
-
-<div align="center">
-
-<sub><b>The public front end.</b> A single scrolling page. The device turns and the fingers
-move as you scroll, so each claim ends up beside the part of the machine it describes.<br>
-<b>The operator console.</b> Live 3D twin, twelve per-joint encoders, motor state, EMG
-effort, current draw, the device's own round screen, and calibration. Shown here on the
-simulator, which is why the link says <i>mock</i>.</sub>
-
-</div>
-
-
----
-
 ## EMG in the loop
 
 Most hand devices sense position. TAKTO ONE also listens to the muscles.
