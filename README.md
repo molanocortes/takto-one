@@ -109,11 +109,11 @@ machine, and only when you connect it.
 <a href="https://takto.one/#/operator">
 <picture>
   <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/console-live.gif">
-  <img src="docs/media/console-live-still.jpg" alt="The takto.one console: the twin's fingers curling while the encoder channels and the effort gauge update, labelled SIMULATED DATA" width="100%">
+  <img src="docs/media/console-live-still.jpg" alt="The takto.one console: the whole arm in space, side view, the fingers closing and opening while the encoder channels and the effort gauge update, labelled SIMULATED DATA" width="100%">
 </picture>
 </a>
 
-<sub><b>The console.</b> The twin, the twelve encoder channels, the motors and the effort gauge, here on the
+<sub><b>The console.</b> The whole arm in space with the twin's fingers closing and opening, the twelve encoder channels, the motors and the effort gauge, here on the
 built-in simulation (top right: SIMULATED DATA). Connect a real TAKTO ONE on your own machine and the
 same view runs live.</sub>
 
