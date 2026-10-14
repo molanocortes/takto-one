@@ -90,6 +90,19 @@ AR layer is a prototype.</sub>
 
 <div align="center">
 
+<a href="docs/media/turntable.gif">
+<picture>
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/turntable.gif">
+  <img src="docs/media/turntable-still.jpg" alt="TAKTO ONE, one full turn" width="100%">
+</picture>
+</a>
+
+</div>
+
+---
+
+<div align="center">
+
 <img src="docs/media/personalize.jpg" alt="Personalize it, three colourways" width="100%">
 
 </div>
@@ -463,13 +476,6 @@ Current status is stated plainly in [Where the project really stands](#where-the
 ---
 
 ## The machine
-
-<a href="docs/media/turntable.gif">
-<picture>
-  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/turntable.gif">
-  <img src="docs/media/turntable-still.jpg" alt="TAKTO ONE, one full turn" width="100%">
-</picture>
-</a>
 
 | | |
 | --- | --- |
