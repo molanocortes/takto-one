@@ -15,6 +15,7 @@ every file needed to build one.
 twin and the console, right in your browser.
 
 [![Website: takto.one](https://img.shields.io/badge/website-takto.one-2F76BF.svg)](https://takto.one)
+[![YouTube: the film](https://img.shields.io/badge/YouTube-watch%20the%20film-FF0000.svg?logo=youtube&logoColor=white)](https://youtu.be/t-M-R6erIa0)
 [![Software: Apache-2.0](https://img.shields.io/badge/software-Apache--2.0-blue.svg)](LICENSE.md)
 [![Hardware: CERN-OHL-S-2.0](https://img.shields.io/badge/hardware-CERN--OHL--S--2.0-orange.svg)](LICENSE.md)
 [![Docs: CC-BY-4.0](https://img.shields.io/badge/docs-CC--BY--4.0-lightgrey.svg)](LICENSE.md)
@@ -57,7 +58,12 @@ filmed on 14 October 2026: on the arm with a phone, and through a headset next t
 
 ---
 
-<!-- The film: a poster image linking to a GitHub attachment URL. This is the ONE form that
+<!-- 2026-10-14: the film is now on YouTube ("I Built a Robot Exoskeleton for My Hand", https://youtu.be/t-M-R6erIa0),
+     and the poster links there: GitHub cannot embed a YouTube player, and a youtu.be link opens
+     the YouTube app on a phone and plays in the browser on desktop, one tap either way. The
+     attachment URL https://github.com/user-attachments/assets/3c247700-2d8c-4fc3-9e42-16625cd077bb
+     still plays the in-repo copy if YouTube is ever unavailable. Earlier notes:
+     The film: a poster image linking to a GitHub attachment URL. This is the ONE form that
      works on desktop web AND in the GitHub mobile app, verified 2026-09-04. How the others fail:
        - a <video> tag is stripped by GitHub's sanitiser everywhere; only what is inside survives
        - a bare user-attachments URL on its own line becomes an inline player on desktop web only;
@@ -72,7 +78,8 @@ filmed on 14 October 2026: on the arm with a phone, and through a headset next t
 
 
 <div align="center">
-  <a href="https://github.com/user-attachments/assets/3c247700-2d8c-4fc3-9e42-16625cd077bb"><img src="docs/media/film-poster.jpg" alt="Watch the film: TAKTO ONE turning in the white studio" width="100%"></a>
+  <a href="https://youtu.be/t-M-R6erIa0"><img src="docs/media/film-poster.jpg" alt="Watch the film on YouTube: I Built a Robot Exoskeleton for My Hand" width="100%"></a>
+  <sub>▶ <a href="https://youtu.be/t-M-R6erIa0"><b>Watch the film on YouTube</b></a></sub>
 </div>
 
 ---
