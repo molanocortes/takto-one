@@ -27,44 +27,39 @@ twin and the console, right in your browser.
 
 ---
 
-## On the arm
+## The real thing
 
-<!-- Real footage, one clip per section so each gets the full width. On a desktop the clip loops
-     as a GIF with no click; phones and the GitHub app get the still poster (the Android app cannot
-     show a README that loads a GIF), and a click or tap opens the full film through jsDelivr,
-     pinned to the commit that added it, because GitHub's blob page will not play a file this size. -->
+<!-- Real footage, side by side. On a desktop each clip loops as a GIF with no click; phones and
+     the GitHub app get the still poster (the Android app cannot show a README that loads a GIF).
+     A click or tap opens the full film through jsDelivr, pinned to the commit that added it,
+     because GitHub's blob page will not play a file this size. Keep <a>, <picture> and <img> on
+     separate lines: written on one line, GitHub wraps the <img> in its own link and the GIF
+     never loads. -->
 
-<div align="center">
-
+<table>
+<tr>
+<td width="24%">
 <a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-WORN.mp4">
 <picture>
   <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/worn-loop.gif">
-  <img src="docs/media/worn-poster.jpg" alt="TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="400">
+  <img src="docs/media/worn-poster.jpg" alt="TAKTO ONE worn on the arm, phone footage, the hand opening and closing" width="100%">
 </picture>
 </a>
-
-<sub>The black build, filmed with a phone on 14 October 2026.</sub>
-
-</div>
-
----
-
-## In AR, driven by its own sensors
-
-<div align="center">
-
+</td>
+<td width="76%">
 <a href="https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-AR.mp4">
 <picture>
   <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/ar-loop.gif">
   <img src="docs/media/ar-poster.jpg" alt="Recorded through a Quest headset: the TAKTO twin floats beside the real device, with the web twin on the monitor behind" width="100%">
 </picture>
 </a>
-
-<sub>Recorded through a Quest headset. Nothing from the headset moves the twin's fingers: the twelve
-encoders bend them and the two IMUs turn the wrist. The web twin runs on the monitor behind. The
-AR layer is a prototype. Click for the full 24 s.</sub>
-
-</div>
+</td>
+</tr>
+<tr>
+<td align="center"><sub><b>On the arm.</b> The black build, filmed with a phone on 14 October 2026.</sub></td>
+<td align="center"><sub><b>In AR.</b> Recorded through a Quest headset. Nothing from the headset moves the twin's fingers: the twelve encoders bend them and the two IMUs turn the wrist. The web twin runs on the monitor behind. The AR layer is a prototype.</sub></td>
+</tr>
+</table>
 
 ---
 
@@ -88,7 +83,16 @@ AR layer is a prototype. Click for the full 24 s.</sub>
 
 
 <div align="center">
-  <a href="https://youtu.be/t-M-R6erIa0"><img src="docs/media/film-poster.jpg" alt="Watch the film on YouTube: I Built a Robot Exoskeleton for My Hand" width="100%"></a>
+<!-- The film plays by itself on desktop: film-loop.gif is seconds 6.5 to 22 of TAKTO-ONE.mp4,
+     silent, 720 px, 12 fps. Phones get film-poster.jpg; a click or tap opens the full film on YouTube. -->
+
+<a href="https://youtu.be/t-M-R6erIa0">
+<picture>
+  <source media="(min-width: 768px) and (pointer: fine) and (prefers-reduced-motion: no-preference)" srcset="docs/media/film-loop.gif">
+  <img src="docs/media/film-poster.jpg" alt="Watch the film on YouTube: I Built a Robot Exoskeleton for My Hand" width="100%">
+</picture>
+</a>
+
   <sub>▶ <a href="https://youtu.be/t-M-R6erIa0"><b>Watch the film on YouTube</b></a></sub>
 </div>
 
