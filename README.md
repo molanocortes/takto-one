@@ -357,10 +357,10 @@ screen for every device state: battery, boot, calibrate, fault, idle, linked, re
 standalone, stop and teleop. Two earlier designs, **rams** and **ferro**, are still in the
 source for reference but aren't built into the firmware.
 
-The screens are animated: the boot sequence and self-test, the teleop ring that shows the
-assist level, the recording counter, and a slow pulse when idle. The renderer only redraws the
-tiles that changed and keeps to a fixed time budget per frame, so drawing doesn't hold up the
-control loop.
+Most screens move. At boot and when idle a marker sweeps around the ring, the teleop screen
+shows the effort level as a ring and a percentage, and the recording screen counts the time
+with a ring that fills once a minute. The renderer only redraws the tiles that changed and keeps
+to a fixed time budget per frame, so drawing doesn't hold up the control loop.
 
 <div align="center">
 
@@ -381,8 +381,9 @@ the <b>thesis</b> face and the two older designs, then the <b>recording</b> coun
 
 <img src="docs/media/watch-faces.jpg" alt="Three watch faces across every device state" width="100%">
 
-<sub>The current face and the two older designs in every state. These are renders, not photos
-of the real screen.</sub>
+<sub>The thesis face (bottom row) and the two older designs in every state. These are renders,
+not photos of the real screen, and they were made before the thesis face's calibrate and linked
+screens changed.</sub>
 
 </div>
 
