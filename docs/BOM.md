@@ -1,17 +1,16 @@
 # Bill of materials
 
-**Scope: the four-finger configuration — eight motors, twelve instrumented joints.** TAKTO ONE
-is designed for ten motors, two per digit; this page prices the eight for the four long fingers,
-and the thumb pair waits for a thumb mechanism. The prototype itself is built with two, on one
-finger, because it was self-funded: the limit is the budget, not the design.
+Scope: the four-finger configuration, with eight motors and twelve instrumented joints. TAKTO
+ONE is designed for ten motors, two per digit. This page prices the eight for the four long
+fingers; the thumb's two are left out because there is no thumb mechanism yet. The prototype
+has two motors, on one finger, because it was self-funded.
 
-**Two builds come from these files.** **TAKTO ONE** is everything below. **TAKTO Lite** reads
-the hand without driving it: it leaves out the eight servos, the tendons and conduit, the
-elastic elements, the printed ratchets, the 74HC241 bus driver and the motor supply. It keeps
-the twelve encoders, both IMUs, the EMG input, the Teensy with its display and SD logging, and
-both circuit boards. The firmware never touches the motor bus until it is told to take it
-(`M,t,1`), so a Lite build runs the same firmware. The `in_lite` column of [`bom.csv`](bom.csv)
-marks every line.
+There are two builds. TAKTO ONE is everything below. TAKTO Lite reads the hand without driving
+it: it leaves out the eight servos, the tendons and conduit, the elastic elements, the printed
+ratchets, the 74HC241 bus driver and the motor supply. It keeps the twelve encoders, both IMUs,
+the EMG input, the Teensy with its display and SD logging, and both circuit boards. The firmware
+doesn't use the motor bus until it's told to (`M,t,1`), so a Lite build runs the same firmware.
+The `in_lite` column in [`bom.csv`](bom.csv) shows which lines belong to Lite.
 
 | | TAKTO Lite | TAKTO ONE |
 | --- | ---: | ---: |
@@ -25,25 +24,23 @@ marks every line.
   </picture>
 </div>
 
-Two things this total is not. The forearm carries **ten** spool/tensioner bays, not eight: the
-two spare bays are deliberate headroom for a thumb pair, and the firmware already addresses
-fourteen encoder channels of which twelve are populated. Nobody has built that thumb — its
-linkage, its tendon routing and its kinematics are all open, and it is named as an invitation
-in the top-level README. And the shipped firmware is configured for **two** motors
-(`N_MOTOR = 2` in `firmware/takto_one/takto_one.ino`), one antagonist pair on one finger, which
-is the bench setup rather than a full build. Buy against the configuration you intend to build.
+Two notes on this total. First, the forearm has ten spool/tensioner bays, not eight. The two
+spare bays are for a thumb pair, and the firmware already reads fourteen encoder channels, of
+which twelve are used. The thumb itself hasn't been built; its linkage, tendon routing and
+kinematics are still open (see Contributing in the top-level README). Second, the firmware as
+released is configured for two motors (`N_MOTOR = 2` in `firmware/takto_one/takto_one.ino`),
+one antagonist pair on one finger. That's the bench setup, not a full build. Buy for the
+configuration you plan to build.
 
-Quantities come from primary sources, not from an earlier parts list: the firmware pin map and
-constants, the two KiCad projects and their manufacturing BOMs, and the export manifest in
-[`../cad/README.md`](../cad/README.md). A machine-readable copy of every line below is in
-[`bom.csv`](bom.csv).
+The quantities come from the firmware pin map and constants, the two KiCad projects and their
+manufacturing BOMs, and the export manifest in [`../cad/README.md`](../cad/README.md), not from
+an earlier parts list. Every line below is also in [`bom.csv`](bom.csv).
 
-> **Prices are indicative, not a quotation.** They are carried from the project's own 2026
-> purchasing at the suppliers named, are **ex VAT and ex shipping** unless a line says
-> otherwise, and were correct to the best of the author's records in **2026**. Semiconductor
-> and motor pricing moves — re-quote every line before ordering. Lines marked `—` were bought
-> as part of a larger order, salvaged, or not separately recorded; they are real requirements
-> with no price the author can honestly publish.
+> **Prices are indicative, not a quote.** They come from the project's own purchases in 2026
+> from the suppliers named, and they exclude VAT and shipping unless a line says otherwise.
+> Chip and motor prices change, so get new quotes before ordering. Lines marked `—` were bought
+> as part of a larger order, salvaged, or not recorded separately. You still need those parts,
+> but there is no reliable price for them.
 
 ---
 
@@ -53,13 +50,14 @@ constants, the two KiCad projects and their manufacturing BOMs, and the export m
 | --- | --- | --- | ---: | ---: |
 | Dynamixel servo | XC330-M181-T | Robotis / mybotshop.de | 8 | 130.00 |
 
-Two per long finger, an antagonist pair on one spool. The firmware names this model both in its
-baud ceiling and in its model check, so a different XC330 variant will not pass `M,t,1`.
+Two per long finger, as an antagonist pair on one spool. The firmware checks for this exact
+model, both for its baud rate limit and in its model check, so a different XC330 variant won't
+pass `M,t,1`.
 
-A **U2D2 interface set** (EUR 103.95) appears in older costings and is **not required**. The
-Teensy owns the bus through the 74HC241; a U2D2 is a development and diagnostic convenience
-only, and must be physically disconnected before the firmware will take the bus — it enforces
-single-master.
+A U2D2 interface set (EUR 103.95) appears in older costings but isn't needed. The Teensy drives
+the bus through the 74HC241. A U2D2 is only useful for development and diagnostics, and it has
+to be unplugged before the firmware will take the bus, because the firmware allows only one bus
+master.
 
 ## Sensing
 
@@ -71,20 +69,20 @@ single-master.
 | BNO085 IMU breakout | — | generic / Amazon.de | 2 | 22.19 |
 | Surface EMG sensor, envelope out | MyoWare 2.0 | SparkFun / generic | 1 | — |
 
-One encoder and one magnet per instrumented joint, three per long finger; two capacitors per
-encoder board. The ICs are supplied and placed as part of the JLCPCB assembly order below.
+One encoder and one magnet per instrumented joint, three per long finger, and two capacitors
+per encoder board. The ICs are supplied and placed as part of the JLCPCB assembly order below.
 
-The firmware addresses **14** encoder channels (`N_CHANNELS = 14`, muxes at `0x70` and `0x71`),
-of which twelve are populated here — channels 12 and 13 are wired-through spares for a thumb.
+The firmware reads 14 encoder channels (`N_CHANNELS = 14`, muxes at `0x70` and `0x71`), and
+twelve of them are populated here. Channels 12 and 13 are wired-through spares for a thumb.
 
-Two IMUs are fitted, at dorsal hand (`0x4A`, `Wire1`) and forearm (`0x4B`, `Wire2`). The
-firmware and the wiring carry a third position at the thumb tip (`0x4B`, `Wire1`); the BNO085
-has only two addresses, so the thumb would share the hand bus at the second address. It is not
-populated here and is not priced above — add one BNO085 (**+EUR 22.19**) to fit it. The
-unpopulated channel reports MISSING in the `s` bus scan and streams a live flag of zero. EMG is optional: its envelope goes to pin 14 (A0), and the firmware reports the
-sensor as absent and runs without it. The MyoWare 2.0 is a three-lead sensor: two electrodes
-along the muscle belly and one reference on quiet tissue, taking standard disposable Ag/AgCl
-gel electrodes.
+Two IMUs are fitted, on the back of the hand (`0x4A`, `Wire1`) and on the forearm (`0x4B`,
+`Wire2`). The firmware and the wiring have a third position at the thumb tip (`0x4B`, `Wire1`).
+The BNO085 has only two addresses, so a thumb IMU would share the hand bus at the second
+address. It isn't fitted here or priced above; fitting it takes one more BNO085 (EUR 22.19).
+The empty channel reports MISSING in the `s` bus scan and streams a live flag of zero. EMG is
+optional: its envelope goes to pin 14 (A0), and if the sensor isn't there the firmware reports
+it as absent and runs without it. The MyoWare 2.0 uses three electrodes, two along the muscle
+belly and a reference on quiet tissue, and takes standard disposable Ag/AgCl gel electrodes.
 
 ## Control and interface
 
@@ -99,18 +97,18 @@ gel electrodes.
 | Piezo buzzer | — | generic | 1 | — |
 | Motor supply and wiring | — | — | 1 | — |
 
-The Teensy runs at 600 MHz, owns the motor bus and runs the control law; its built-in SDIO
-socket is the capture target, so size the card for the recording length you want. The display
-is on SPI0 (CS 10 / DC 9 / RST 8) and is painted by the firmware's own rasterizer. Crown on pin
-27 (A13), presence-checked so an unwired pin cannot fabricate assist authority; button on pin 5;
-piezo on pin 2.
+The Teensy runs at 600 MHz, drives the motor bus and runs the control law. Recordings go to the
+microSD card in its built-in SDIO socket, so choose the card size for the recording length you
+need. The display is on SPI0 (CS 10 / DC 9 / RST 8) and is drawn by the firmware's own
+renderer. The crown is on pin 27 (A13); the firmware checks that it's connected, so a floating
+pin can't be read as an assist setting. The button is on pin 5 and the piezo on pin 2.
 
-The **74HC241** is the half-duplex Dynamixel interface on `Serial1`, direction on pin 7
-(HIGH = transmit). It is **central to the current architecture** — earlier documentation calling
-it a superseded part is wrong. It is not on the published palm-carrier Gerbers, so wire it
-separately and verify the truth table, voltage domains, common ground and receive-default state
-on the bench. Keep actuator power independently removable; see the safety note in the top-level
-README.
+The 74HC241 is the half-duplex Dynamixel interface on `Serial1`, with direction on pin 7
+(HIGH = transmit). The current design depends on it; earlier documentation that calls it a
+superseded part is wrong. It isn't on the published palm-carrier Gerbers, so wire it separately
+and check the truth table, voltage domains, common ground and default receive state on the
+bench. Make sure the actuator power can be removed on its own; see the safety note in the
+top-level README.
 
 ## Custom boards
 
@@ -121,17 +119,17 @@ README.
 | TCA9548A I²C multiplexer | LCSC `C130026` | 2 |
 | Palm carrier passives | LCSC `C15850`, `C49678`, `C17673`, `C17414` | 1 set |
 
-Both boards were fabricated and assembled in a **single JLCPCB order on 2026-06-17: USD 170.73
-delivered** — merchandise USD 127.83, shipping USD 15.64, customs and duties USD 27.26. Within
-that order the palm carrier PCBA was USD 50.59 for five pieces. Treat these as what one order
-actually cost, not as a per-unit price. The muxes sit on the palm carrier: `0x70` serves
-channels 0–7, `0x71` serves channels 8–13. Passives are 1 × 10 µF, 2 × 100 nF, 2 × 4.7 k and
-2 × 10 k; the full list is in the board's manufacturing BOM.
+Both boards were made and assembled in one JLCPCB order on 2026-06-17 that cost USD 170.73
+delivered: USD 127.83 for the goods, USD 15.64 for shipping and USD 27.26 for customs and
+duties. Within that order, the palm carrier PCBA was USD 50.59 for five pieces. These are the
+costs of one real order, not unit prices. The muxes are on the palm carrier: `0x70` serves
+channels 0–7 and `0x71` serves channels 8–13. The passives are 1 × 10 µF, 2 × 100 nF, 2 × 4.7 k
+and 2 × 10 k; the full list is in the board's manufacturing BOM.
 
 > **Erratum, palm carrier channels 8–13.** On the second multiplexer (`U2`) the `SDA`/`SCL` net
-> labels are transposed on all six used channels. Wire your sensor's `SCL` to the pad marked
-> `SDA` and its `SDA` to the pad marked `SCL`. `U1` (channels 0–7) is correct as labelled.
-> Detail in [`README.md`](README.md).
+> labels are swapped on all six used channels. Wire your sensor's `SCL` to the pad marked `SDA`
+> and its `SDA` to the pad marked `SCL`. `U1` (channels 0–7) is labelled correctly. Details are
+> in [`README.md`](README.md).
 
 ## Transmission and mechanical hardware
 
@@ -144,14 +142,15 @@ channels 0–7, `0x71` serves channels 8–13. Passives are 1 × 10 µF, 2 × 10
 | Fasteners and pins | — | generic | — | — |
 
 An antagonist cable pair runs on one 5 mm spool per joint, so flexion and extension come from
-the same motor with no backlash at reversal. Conduit length depends on your forearm-to-hand run.
-The ratchet, one per spool station, is **third-party geometry from the ORCA hand project**,
-redistributed unmodified under CC BY 4.0 and printed like any other part; it is not covered by
-this project's CERN-OHL-S-2.0 licence. See [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
-The elastic elements are what make the actuation series-elastic — a simple implementation of
-the idea, elastic tendons and ratchet spools, not an advanced SEA design — and the transmission
-has been run on the bench both with and without them in series. Fasteners are not
-enumerated in this release; select and verify them against the STEP files.
+the same motor with no backlash when it reverses. The conduit length depends on the distance
+from your forearm to your hand. The ratchet, one per spool station, is third-party geometry from
+the ORCA hand project. It is redistributed unmodified under CC BY 4.0 and printed like any other
+part, and it isn't covered by this project's CERN-OHL-S-2.0 licence. See
+[`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). The elastic elements make the
+actuation series-elastic. It's a simple version of the idea (elastic tendons and ratchet
+spools), not a full SEA design, and the transmission has been run on the bench both with and
+without them. Fasteners aren't listed in this release; choose them and check them against the
+STEP files.
 
 ## Printed parts
 
@@ -161,18 +160,17 @@ enumerated in this release; select and verify them against the STEP files.
 | TPU filament | generic | 1 kg | 30.00 |
 | PLA filament | generic | 1 kg | — |
 
-**61 TAKTO-authored printed occurrences across 24 unique components**, plus the **10
-ORCA-derived ratchets** above: 71 printed parts in a full build. The TAKTO parts are all in
-[`../cad/stl/`](../cad/stl/) with
-editable solids in [`../cad/step/`](../cad/step/) and the per-part manifest, with Fusion cloud
-versions, in [`../cad/README.md`](../cad/README.md). Ten of those occurrences are `BaseSpool` and
-ten are `SpoolCover` — the ten tensioner bays the forearm provides, of which eight are used here.
-PETG is structural and TPU is the compliant skin interface; the as-built prototype mixes PETG and
-PLA, so any claim that it is entirely PETG is wrong.
+A full build has 71 printed parts: 61 TAKTO parts (24 different components) plus the 10 ORCA
+ratchets above. The TAKTO parts are all in [`../cad/stl/`](../cad/stl/), with editable solids
+in [`../cad/step/`](../cad/step/) and the per-part manifest, including Fusion cloud versions, in
+[`../cad/README.md`](../cad/README.md). Ten of the 61 are `BaseSpool` and ten are `SpoolCover`,
+one of each for the forearm's ten tensioner bays, of which eight are used here. PETG is for the
+structure and TPU for the soft parts against the skin. The prototype as built uses a mix of
+PETG and PLA, so it isn't all PETG.
 
-Two links per finger are engineered for metal additive manufacturing in AlSi10Mg or 316L. That
-path was studied in CAD and linear-static FEA; **no metal parts were fabricated**, and no metal
-build is claimed here. Machine time for in-house LPBF is not costed.
+Two links per finger were also designed for metal 3D printing in AlSi10Mg or 316L. That option
+was only studied in CAD and in linear-static FEA. No metal parts have been made, and none are
+claimed here. Machine time for in-house LPBF isn't included in the cost.
 
 ---
 
@@ -180,26 +178,25 @@ build is claimed here. Machine time for in-house LPBF is not costed.
 
 | Group | EUR |
 | --- | ---: |
-| Actuation — 8 × XC330-M181-T | 1040.00 |
-| Motion sensing — 2 × BNO085 | 44.38 |
-| Print stock — PETG + TPU | 50.00 |
-| Control — Teensy 4.1, GC9A01A, SN74HC241N | 43.97 |
-| Joint sensing — 12 magnets | 26.40 |
-| Transmission — tendon | 17.50 |
+| Actuation (8 × XC330-M181-T) | 1040.00 |
+| Motion sensing (2 × BNO085) | 44.38 |
+| Print stock (PETG + TPU) | 50.00 |
+| Control (Teensy 4.1, GC9A01A, SN74HC241N) | 43.97 |
+| Joint sensing (12 magnets) | 26.40 |
+| Transmission (tendon) | 17.50 |
 | **Priced subtotal, TAKTO ONE** | **1222.25** |
 | **Priced subtotal, TAKTO Lite** (without the actuation, the tendon and the 74HC241) | **164.48** |
 
-Both custom boards came to a further **USD 170.73** as one delivered order. These lines carry no
-published price and are not in the subtotal: EMG sensor, microSD, crown pot, button, piezo, motor
-supply and wiring, PTFE conduit, elastic elements, fasteners, PLA stock.
+The two custom boards cost another USD 170.73, as one delivered order. These lines have no
+published price and aren't in the subtotal: EMG sensor, microSD, crown pot, button, piezo,
+motor supply and wiring, PTFE conduit, elastic elements, fasteners and PLA stock.
 
-**This supersedes the EUR 1,599.84 figure** that earlier project material quoted. That number was
-an earlier costing of the same four-finger design, and it differs for two reasons: it included a
-U2D2 set at EUR 103.95, which the current motor architecture does not need, and it attributed the
-whole JLCPCB order to a single PCB line at EUR 155.21 rather than recording it as one order
-covering both boards. The project website carries the same figure as this page, so the two agree;
-if you change one, change the other.
+Earlier project material quoted EUR 1,599.84. That was an older costing of the same
+four-finger design. The main differences: it included a U2D2 set at EUR 103.95, which the
+current motor setup doesn't need, and it counted the whole JLCPCB order as a single PCB line at
+EUR 155.21 instead of one order covering both boards. The project website uses the same figures
+as this page; if you change one, change the other.
 
-**The eight motors are most of the cost, and that is the honest headline.** Reducing the motor
-count through underactuation is the single change that would most widen who can build this, and
-it is named as an open invitation in the top-level README.
+The eight motors are most of the cost, EUR 1,040 of the EUR 1,222.25. Using fewer motors, for
+example through underactuation, would make the build much cheaper. It's one of the open
+problems listed under Contributing in the top-level README.

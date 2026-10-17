@@ -1,19 +1,19 @@
 # Software
 
-Five surfaces sit on one data path. All of them run against a simulated device, so the whole
-stack can be explored before a single part is printed.
+The five surfaces in this folder share one data path. All of them run against a simulated
+device, so the whole stack can be tried before any part is printed.
 
 | Folder | What it is |
 | --- | --- |
 | [`console/`](console/) | The operator console: live 3D twin, per-joint encoders, motor state, EMG effort, calibration. Defaults to a built-in simulated source, so it opens with no hardware and no bridge. |
 | [`web/`](web/) | The project's public front end plus the app routes behind it, including the capture library and the 4D session replay. Three locales. Ships without `assets/docs/`; see [`../docs/README.md`](../docs/README.md). |
-| [`ar/`](ar/) | The WebXR layer: the worn hand twin plus the touch, rhythm and capture modules. A working prototype, not a polished product, and the app only — its capture and asset tooling is not included. |
+| [`ar/`](ar/) | The WebXR layer: the worn hand twin plus the touch, rhythm and capture modules. It is a working prototype and has not been polished. This is the app only; its capture and asset tooling is not included. |
 | [`app/`](app/) | The phone companion: the twin, session replay and the channel read-outs. One Expo codebase for iOS, Android and the browser, on the same synthetic feed or a real bridge. |
 | [`bridge/`](bridge/) | The Python serial-to-WebSocket bridge that connects a real Teensy to any of the above, with a `--sim` mode that feeds synthetic joints. |
 | [`watch/`](watch/) | The device screen's face assets. The face engine itself is firmware, in [`../firmware/takto_one/watch/`](../firmware/takto_one/watch/). |
 
 The phone companion is in [`app/`](app/); it supersedes an earlier Android-only build, whose
-source is not published. The sign-language stack is **not** in this release.
+source is not published. The sign-language stack is not in this release.
 
 ## Preview without hardware
 

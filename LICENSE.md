@@ -12,7 +12,7 @@ normal practice for open-hardware projects.
 
 Third-party components keep their own terms. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-One carve-out worth naming here: the spool station geometry in `cad/` derives from the ORCA hand project (CC BY 4.0) and carries an attribution requirement, and `cad/third_party/` holds one ORCA file redistributed unmodified that stays under CC BY 4.0 rather than CERN-OHL-S-2.0. Details in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+One exception: the spool station geometry in `cad/` derives from the ORCA hand project (CC BY 4.0) and carries an attribution requirement, and `cad/third_party/` holds one ORCA file redistributed unmodified that stays under CC BY 4.0 rather than CERN-OHL-S-2.0. Details in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## What this means in practice
 
@@ -22,8 +22,7 @@ express patent license from the contributors, which MIT does not.
 
 **Hardware (CERN-OHL-S-2.0).** You may study, make, modify, and distribute the hardware. This
 license is *strongly reciprocal*: if you distribute a modified design, or a product made from
-one, you must make your modified design sources available under the same license. Build one,
-improve it, sell it, but pass the improvements on.
+one, you must make your modified design sources available under the same license.
 
 **Documentation and media (CC-BY-4.0).** Reuse the guides, diagrams, and renders anywhere,
 including commercially, with attribution.
@@ -37,12 +36,12 @@ Machine-readable citation metadata is in [`CITATION.cff`](CITATION.cff).
 ## Name and trademark
 
 **TAKTO and TAKTO ONE are trademarks of Sebastian Molano.** They are asserted as unregistered
-marks; no registration is claimed, and the (R) symbol is deliberately not used.
+marks; no registration is claimed, and the (R) symbol is not used.
 
 The licences above cover the files, not the name. Apache-2.0 expressly grants no trademark
-rights (section 6), and CERN-OHL-S-2.0 does not license the licensor's marks either. That
-separation is intentional and is the ordinary arrangement in open hardware: the design is
-yours to use, the name stays attached to its origin.
+rights (section 6), and CERN-OHL-S-2.0 does not license the licensor's marks either. This is
+the usual arrangement in open hardware: you can use the design, and the name stays with the
+original.
 
 Concretely:
 
@@ -53,23 +52,22 @@ Concretely:
   of your own product, or present your version in a way that suggests it is the original or
   is endorsed by the author.
 
-The point is not to narrow what you may build, the licences above already settle that. It is
-so that when someone says *a TAKTO*, it is clear whose design they mean, and so a fork's
-problems do not land on the original's reputation. If a use is unclear, ask. The answer is
-usually yes.
+This doesn't limit what you may build; the licences above settle that. It means that when
+someone says *a TAKTO*, it is clear whose design they mean, and a fork's problems don't land on
+the original's reputation. If you're unsure about a use, ask. The answer is usually yes.
 
 ## Commercial licensing
 
 The hardware licence above, CERN-OHL-S-2.0, is strongly reciprocal: if you distribute a modified
 design, or a product built from one, you must make your modified sources available under the same
-terms. That is deliberate, and for most people it is exactly the right arrangement.
+terms. That is intended, and for most people it is the right arrangement.
 
-If it does not work for you, **licensing on other terms is available.** If you want to build a
+If it does not work for you, licensing on other terms is available. If you want to build a
 product on this hardware without publishing your modifications, or you need warranties,
 indemnities or support that an open licence does not provide, open an issue or contact the
 author and we can discuss terms. The same applies to the software.
 
-Asking costs nothing and no one is refused a hearing.
+Asking costs nothing.
 
 ## Text and data mining
 
@@ -80,7 +78,7 @@ machine-learning models, on the TAKTO-authored material in this repository.
 Text and data mining for scientific research, and by research organisations and cultural
 heritage institutions, is expressly welcomed and is not restricted.
 
-Commercial TDM licenses are available, open an issue or contact the author. This reservation
+Commercial TDM licenses are available; open an issue or contact the author. This reservation
 is a separate right under EU law and does not narrow the license grants above.
 
 Copyright © 2026 Sebastian Molano.

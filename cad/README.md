@@ -5,7 +5,7 @@ These files were exported directly from Autodesk Fusion on 2026-08-27 from the c
 - `stl/` contains high-resolution binary meshes in millimetres for slicing and inspection.
 - `step/` contains isolated solid bodies for neutral CAD interchange and editing.
 
-The source assembly also contains third-party reference models and a hidden personal arm scan. Those items, and the complete unfiltered assembly archive, are intentionally not published, **with one deliberate exception**: `base_spool` is an adaptation of a third-party part from the ORCA hand project and is published here with the attribution its CC BY 4.0 licence requires. See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Every STEP file was created from an isolated TAKTO-authored body so it does not carry the unpublished references.
+The source assembly also contains third-party reference models and a hidden personal arm scan. Those items, and the complete unfiltered assembly archive, are not published, with one exception: `base_spool` is an adaptation of a third-party part from the ORCA hand project and is published here with the attribution its CC BY 4.0 licence requires. See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Every STEP file was created from an isolated TAKTO-authored body so it does not carry the unpublished references.
 
 ## Export manifest
 
@@ -44,12 +44,13 @@ The physical prototype contains both PETG and PLA parts. Material, orientation, 
 
 ## How it goes together
 
-The STEP and STL files above are isolated parts. The assembly is documented, but not in this
-folder, and a builder who lands here first has missed it: the **24-page illustrated build guide**
-at [`../docs/build-guide.pdf`](../docs/build-guide.pdf) walks the whole device in order, with
-1:1 part-check plates on the last page. Read [`../docs/README.md`](../docs/README.md) beside it:
-two of the guide's statements (U2D2 on the motor bus, 100 % PETG) are superseded and the
-corrections are listed there. Everything mechanical in the guide reflects the device as built.
+The STEP and STL files above are isolated parts. The assembly is documented outside this folder,
+in the 24-page illustrated build guide at [`../docs/build-guide.pdf`](../docs/build-guide.pdf).
+It covers the whole device in order and has 1:1 part-check plates on the last page. Read
+[`../docs/README.md`](../docs/README.md) alongside it: two of the guide's statements (U2D2 on the
+motor bus, 100 % PETG) are superseded, and the corrections are listed there. Everything
+mechanical in the guide reflects the device as built, except that the prototype has two of the
+ten servos fitted, as the guide itself notes on page 23.
 
 | Guide chapter | Pages | What it assembles |
 | --- | ---: | --- |
@@ -98,28 +99,28 @@ PIP), and the M2, M2.5 and M3 screws listed with counts on page 24.
 
 ### The assembly files
 
-The parts above are isolated. **How they sit relative to each other is a separate download,
-attached to the [v1.0.0 release](https://github.com/molanocortes/takto-one/releases/tag/v1.0.0)**
-rather than committed, so cloning this repository stays cheap:
+The parts above are isolated. The files that show how they sit relative to each other are a
+separate download, attached to the [v1.0.0 release](https://github.com/molanocortes/takto-one/releases/tag/v1.0.0)
+instead of committed, so the repository stays quick to clone:
 
 | File | Contents |
 | --- | --- |
 | `TAKTO-ONE_Finger_Index.f3d` / `.step` | A complete finger: both MCP halves and centre, knuckle base and plate, PIP link and centre, three encoder boards, two bearings |
 | `TAKTO-ONE_Finger_Middle` / `_Ring` / `_Little` | The same sequence at each finger's link lengths |
 | `TAKTO-ONE_Palm_Stack.f3d` / `.step` | Palm, carrier board, spacers, palm IMU, cap |
-| `TAKTO-ONE_Part_Sources_f3d.zip` | **Every part above as a Fusion native**, 29 files, named to match `stl/` and `step/` here. This is the source in the preferred form for modification: open one, change a dimension, re-export your own STL |
+| `TAKTO-ONE_Part_Sources_f3d.zip` | Every part above as a native Fusion file, 29 files, named to match `stl/` and `step/` here. This is the source in the preferred form for modification: open a part, change a dimension and re-export your own STL |
 
-The individual part sources are the ones to take if you intend to change something: STEP and STL
-are dead geometry, while each `.f3d` carries its own sketches, parameters and feature history.
+If you intend to change something, use the individual part sources. STEP and STL files hold only
+the final geometry, while each `.f3d` also carries its own sketches, parameters and feature history.
 
-**Open the `.f3d` in Fusion if you can.** It carries the real component names from the manifest
-above, the parametric history and the joints, and it is the source in the preferred form for
-modification that CERN-OHL-S-2.0 asks for. The `.step` files open anywhere and their geometry and
-positions are exact, but because these parts are external references in Fusion, STEP export names
-its products after internal reference IDs rather than component names: expect entries like
-`2026-05-22-23-42-25-476` in the tree. Right geometry, unhelpful labels.
+Open the `.f3d` in Fusion if you can. It carries the component names from the manifest above, the
+parametric history and the joints, and it is the source in the preferred form for modification
+that CERN-OHL-S-2.0 asks for. The `.step` files open in other CAD programs, and their geometry and
+positions are exact. Because these parts are external references in Fusion, though, STEP export
+names its products after internal reference IDs instead of component names, so expect entries like
+`2026-05-22-23-42-25-476` in the tree.
 
-**The forearm assembly is not included.** Its Fusion assembly contains manufacturer and community
+The forearm assembly is not included. Its Fusion assembly contains manufacturer and community
 CAD of purchased parts (servos, Teensy, display, U2D2, MyoWare, JST connectors) that are not this
 project's to redistribute. Every TAKTO-authored forearm part is already above as an individual
 file, and the build guide covers the forearm on pages 9 to 14 and a spool bay on page 15. A

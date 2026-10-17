@@ -4,16 +4,7 @@
 
 # TAKTO ONE
 
-### Open hand control. Read every finger. Drive every finger.
-
-TAKTO ONE is an open-source hand exoskeleton: it reads twelve finger joints at the joint
-itself and pulls them back through tendons, with the control loop on the device, not on a laptop. Wear it and your hand becomes an
-instrument: every motion measured, recorded, and answered with force. This repository is
-every file needed to build one.
-
-### [Try it in your browser: takto.one](https://takto.one)
-
-The device in 360°, the live digital twin and the console. No hardware needed.
+Open-source hand exoskeleton: twelve joint encoders, tendon drive, control on a Teensy 4.1
 
 [![Website: takto.one](https://img.shields.io/badge/website-takto.one-2F76BF.svg)](https://takto.one)
 [![YouTube: the film](https://img.shields.io/badge/YouTube-watch%20the%20film-FF0000.svg?logo=youtube&logoColor=white)](https://youtu.be/t-M-R6erIa0)
@@ -26,9 +17,23 @@ The device in 360°, the live digital twin and the console. No hardware needed.
 
 </div>
 
+TAKTO ONE is a hand exoskeleton I designed and built for my master's thesis at Hochschule
+Anhalt. Magnetic encoders on the finger joints measure twelve angles, three on each long finger.
+Servos on the forearm pull the fingers through tendons. A Teensy 4.1 on the device reads the
+sensors and runs the motors, so it works without a PC. This repository has the files to build
+one: CAD, circuit boards, firmware, software and the bill of materials.
+
+The design has ten servos, two per digit; the prototype has two, on one finger. All twelve
+encoders work on the worn device, and the motors have moved that finger on the bench. Force,
+latency and assistance haven't been measured yet, and there's no thumb. More under
+[Status](#status).
+
+You can try the 3D model, the live twin and the console at [takto.one](https://takto.one)
+without any hardware. Without a device they run on simulated data.
+
 ---
 
-## The real thing
+## Video
 
 <!-- Real footage, side by side. On a desktop each clip loops as a GIF with no click; phones and
      the GitHub app get the still poster (the Android app cannot show a README that loads a GIF).
@@ -46,13 +51,11 @@ The device in 360°, the live digital twin and the console. No hardware needed.
 </picture>
 </a>
 
-<sub>Recorded through a Quest headset. Nothing from the headset moves the twin's fingers: the twelve
-encoders bend them and the two IMUs turn the wrist. The web twin runs on the monitor behind. The
-AR layer is a prototype.</sub>
+<sub>Recorded through a Quest headset. The twin's fingers are moved by the twelve encoders and
+its wrist by the two IMUs, not by the headset's hand tracking. The web twin is on the monitor
+behind. The AR part is a prototype.</sub>
 
 </div>
-
----
 
 <!-- 2026-10-14: the film is now on YouTube ("I Built a Robot Exoskeleton for My Hand", https://youtu.be/t-M-R6erIa0),
      and the poster links there: GitHub cannot embed a YouTube player, and a youtu.be link opens
@@ -89,19 +92,18 @@ AR layer is a prototype.</sub>
 
 ---
 
-## Try it in your browser: takto.one
+## Website
 
-**[takto.one](https://takto.one)** is the official home of TAKTO ONE, and its source is
-[`software/web/`](software/web/) in this repository. One scrolling page: the device in three
-finishes, the six parts that make it, the numbers behind it, a full 360° turn, and the live twin
-and operator console, all in the browser and none of it needing hardware. Without a device the
-console runs a clearly labelled simulation; it talks to a real TAKTO ONE only on your own
-machine, and only when you connect it.
+[takto.one](https://takto.one) is the project website, and its source is in
+[`software/web/`](software/web/). It's a single page: the device in three colours, the six parts
+it's made of, the main numbers and a 360° view, followed by the live twin and the operator
+console, which only talks to a real TAKTO ONE when you connect one on your own computer.
 
 <div align="center">
 <a href="https://takto.one"><img src="docs/media/site-home.jpg" alt="takto.one: the TAKTO wordmark behind the graphite device floating over a white plinth" width="100%"></a>
 
-<sub><b>The main page.</b> Pick a finish, scroll through the parts and the numbers, turn it through 360°.</sub>
+<sub>The main page. You can switch between the three colours, scroll through the parts and the
+numbers, and turn the model through 360°.</sub>
 </div>
 
 <div align="center">
@@ -113,22 +115,21 @@ machine, and only when you connect it.
 </picture>
 </a>
 
-<sub><b>The console.</b> The whole arm in space with the twin's fingers closing and opening, the twelve encoder channels, the motors and the effort gauge, here on the
-built-in simulation (top right: SIMULATED DATA). Connect a real TAKTO ONE on your own machine and the
-same view runs live.</sub>
+<sub>The console on the built-in simulation (marked SIMULATED DATA, top right): the arm in 3D
+with the fingers opening and closing, the twelve encoder channels, the motors and the effort
+gauge. With a real TAKTO ONE connected on your own computer, the same view shows live data.</sub>
 
 </div>
 
-- **English, German and Spanish.**
-- **Private by design.** No cookies, no analytics, no trackers. The camera modes ask before
-  anything loads from a third party, and the video never leaves the browser.
-- **Honest about its data.** Every view that shows the simulation says SIMULATED; nothing is
-  labelled live unless a real device is delivering it.
-- **Fast.** Served from Cloudflare's edge over HTTP/3. The console's code loads only when you
-  open it, and the twin's 3D model is baked and compressed for the web.
-- **One build script.** `node software/web/tools/build-site.mjs <outDir>` bundles, minifies and
-  hashes the site into a folder any static host can serve (it uses `esbuild`, or fetches it with
-  `npx`).
+The site is in English, German and Spanish, and it has no cookies, analytics or trackers.
+The camera modes ask before loading anything from a third party, and the camera video stays in
+your browser. Simulated data is labelled SIMULATED wherever it appears, and nothing is shown as
+live unless a real device is sending it. The site is served by Cloudflare, the console's code
+only loads when you open it, and the 3D model is compressed for the web.
+
+To build the site yourself, run `node software/web/tools/build-site.mjs <outDir>`. It bundles
+and minifies everything into a folder that any static host can serve. It uses `esbuild`, or
+fetches it with `npx` if it isn't installed.
 
 ---
 
@@ -141,16 +142,16 @@ same view runs live.</sub>
 
 ---
 
-## Why a hand, and why this one
+## Why encoders at the joints
 
-Your hand is the highest-bandwidth interface you own, and machines still read it badly. A
-camera loses fingers the moment they cross, curl, or leave frame. A glove full of flex sensors
-drifts. TAKTO ONE puts a magnetic encoder on the joint itself, three per finger, twelve in
-all, so the measurement ignores occlusion, lighting, and where you happen to stand. And
-because the microcontroller owns the motor bus, the device acts without a computer in the loop.
+Cameras lose track of fingers when they cross, curl or leave the frame, and gloves with flex
+sensors drift. TAKTO ONE has three magnetic encoders on each long finger, twelve in total:
+flexion and sideways spread at the knuckle, and flexion at the middle joint. Each one measures
+its angle directly, so a hidden finger or bad lighting doesn't matter.
 
-Per-joint truth going in, tendon force coming out, no host required. It is a hand-shaped input
-and output device, and what you point it at is up to you.
+The Teensy that reads the encoders also drives the motor bus, so the control loop runs on the
+device with no computer attached. You can use it to record a hand or to control something else,
+and its motors can move the fingers.
 
 <div align="center">
 
@@ -161,31 +162,24 @@ and output device, and what you point it at is up to you.
 </picture>
 </a>
 
-<sub>On the arm: the black build, filmed with a phone on 14 October 2026.</sub>
+<sub>The black build on the arm, filmed with a phone on 14 October 2026.</sub>
 
 </div>
 
-## What it already does
+## Recording and control
 
-Two of the most useful things a hand platform can do are built and in this repository.
+**Recording.** The firmware writes one row per frame to the Teensy's SD card: all fourteen
+encoder channels, the hand, forearm and thumb quaternions, the EMG envelope and RMS, the crown,
+and the motor telemetry. The SD log, the serial stream and the display all come from the same
+sensor read, so the log always matches what you saw live. The logging rate is set in the
+firmware and doesn't depend on a display. Each row is timestamped, and because the angles are
+measured at the joints, the data can be used as ground truth, for example to train
+hand-tracking models.
 
-**Motion capture that writes to the device, not to a browser.** The firmware logs to the
-Teensy's own SD card, one row per frame: all fourteen encoder channels, the hand, forearm and
-thumb quaternions, EMG envelope and RMS, the crown, and full motor telemetry. One sensor
-acquisition feeds the SD row, the serial stream and the display, so the log and the live view
-can never disagree. The rate is a firmware constant, not a display refresh. The result is
-serious hand-motion data: per-joint, occlusion-free, timestamped, labelled by physics instead
-of by another model's guess.
-
-**Teleoperation and assistance.** The control law runs on the Teensy in three modes: idle,
-direct current, and a blend that moves continuously between *transparent*, where the device
-follows the wearer and stays out of the way, and *assist*, where it drives toward a setpoint.
-The blend is a live parameter, so the hand can lead the device, the device can lead the hand,
-or anything in between. Setpoints, gains and current limits are all exposed over the serial
-protocol, which is what lets one hand drive another.
-
-Together they close the loop that matters: read a hand precisely, record it, and play it back
-into a hand.
+**Control.** The control law runs on the Teensy and has three modes: idle, direct current, and
+a blend between *transparent*, where the device follows the wearer, and *assist*, where it
+drives toward a setpoint. The blend can be changed while it runs. Setpoints, gains and current
+limits come over the serial protocol, so a recording or a second device can supply them.
 
 <div align="center">
 
@@ -200,11 +194,10 @@ into a hand.
 
 ---
 
-## Two custom boards
+## Circuit boards
 
-Designed from scratch in KiCad for this device and published in full: schematic, layout and
-manufacturing outputs for each board are in [`electronics/`](electronics/). The renders come
-straight from those files.
+Both boards were designed in KiCad for this device. The schematics, layouts and manufacturing
+files are in [`electronics/`](electronics/), and the renders below come from those files.
 
 <table>
 <tr>
@@ -217,40 +210,40 @@ straight from those files.
 </tr>
 </table>
 
-- **Palm carrier** (`palm_carrier/`). Shaped to the curved palm plate. Two TCA9548A I²C
-  multiplexers fan the bus out to fourteen encoder channels: twelve joints, plus two reserved
-  for a thumb.
-- **Encoder board** (`encoder_board/`), one per joint. An AS5600 magnetic angle sensor centred
-  under a through-board aperture, so the joint's magnet sits on the sensor's axis.
+- Palm carrier (`palm_carrier/`): shaped to fit the curved palm plate. Two TCA9548A I²C
+  multiplexers split the bus into fourteen encoder channels, twelve for the joints and two
+  spare for a thumb.
+- Encoder board (`encoder_board/`), one per joint: an AS5600 magnetic angle sensor centred
+  under a hole through the board, which keeps the joint's magnet on the sensor's axis.
 
-Both were fabricated and assembled in one JLCPCB order (June 2026, USD 170.73 delivered),
-itemised in the [bill of materials](docs/BOM.md).
-One known erratum, documented rather than hidden: on the palm carrier the second multiplexer's
-SDA and SCL net labels are swapped on channels 8 to 13, so those six channels are wired
-crossed. [`electronics/README.md`](electronics/README.md) has the detail. The 74HC241 servo-bus
-interface is separate from these boards; its pins are in the firmware and in the wiring below.
+Both were made and assembled by JLCPCB in one order (June 2026, USD 170.73 delivered); the
+[bill of materials](docs/BOM.md) lists it. There is one known error: on the palm carrier, the
+second multiplexer's SDA and SCL labels are swapped on channels 8 to 13, so those six channels
+are wired crossed. [`electronics/README.md`](electronics/README.md) has the details. The 74HC241
+servo-bus interface isn't on these boards; its pins are in the firmware and in the wiring
+diagram below.
 
-## How it fits together
+## Architecture and wiring
 
 Sensing → aggregation → control → interface:
 
 ![System architecture](docs/system-architecture.svg)
 
-And the full point-to-point wiring: every pin terminated, both I²C multiplexers, all fourteen
-encoder channels, all three IMU positions, and the 74HC241 servo bus. The
-[PDF](docs/global-wiring.pdf) is the printable version.
+The wiring diagram shows every pin-to-pin connection: both I²C multiplexers, all fourteen
+encoder channels, all three IMU positions and the 74HC241 servo bus. There is also a printable
+[PDF](docs/global-wiring.pdf).
 
 <a href="docs/global-wiring.pdf"><img src="docs/media/global-wiring.png" alt="Global wiring schematic" width="100%"></a>
 
 
 ---
 
-## Session replay: motion, played back in space
+## Session replay
 
-Record a hand once and it replays anywhere the twin runs. The viewer rebuilds the session as a
-4D scene: the real device GLB articulated by the twelve recorded joint angles, the wrist flying
-the 6-DoF path the headset measured, the room drawn from the environment mesh stored with the
-take, and the flexion and effort traces under the scrubber. Any speed, any angle, forever.
+A recorded session can be replayed wherever the twin runs. The viewer shows the device's 3D
+model moved by the twelve recorded joint angles, the wrist following the 6-DoF path measured by
+the headset, the room from the environment mesh saved with the recording, and the flexion and
+effort traces under the timeline. You can play it at any speed and look at it from any angle.
 
 <!-- Loops on phones. GitHub loads every image in a README at once (it strips loading="lazy"),
      and the five GIFs on this page weigh 16 MB. The GitHub Android app also cannot show a README
@@ -270,30 +263,28 @@ take, and the flexion and effort traces under the scrubber. Any speed, any angle
 </picture>
 </a>
 
-<sub><b>take_demo_signature</b>, played at 2× in the shipped viewer. One of three sample takes
-in [`software/bridge/samples/`](software/bridge/samples/) — choreographed, synthetic, and
-generated by a script that ships beside them. Three commands and this plays on your machine
-with no hardware.</sub>
+<sub><b>take_demo_signature</b> at 2× speed in the viewer. It's one of three sample recordings
+in [`software/bridge/samples/`](software/bridge/samples/). They are synthetic, made by a script
+in the same folder, and you can play them on your own computer without hardware.</sub>
 
 </div>
 
-The format is the same one the device writes to its SD card, so your own recordings drop
-straight in. The environment store is wired end to end, but dense room reconstruction from the
-Quest 3S is still open work: the viewer, the store and the upload path are all waiting for it,
-and putting a real scanned room behind these trajectories is one of the most satisfying
-contributions this project has to offer. See [Contributing](#contributing).
+The viewer reads the same format the device writes to its SD card, so your own recordings work
+too. Saving and loading a room mesh works end to end, but reconstructing the room from the
+Quest 3S isn't done yet; the viewer, the storage and the upload path are ready for it. If you'd
+like to work on that, see [Contributing](#contributing).
 
 
 ---
 
-## LUMEN: the AR layer
+## AR viewer (LUMEN)
 
-**Source included:** [`software/ar/`](software/ar/)
+Source: [`software/ar/`](software/ar/)
 
-A spatial layer that puts the hand twin and its data into the room instead of on a monitor.
-It reads the same WebSocket stream as the console, needs no separate backend, and runs in a
-plain browser on the desktop, which is how the frames below were captured.
-Through a headset it looks like [this recording](https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-AR.mp4) from October 2026.
+LUMEN shows the hand twin and its data in the room around you instead of on a monitor. It reads
+the same WebSocket stream as the console, needs no separate backend, and also runs in a normal
+desktop browser, which is where the frames below were captured. In a headset it looks like
+[this recording](https://cdn.jsdelivr.net/gh/molanocortes/takto-one@d8c04761f672f3876d8088133d9401f613b00abd/docs/media/TAKTO-AR.mp4) from October 2026.
 
 <div align="center">
 
@@ -304,34 +295,32 @@ Through a headset it looks like [this recording](https://cdn.jsdelivr.net/gh/mol
 </picture>
 </a>
 
-<sub>Running live in the desktop preview: <b>twin</b>, the articulated hand driven by joint
-angles and seen from a moving viewpoint &nbsp;·&nbsp; <b>touch</b>, objects that answer the wearer's fingers &nbsp;·&nbsp;
-<b>atelier</b>, the hub, where the four modes are objects you reach toward rather than buttons.
-Butterflies drift through every one of them.</sub>
+<sub>Three of the modes in a desktop browser: <b>twin</b>, the hand driven by the joint angles, seen
+from a moving camera &nbsp;·&nbsp; <b>touch</b>, objects that react to the wearer's fingers
+&nbsp;·&nbsp; <b>atelier</b>, the start screen, where you pick one of the other four modes by
+reaching for an object instead of pressing a button.</sub>
 
 </div>
 
-Five modes ship: `atelier` as the hub, plus `twin`, `touch`, `rhythm` and `capture`. The scene
-carries the device's own geometry, so what you reach toward is the machine on your arm. It is
-also inhabited: butterflies wander the room, settle on the desk edge to rest their wings, and
-lift off again, and rare comets cross the upper air. None of it competes with the work; it just
-means the space is alive while you are in it.
+There are five modes: `atelier` (the start screen), `twin`, `touch`, `rhythm` and `capture`.
+The scene uses the device's own geometry, so the twin matches the device on your arm. There are
+also a few decorative animations, butterflies and the odd comet, which stay out of the way.
 
-> **Prototype, captured on the desktop preview** rather than in a headset. Known high-DPI bug:
-> the render target is sized from CSS pixels while the canvas backs at the device ratio, so on
-> a 2x display the scene draws into a quarter of the canvas. Force a device pixel ratio of 1 as
-> a workaround; fixing it properly is a good first contribution.
+> This is a prototype. Known bug on high-DPI screens: the render target is sized in CSS pixels
+> while the canvas uses the device pixel ratio, so on a 2x display the scene only fills a
+> quarter of the canvas. Setting the device pixel ratio to 1 works around it. A proper fix would
+> be a good first contribution.
 
 
 ---
 
-## The phone companion
+## Phone app
 
-**Source included:** [`software/app/`](software/app/)
+Source: [`software/app/`](software/app/)
 
-A pocket instrument for the times the laptop is not the right one: watch the twin, replay a
-recorded session, and read the twelve joints and the activation channel, from the same stream
-and protocol as everything else here. One Expo codebase for iOS, Android and the browser.
+The phone app shows the twin, replays recorded sessions, and displays the twelve joint angles
+and the activation (EMG) channel. It uses the same stream and protocol as the console, and it's
+one Expo codebase for iOS, Android and the web.
 
 <div align="center">
 
@@ -342,39 +331,37 @@ and protocol as everything else here. One Expo codebase for iOS, Android and the
 </picture>
 </a>
 
-<sub><b>Overview</b>, the device at a glance &nbsp;·&nbsp; <b>Analytics</b>, the twelve joints and
-the activation channel &nbsp;·&nbsp; <b>Logs</b>, the source, the bundled sessions and the rates</sub>
+<sub><b>Overview</b>, the device status &nbsp;·&nbsp; <b>Analytics</b>, the twelve joint angles and
+the activation channel &nbsp;·&nbsp; <b>Logs</b>, the data source, the bundled sessions and the rates</sub>
 
-<sub>The travelling wave, index to pinky, on the synthetic feed. Twelve joints driven
-independently, and all three surfaces pinned to the same clock: one instant of the app, not
-three screens shot at three different moments.</sub>
+<sub>A wave from the index to the little finger on the synthetic feed, with the twelve joint
+angles moving independently. All three screens run on the same clock, so they show the same moment.</sub>
 
 </div>
 
-The twin is the real CAD driven by the shared mechanical model in
-[`kinematics.js`](software/app/src/data/kinematics.js): the angles, the telescopic slides those
-angles demand, and the spool rotations that produce them. It runs with no hardware at all on
-the same synthetic feed as every other surface, and the three bundled sessions are the
-repository's own sample takes. Point it at a bridge and it reads a real device.
+The twin is the CAD model, posed by the shared mechanical model in
+[`kinematics.js`](software/app/src/data/kinematics.js), which works out the telescopic slides
+and spool rotations for each set of joint angles. Without hardware the app runs on the same
+synthetic feed as the other viewers, and its three bundled sessions are this repository's
+sample recordings. Connected to a bridge, it reads a real device.
 
-An earlier Android-only build is superseded by this one; its emulator captures are gone from
-this page.
+This app replaces an earlier Android-only build.
 
 
 ---
 
-## The device screen
+## Display
 
-The Teensy drives a round display, and the face engine that paints it is part of the firmware.
-One face ships, **thesis**, in three colourways (Sapphire Depth, Graphite and Amber), and it
-covers every device state: battery, boot, calibrate, fault, idle, linked, recording, saved,
-standalone, stop and teleop. Two earlier design studies, **rams** and **ferro**, stay in the
-source for reference; they are not built into the firmware.
+The Teensy drives a round display, and the code that draws it is part of the firmware. There
+is one face design, **thesis**, in three colours (Sapphire Depth, Graphite and Amber), with a
+screen for every device state: battery, boot, calibrate, fault, idle, linked, recording, saved,
+standalone, stop and teleop. Two earlier designs, **rams** and **ferro**, are still in the
+source for reference but aren't built into the firmware.
 
-**None of these are static screens.** Every face animates: boot sweeps and self-tests, the
-teleop ring tracking assist, the recording counter and its take meter, idle breathing while
-nothing is happening. The engine runs a dirty-tile renderer inside a fixed frame budget, so the
-paint never starves the control tick.
+The screens are animated: the boot sequence and self-test, the teleop ring that shows the
+assist level, the recording counter, and a slow pulse when idle. The renderer only redraws the
+tiles that changed and keeps to a fixed time budget per frame, so drawing doesn't hold up the
+control loop.
 
 <div align="center">
 
@@ -385,9 +372,9 @@ paint never starves the control tick.
 </picture>
 </a>
 
-<sub>Faces rendered by the firmware's own rasterizer from a mock feed and played at the speed
-they were authored: the boot sequence of the shipping <b>thesis</b> face and of the two studies,
-then <b>recording</b> counting a take up, and <b>idle</b> breathing.</sub>
+<sub>Drawn by the firmware's own renderer from mock data, at real speed: the boot sequence of
+the <b>thesis</b> face and the two older designs, then the <b>recording</b> counter, then
+<b>idle</b>.</sub>
 
 </div>
 
@@ -395,140 +382,121 @@ then <b>recording</b> counting a take up, and <b>idle</b> breathing.</sub>
 
 <img src="docs/media/watch-faces.jpg" alt="Three watch faces across every device state" width="100%">
 
-<sub>The shipping face and the two studies against every state. These are renders, not
-photographs of the physical screen.</sub>
+<sub>The current face and the two older designs in every state. These are renders, not photos
+of the real screen.</sub>
 
 </div>
 
-The **thesis** face is the one the firmware builds. Source, the face engine, the frame budget
-and the flashing runbook are in
+The source, the drawing engine, the frame budget and the flashing instructions are in
 [`firmware/takto_one/watch/`](firmware/takto_one/watch/).
 
 ---
 
-## EMG in the loop
+## EMG
 
-Most hand devices sense position. TAKTO ONE also listens to the muscles.
+TAKTO ONE has an input for muscle activity (EMG): a MyoWare 2.0 sensor with snap connectors
+for standard disposable Ag/AgCl gel electrodes, two on the muscle and a reference on a nearby
+bone. The MyoWare board amplifies and rectifies the signal and outputs its envelope, which the
+firmware reads on pin 14.
 
-The front end is a **MyoWare 2.0 muscle sensor** on a standard **three-lead setup**: two
-electrodes along the target muscle belly and one reference on electrically quiet tissue, a
-nearby bone or joint. The board does the analogue work — differential amplification of the two
-muscle leads against the reference, rectification and envelope detection — and hands the
-firmware a clean envelope on pin 14. The device carries the Ag/AgCl snap interface for it, so
-it takes the same disposable gel electrodes used for ECG and EMG in clinical and lab work: skin
-contact costs cents, not a custom part, and anyone can replace a pad mid-session.
+The firmware samples the envelope at about 1 kHz between the 50 Hz frames, reduces it to a mean
+and an RMS value, and writes both into every frame of the stream and every row of the SD log,
+on the same clock as the twelve encoders and the IMUs.
 
-The firmware oversamples that envelope at roughly 1 kHz between 50 Hz frames, reduces it to a
-mean envelope plus RMS, and writes both into every frame of the stream and every row of the SD
-log — on the same clock as the twelve encoders and the IMUs.
-
-That single time base is the point. Encoders say what the hand did, IMUs say how it moved
-through space, and EMG says what the wearer intended, fractions of a second before the joints
-follow. Three signals, one clock: training data for models that learn intent, and a third
-input for whoever builds the next control layer. The operator console and the public front end
-both draw the live effort channel.
+Having all three on one clock matters because muscle activity starts a little before the
+joints move. That makes the data useful for training models that detect movement intent, or as
+an extra input for a controller. The console and the website both plot the live EMG channel.
 
 <div align="center">
 
 <img src="docs/media/emg-fusion.png" alt="Research figure: passive activation shared control in stick-slip, intent-to-engage improving from 172 to 12 ms when activation is fused with the encoder observer" width="100%">
 
-<sub><b>Simulation</b>, from the project's intent-fusion research on a documented synthetic
-signal model: in a stick-slip scenario the encoder-only observer takes 172 ms to engage assist;
-fusing the activation channel cuts that to 12 ms, inside an energy-budgeted control law that
-provably cannot drive motion on its own. Not a measurement on a person.</sub>
+<sub><b>Simulation, not a measurement on a person.</b> From the project's intent-detection work
+on a synthetic signal model: in a stick-slip scenario, the observer that uses only the encoders
+takes 172 ms to switch on assistance, and adding the EMG channel brings that down to 12 ms.
+That research controller is passive by design, so it can't move the joint on its own.</sub>
 
 </div>
 
-Behind that figure sits a research track in the wider project, not in this release: a causal
-acquisition pipeline (band-pass, notch, RMS envelope), a whitened Bayesian decoder, and an
-energy-tank shared-control law where activation leads the encoder during isometric loading
-while a passivity certificate guarantees it can never self-drive the joint. Developed and
-validated against a documented synthetic signal model with reproducible pass reports, and
-stated as exactly that: signal-processing and control research, ready for hardware trials, not
-claims about human experiments. If multi-source intent detection is your field, this device
-was built to be your testbed.
+The figure comes from research outside this release: a causal filter chain (band-pass, notch,
+RMS envelope), a whitened Bayesian decoder, and an energy-tank shared-control law in which EMG
+detects intent during isometric loading, before the encoders see any movement, while a
+passivity condition keeps the controller from driving the joint by itself. It has only been
+tested against the synthetic signal model, with reproducible test reports, and not on people.
+If you work on intent detection, the device could be a useful test platform.
 
 ---
 
-## Sign language: a worked example
+## Sign language recognition
 
-The clearest proof that this is a platform is **TAKTO-SIGN**: a German Sign Language capture,
-training and live-recognition stack built on exactly this hardware. It records finger bend and
-hand orientation at 60 Hz, learns a designed vocabulary, and recognises signs live. Like
-everything else here, it runs end to end with no hardware through `--sim`.
+TAKTO-SIGN is a German Sign Language project built on this hardware. It records finger bend
+and hand orientation at 60 Hz, trains on a chosen set of signs and recognises them live. Its
+capture and live-recognition pages are part of the website code here
+([`sign.js`](software/web/src/views/sign.js), [`translate.js`](software/web/src/views/translate.js)),
+but the recogniser, its training code, the inference server and the `--sim` mode that runs it
+without hardware are not in this repository.
 
-Its scope statement is worth repeating because it is the right way to talk about work like
-this: a **signer-dependent isolated-sign recogniser** with a continuous scripted-sentence path
-and a measured cross-signer result. It is not open-vocabulary translation.
+It recognises isolated signs and is trained for one signer. It also handles scripted continuous
+sentences, and it has been measured on a signer it wasn't trained on. It doesn't translate open
+vocabulary.
 
-One application, built by one person, on this platform. An example of what the hardware
-supports, not the limit of it.
+## Possible uses
 
-## Where it can go from here
+Most of these aren't built yet, and each would be a project of its own.
 
-Read every finger and drive every finger, and a whole class of problems opens up. These are
-**directions, not delivered features**; each is a project of its own, and open-sourcing the
-platform is how they happen in parallel instead of one at a time. Every one of them starts
-from the files already in this repository.
+- Controlling a robot hand with the measured joint angles, without cameras or a capture
+  volume, including robots somewhere people can't easily go, like underwater or in a hot cell.
+- Collecting hand-motion datasets. Recording already works; what's missing is many people, many
+  tasks and a shared format.
+- Sign language recognition, which has already started (see above).
+- Force feedback on each finger. The control modes are in the firmware, but rendering haptic
+  forces isn't.
+- Rehabilitation research: measuring range of motion across sessions, and helping a hand finish
+  a movement it can't complete alone.
+- Controlling machines where a joystick is too coarse and a touchscreen can't be used, for
+  example with gloves on, when it's wet, or in the dark.
 
-- **Drive a robot hand.** Per-joint angles map onto a robot hand with no camera rig and no
-  capture volume. The exciting version is reach: a manipulator underwater, in a hot cell, or on
-  another continent, driven by a hand that stays somewhere safe.
-- **Train models on better data.** The capture above already produces clean per-joint ground
-  truth. What is missing is scale: many hands, many tasks, a shared schema, a published
-  dataset. That is community work.
-- **Sign language.** Already begun. See [Sign language](#sign-language-a-worked-example).
-- **Force feedback, per finger.** A tendon and a motor behind each finger means resistance that
-  varies as you move: a surface that stops you, the give of soft tissue, the weight of a load,
-  felt finger by finger instead of as one buzz through a handle. The control modes ship; the
-  haptic rendering does not.
-- **Rehabilitation and assessment.** Range of motion measured objectively across sessions, and
-  assisted movement for a hand that cannot finish the motion alone.
-- **Precision machine control.** Wherever a joystick is too blunt and a touchscreen impossible:
-  gloved, wet, in the dark, eyes needed elsewhere.
-
-Current status is stated plainly in [Where the project really stands](#where-the-project-really-stands).
+What works today is listed under [Status](#status).
 
 ---
 
-## The machine
+## Specifications
 
 | | |
 | --- | --- |
-| **Mechanism** | Tendon-driven, four instrumented long-finger assemblies |
-| **Actuation** | Series-elastic, through elastic tendons and ratchet-based spools |
-| **Joint sensing** | 12 × AS5600 magnetic encoders, 3 per finger |
-| **EMG** | Embedded Ag/AgCl electrode interface for standard snap gel electrodes; envelope + RMS in every frame |
+| **Mechanism** | Tendon-driven; four long-finger assemblies with three encoders each |
+| **Actuation** | Designed for ten Dynamixel XC330 servos, two per digit (eight for the long fingers, two for the thumb); the prototype has two, on one finger. Series elasticity from elastic tendons and ratchet spools |
+| **Joint sensing** | 12 × AS5600 magnetic encoders: MCP abduction, MCP flexion and PIP flexion on each long finger; no DIP sensor. The bridge names these channels `_mcp`, `_pip` and `_dip` by encoder position |
+| **IMUs** | 2 × BNO085, on the hand and the forearm; a third position (thumb tip) is wired but not fitted |
+| **EMG** | MyoWare 2.0, with snap connectors for standard Ag/AgCl gel electrodes; envelope and RMS in every frame |
 | **Controller** | Teensy 4.1 |
-| **Motor bus** | Dynamixel Protocol 2.0 over a 74HC241 half-duplex interface, **the microcontroller owns the bus; no host PC required** |
-| **Electronics** | 2 custom PCBs, full KiCad sources + manufacturing outputs |
-| **Interface** | Browser operator console with a live 3D twin, over a serial→WebSocket bridge |
-| **Structure** | 3D printed; as built, a mix of PETG and PLA |
-| **Actuation** | Designed for ten servos, two per digit: eight for the long fingers, two for the thumb |
+| **Motor bus** | Dynamixel Protocol 2.0 through a 74HC241 half-duplex interface, driven by the Teensy; no PC needed |
+| **Electronics** | 2 custom PCBs, with KiCad sources and manufacturing files |
+| **Interface** | Browser console with a live 3D twin, through a serial-to-WebSocket bridge |
+| **Structure** | 3D printed; the prototype as built is a mix of PETG and PLA |
 | **Parts** | 71 printed parts, 12 encoder boards, ten servo bays. Full [bill of materials](docs/BOM.md) |
 
 
 ---
 
-## What it costs to build
+## Cost
 
-TAKTO comes in two builds from the same files:
+There are two versions, built from the same files:
 
 | | **TAKTO Lite** | **TAKTO ONE** |
 | --- | --- | --- |
-| What it does | Reads the hand: 12 joint encoders, 2 IMUs, EMG, on-device display and SD logging, the live twin in browser, phone and AR | Reads and drives the hand: everything in Lite, plus servos pulling the fingers through tendons, two per digit (priced here for the four long fingers: 8) |
+| What it does | Reads the hand: 12 joint encoders, 2 IMUs, EMG, on-device display and SD logging, the live twin in the browser, the phone app and AR | Reads and drives the hand: everything in Lite, plus servos that pull the fingers through tendons, two per digit (priced for the four long fingers, so 8 servos) |
 | Priced parts | **EUR 164.48** | **EUR 1,222.25** |
 | Both circuit boards, one JLCPCB order | USD 170.73 | USD 170.73 |
 
-Lite leaves out only what serves the motors: the eight servos, the tendons and conduit, the
-74HC241 bus driver and the motor supply. It runs the same firmware, which never touches the
-motor bus until it is told to take it (`M,t,1`), so a Lite build streams, logs and drives the
-twins with no servos fitted. The forearm keeps its ten spool bays, so a Lite becomes a ONE by
-adding the actuation.
+Lite leaves out the parts that serve the motors: the eight servos, the tendons and conduit, the
+74HC241 bus driver and the motor power supply. It runs the same firmware, which doesn't touch
+the motor bus until it's told to (`M,t,1`), so a Lite build streams, logs and drives the twins
+without any servos fitted. The forearm still has its ten spool bays, so you can turn a Lite
+into a ONE later by adding the actuation parts.
 
-In TAKTO ONE the servos are nearly the whole bill; every other group put together is under a
-fifth of it, which is why cutting the motor count is the most useful thing anyone could
-contribute.
+In TAKTO ONE the eight servos cost EUR 1,040 of the EUR 1,222.25; the other priced parts come to
+EUR 182.25. Using fewer motors would make it much cheaper to build.
 
 <div align="center">
   <picture>
@@ -537,29 +505,29 @@ contribute.
   </picture>
 </div>
 
-Part numbers, suppliers, quantities and the caveats are in **[`docs/BOM.md`](docs/BOM.md)**,
-with a machine-readable copy in [`docs/bom.csv`](docs/bom.csv).
+Part numbers, suppliers, quantities and notes are in [`docs/BOM.md`](docs/BOM.md), with a CSV
+copy in [`docs/bom.csv`](docs/bom.csv).
 
 
 ---
 
-## Start here
+## Getting started
 
-Clone to a moving hand in under a minute: the console opens in simulation, so you can explore
-the whole stack before you print a single part. (No clone needed just to look around:
-[takto.one](https://takto.one) runs the same twin and console in your browser.)
+The console runs on simulated data, so you can try the software before printing anything. If
+you only want to look around, [takto.one](https://takto.one) runs the same twin and console
+without cloning anything.
 
 ```bash
 git clone https://github.com/molanocortes/takto-one.git
 cd takto-one
 
-# see the console and 3D twin immediately, no hardware needed
+# run the console and the 3D twin on simulated data (no hardware needed)
 python3 -m http.server 8096 --directory software/console/app
 # open http://localhost:8096/
 ```
 
-Then read [`docs/README.md`](docs/README.md): system architecture, the illustrated build
-guide, and the known corrections between the documentation and the current hardware.
+Then read [`docs/README.md`](docs/README.md) for the system architecture, the illustrated build
+guide and a list of known differences between the documentation and the current hardware.
 
 | Step | Where |
 | --- | --- |
@@ -569,63 +537,63 @@ guide, and the known corrections between the documentation and the current hardw
 | Flash the Teensy | [`firmware/README.md`](firmware/README.md) |
 | Connect the twin to hardware | [`software/README.md`](software/README.md) |
 
-The embedded Dynamixel driver is also maintained standalone as
-[**dynamixel-on-device**](https://github.com/molanocortes/dynamixel-on-device).
+The Dynamixel driver for the Teensy is also available on its own as
+[dynamixel-on-device](https://github.com/molanocortes/dynamixel-on-device).
 
 
-## Where the project really stands
+## Status
 
-Precision here matters more than a longer feature list.
+TAKTO ONE is designed for ten servos, two per digit: the forearm has ten spool bays, and the
+bus and the bill of materials are laid out for them. I paid for the prototype myself, so it has
+two, on one finger.
 
-**Designed for ten motors, built with two.** TAKTO ONE was designed from the start for ten
-servos, two per digit: the forearm carries ten spool bays, and the bus and the bill of materials
-are laid out for them. The prototype was self-funded, so it is built with two, on one finger;
-the limit is the budget, not the design.
+What works on the hardware:
 
-**Verified on hardware.** The firmware runs on the device. The Teensy owns the Dynamixel bus
-through the 74HC241 and drives that finger with its two XC330 servos: motor-controlled finger
-movement was demonstrated and tested on the bench, with the transmission run both with and
-without its elastic element in series. All twelve magnetic encoders have read live together on the worn device and fed
-the browser twin in real time. Two BNO085 IMUs are fitted, on the hand and the forearm. Four
-long-finger assemblies are built and instrumented, and both PCBs exist as manufactured designs
-with complete sources.
+- The firmware runs on the device. The Teensy drives the Dynamixel bus through the 74HC241 and
+  moves that finger with its two XC330 servos. This was tested on the bench, with and without
+  the elastic element in the transmission.
+- All twelve encoders read live at the same time on the worn device and drive the browser twin
+  in real time. As of 14 October 2026 they also drive the AR twin in a Meta Quest 3S (the video
+  at the top of this page). A wiring fault cut four channels earlier in October; the harness
+  has been repaired.
+- Two BNO085 IMUs are fitted, on the hand and the forearm.
+- Four long-finger assemblies are built with their encoders, and both PCBs have been made from
+  the published design files.
 
-**Status on 14 October 2026.** All twelve encoders read live on the current black build and
-drive both the browser twin and the AR twin in a Meta Quest 3S (the recording at the top of this
-page). A wiring fault had cut four channels earlier in October; the harness is repaired.
+The firmware and the wiring also have a channel for a third IMU at the thumb tip, which isn't
+fitted, in the same way that the two multiplexers have fourteen encoder channels for twelve
+encoders. The empty channel shows MISSING in the `s` bus scan, streams a live flag of 0 and
+logs an identity quaternion, so it can't be mistaken for real data.
 
-The firmware and the wiring carry a third IMU channel for a thumb-tip unit that is **not
-fitted**, in the same way the two multiplexers carry fourteen encoder channels for twelve
-populated encoders. The unfitted channel reports MISSING in the `s` bus scan, streams a live
-flag of zero, and logs an identity quaternion, so nothing downstream mistakes it for data.
+Not measured yet: force rendering, transparency (how little the device resists free movement),
+latency and assistance behaviour. Before any worn experiment, check the actuator count (the
+released firmware is set to two, `N_MOTOR = 2`), the limits and the safety behaviour on your own
+hardware. The checks done before release are in the
+[verification record](docs/RELEASE_VERIFICATION.md).
 
-**Not established by this repository.** Force rendering, transparency control, and assistance
-behavior are not characterized by measurements here. Verify the actuator count, limits, and
-safety behavior on your own hardware before any worn experiment.
-Repository-preparation checks are in the [verification record](docs/RELEASE_VERIFICATION.md).
+Known limitations:
 
-**Known limitations.** Its servos make TAKTO ONE an expensive build; TAKTO Lite removes that cost for anyone who only needs the sensing. The series-elastic
-actuation is a simple implementation, elastic tendons and ratchet spools, not an advanced SEA
-design. Recent soft-robotics work achieves comparable sensing with simpler mechanisms. This is
-a working, well-instrumented research platform, not a claim to the state of the art, and those
-gaps are exactly where contributions help most.
+- The servos make TAKTO ONE expensive. TAKTO Lite avoids that cost if you only need the
+  sensing.
+- The series elasticity is simple (elastic tendons and ratchet spools), not a full
+  series-elastic actuator design.
+- Some recent soft-robotics work gets similar sensing from simpler mechanisms.
+- There is no thumb yet.
 
-### A note on rates
+### Rates
 
-Loop rate, sampling rate, telemetry rate and console update rate are four different numbers;
-collapsing them into one is the easiest way to mislead someone.
+Three different rates are easy to mix up:
 
-- **Browser console: 60 Hz.** Snapshot broadcast to connected browsers. A display rate.
-- **Firmware streaming default: 50 Hz.** `SAMPLE_HZ` in the sketch in this release, the
-  serial-line rate. The development firmware, not yet released here, streams 100 Hz; that is
-  the figure on takto.one.
-- **Embedded control loop: up to 2 kHz.** The control law runs on the Teensy, next to the actuator.
-- **On-device capture is bound by none of the above.** The streaming rate is a firmware
-  constant, and logging can run considerably faster than what the console displays.
+- Browser console: 60 Hz. The bridge sends a snapshot to the connected browsers 60 times a
+  second. This is a display rate.
+- Firmware frames: 50 Hz by default (`SAMPLE_HZ` in the sketch in this release). Each frame
+  reads the sensors once and feeds the serial stream, the SD log and the display, so the SD log
+  also gets one row per frame, whatever the console shows. The development firmware, not
+  released here yet, runs at 100 Hz, which is the number on takto.one.
+- Control loop: up to 2 kHz, on the Teensy next to the actuators.
 
-The ceiling on encoder sampling is set by the I²C bus and multiplexer switching, and it has
-not been characterised here. If your application depends on a specific rate, measure it on
-your own build.
+The maximum encoder sampling rate depends on the I²C bus and the multiplexer switching, and I
+haven't measured it. If your application needs a specific rate, measure it on your build.
 
 ## Safety
 
@@ -633,20 +601,20 @@ your own build.
 > certified protective product.** Do not use it for diagnosis, treatment, unsupervised
 > rehabilitation, or safety-critical operation.
 
-Keep actuator power independently removable, begin with torque disabled, test away from the
-body, confirm mechanical limits, and validate watchdog and fault behavior before any worn
-experiment.
+Before any worn experiment, make sure the motor power can be switched off separately from the
+rest, start with torque disabled, test away from the body first, check the mechanical limits,
+and test the watchdog and the fault handling.
 
 
 ## Frequently asked questions
 
 **What is TAKTO ONE?**
 An open-source hand exoskeleton. It measures twelve finger joints with magnetic encoders at the
-joints themselves and drives the fingers through tendons from servos on the forearm, designed for ten, two per
-digit. A Teensy 4.1
-runs the control loop on the device, so no PC is needed. Sebastian Molano designed and built it
-for his master's thesis in biomedical engineering at Hochschule Anhalt, Germany, and released it
-as open source in September 2026. Website: [takto.one](https://takto.one).
+joints and drives the fingers through tendons from servos on the forearm, designed for ten, two
+per digit. A Teensy 4.1 runs the control loop on the device, so no PC is needed. Sebastian
+Molano designed and built it for his master's thesis in biomedical engineering at Hochschule
+Anhalt, Germany, and released it as open source in September 2026. Website:
+[takto.one](https://takto.one).
 
 **How much does it cost to build?**
 TAKTO ONE, the full build, comes to EUR 1,222.25 in priced parts; TAKTO Lite, sensing only,
@@ -669,15 +637,14 @@ device's own encoders and IMUs, not by the headset's hand tracking.
 
 **Can I try it without building it?**
 Yes. [takto.one](https://takto.one) runs the 3D twin and the operator console in any browser on
-a clearly labelled simulation.
+simulated data.
 
 **What works today, and what doesn't?**
 Working on hardware: all twelve encoders, two IMUs, on-device logging, the browser, phone and
-AR twins, and motor-driven finger movement on the bench. The device is designed for ten servos, two
-per digit; the prototype is built with two, on one finger, because it was self-funded. The EMG input is in the firmware and is
-logged with every frame. Not done yet: the thumb, and
-measured force, latency and assistance. The details, with dates, are in
-[Where the project really stands](#where-the-project-really-stands).
+AR twins, and motor-driven finger movement on the bench. The device is designed for ten servos,
+two per digit; the prototype has two, on one finger, because it was self-funded. The EMG input
+is in the firmware and is logged with every frame. Not done yet: the thumb, and measurements of
+force, latency and assistance. Details and dates are under [Status](#status).
 
 **Is it a medical device?**
 No. It is a research prototype, not certified for clinical use. Read [Safety](#safety) before
@@ -691,45 +658,44 @@ is not licensed; see [License](#license).
 
 ## Contributing
 
-This project is under active development and contributions are genuinely wanted. The
-limitations above are not fine print; they are the to-do list, and some of the most
-interesting problems are still unclaimed.
+Contributions are welcome, and the limitations listed under [Status](#status) are a good place
+to start.
 
-- **Build one**, and tell us what was unclear, what did not fit, what you changed. Build
-  reports are the single most valuable contribution.
-- **Improve the actuation.** The current transmission runs on the bench with and without its
-  elastic element in series; a better series-elastic design is the most interesting open
-  problem here.
-- **Reduce the motor count.** Two per digit is expensive; underactuation would widen who can build this.
-- **Build the thumb.** The forearm carries ten spool bays and eight are assigned to the long fingers, so the room
-  for a thumb pair is already in the mechanism, and the firmware already addresses two spare
-  encoder channels. A thumb's linkage, tendon routing and kinematics are yours to invent;
-  the fingers' already exist and work.
-- **Scan the room.** The replay viewer, the environment store and the upload path are wired
-  end to end; dense room reconstruction from the Quest 3S is the missing piece. Make a real
-  room appear behind the trajectories and session replay becomes a spatial lab notebook.
-- **Fix documentation.** Known deltas are listed in [`docs/README.md`](docs/README.md); find more.
-- **Firmware, bridge, console.** Bugs, features, and platform ports.
+- Build one and tell me what was unclear, what didn't fit and what you changed. Build reports
+  help more than anything else.
+- Improve the actuation. The current transmission works on the bench with and without its
+  elastic element; a better series-elastic design is the biggest open problem.
+- Use fewer motors. Two per digit is expensive, and an underactuated design would let more
+  people build it.
+- Build the thumb. Two of the ten spool bays are reserved for it, and the firmware already reads
+  two spare encoder channels. The thumb's linkage, tendon routing and kinematics still need to
+  be designed; the long fingers' already work.
+- Room scanning. The replay viewer, the room storage and the upload path work end to end; what's
+  missing is reconstructing the room from the Quest 3S.
+- Documentation. Known differences between the docs and the hardware are listed in
+  [`docs/README.md`](docs/README.md), and there are probably more.
+- Firmware, bridge and console: bug fixes, features and ports to other platforms.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md). Open an issue with questions, ideas, or photos of
-your build; showing what you made is always welcome. For anything that does not belong in a
-public issue, write to [sebastianmolano.eng@gmail.com](mailto:sebastianmolano.eng@gmail.com).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). For questions, ideas or photos of your build, open an
+issue. For anything that shouldn't be public, email
+[sebastianmolano.eng@gmail.com](mailto:sebastianmolano.eng@gmail.com).
 
 ## License
 
-Software **Apache-2.0** · Hardware **CERN-OHL-S-2.0** · Documentation and media **CC-BY-4.0**.
-Full detail, attribution format, and the text-and-data-mining reservation: [`LICENSE.md`](LICENSE.md).
+Software: Apache-2.0. Hardware: CERN-OHL-S-2.0. Documentation and media: CC BY 4.0.
+[`LICENSE.md`](LICENSE.md) has the details, the attribution format and the text-and-data-mining
+reservation.
 
-The hardware licence is strongly reciprocal: distribute a modified design and you publish your
-modifications. If that does not suit your situation, licensing on other terms is available,
-see [`LICENSE.md`](LICENSE.md). Contributors are asked to agree to a short [CLA](CLA.md), which
+The hardware licence is strongly reciprocal: if you distribute a modified design, you have to
+publish your changes. If that doesn't work for you, other licensing terms are available; see
+[`LICENSE.md`](LICENSE.md). Contributors are asked to agree to a short [CLA](CLA.md), which
 keeps relicensing possible and leaves your copyright with you.
 
-**TAKTO and TAKTO ONE are trademarks of Sebastian Molano**, asserted as unregistered marks and
-not covered by any licence above. Build it, change it, sell it, and say it is based on TAKTO
-ONE; just give your own version its own name. Details in [`LICENSE.md`](LICENSE.md).
+TAKTO and TAKTO ONE are unregistered trademarks of Sebastian Molano and aren't covered by the
+licences above. You can build, modify and sell the design and say it's based on TAKTO ONE, as
+long as your version has its own name. Details are in [`LICENSE.md`](LICENSE.md).
 
 <div align="center">
-<sub>Designed and built by Sebastian Molano · Hochschule Anhalt · Made in Germany<br>
+<sub>Designed and built by Sebastian Molano at Hochschule Anhalt, Germany<br>
 <a href="mailto:sebastianmolano.eng@gmail.com">sebastianmolano.eng@gmail.com</a></sub>
 </div>

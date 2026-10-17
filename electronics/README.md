@@ -17,4 +17,4 @@ marked `SDA` and its `SDA` to the pad marked `SCL`. The first multiplexer (`U1`,
 is correct as labelled. Routing and silkscreen are otherwise correct; this affects net naming
 only. Full detail in [`../docs/README.md`](../docs/README.md).
 
-Before ordering, open both projects in KiCad, update footprints only deliberately, and run ERC/DRC plus an independent manufacturing review. The manufacturing files are provided as the project outputs, not as a guarantee from a board house.
+Before ordering, open both projects in KiCad, update footprints only when you mean to, and run ERC/DRC plus an independent manufacturing review. The manufacturing files are provided as the project outputs, not as a guarantee from a board house.

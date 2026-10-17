@@ -1,20 +1,20 @@
 # TAKTO watch face engine
 
-Three switchable watch faces for the TAKTO ONE on-device screen, one engine,
-one source of truth.
+Three switchable watch faces for the TAKTO ONE on-device screen. They share one
+engine, and a single registry defines the face list.
 
-- **[FACE-ENGINE.md](FACE-ENGINE.md)** - the architecture, what each face is,
-  and the honest gaps (read this one first).
-- **[FRAME-BUDGET.md](FRAME-BUDGET.md)** - what the faces cost and what is
-  still unmeasured.
-- **[FLASH-RUNBOOK.md](FLASH-RUNBOOK.md)** - how to put it on the board and
-  what to check.
+- [FACE-ENGINE.md](FACE-ENGINE.md): the architecture, what each face is, and
+  the known gaps. Read this one first.
+- [FRAME-BUDGET.md](FRAME-BUDGET.md): what the faces cost and what is still
+  unmeasured.
+- [FLASH-RUNBOOK.md](FLASH-RUNBOOK.md): how to put it on the board and what to
+  check.
 
-**What the evidence is.** Every image of these faces in this repository is a
-host render produced by the same C++ the Teensy runs, driven by a simulated
-hand feed. The renders are not photographs of the panel. The on-device
-frame-budget numbers, the firmware's own `T` report, have not been recorded in
-this repository; step 6 of the flash runbook is how to take them.
+Every image of these faces in this repository is a host render produced by the
+same C++ the Teensy runs, driven by a simulated hand feed. The renders are not
+photographs of the panel. The on-device frame-budget numbers (the firmware's
+own `T` report) have not been recorded in this repository; step 6 of the flash
+runbook describes how to take them.
 
 ## Where the pieces live
 

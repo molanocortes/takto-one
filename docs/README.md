@@ -10,13 +10,13 @@
 
 ## Build notes and corrections
 
-Read these alongside the documents above. They are the known deltas between the written
-documentation and the current hardware and firmware.
+Read these alongside the documents above. They list the known differences between the
+written documentation and the current hardware and firmware.
 
 ### I²C channel labels on the palm carrier, channels 8–13
 
-On the palm carrier, the second multiplexer (`U2`) has its `SDA`/`SCL` net labels transposed
-on all six channels it uses. The nets named `SDA8`–`SDA13` land on that device's clock pins,
+On the palm carrier, the second multiplexer (`U2`) has its `SDA`/`SCL` net labels swapped on
+all six channels it uses. The nets named `SDA8`–`SDA13` land on that device's clock pins,
 and `SCL8`–`SCL13` land on its data pins.
 
 **When wiring channels 8–13, swap the two signal wires relative to the label:** connect your
@@ -29,28 +29,28 @@ are wired as described.
 
 ### The build guide predates the current motor architecture
 
-The build guide was written during the thesis work and two of its statements have since been
-superseded:
+The build guide was written during the thesis work, and two of its statements are out of
+date:
 
-- It states that the motor bus is owned by a host PC through a U2D2 and that the Teensy only
-  senses. **This is no longer the case.** The Teensy 4.1 owns the Dynamixel bus directly
-  through a 74HC241 half-duplex interface; a host PC is optional. See the top-level README and
+- It says that a host PC drives the motor bus through a U2D2 and that the Teensy only senses.
+  That has changed: the Teensy 4.1 drives the Dynamixel bus directly through a 74HC241
+  half-duplex interface, and a host PC is optional. See the top-level README and
   [`dynamixel-on-device`](https://github.com/molanocortes/dynamixel-on-device).
-- It describes the prototype as 100% PETG. The as-built prototype uses **both PETG and PLA**.
+- It describes the prototype as 100% PETG. The prototype as built uses both PETG and PLA.
 
-Everything else in the guide, the mechanical assembly order, part-check plates, tendon
-routing, spool and ratchet setup, and board fitting, reflects the device as built.
+Everything else in the guide (the mechanical assembly order, part-check plates, tendon
+routing, spool and ratchet setup, and board fitting) matches the device as built.
 
 ### The ratchet is a third-party part
 
 The actuation uses ratchet spools, and the ratchet itself is not TAKTO-authored. It is ORCA's
 `Ratchet.stl`, redistributed unmodified at
-[`cad/third_party/orca/`](../cad/third_party/orca/) under CC BY 4.0, **not** under this
+[`cad/third_party/orca/`](../cad/third_party/orca/) under CC BY 4.0, not under this
 project's CERN-OHL-S-2.0. Print one per spool station, ten for a full build. That folder carries
 the licence text, the attribution, and a SHA-256 you can check against upstream.
 
 The mating `cad/stl/base_spool.stl` in this release is a TAKTO-modified adaptation of ORCA's
-`BaseSpool.stl` and *is* included; `cad/stl/spool_cover.stl` is TAKTO's own design and is not
+`BaseSpool.stl` and is included; `cad/stl/spool_cover.stl` is TAKTO's own design and is not
 interchangeable with ORCA's `SpoolCover.stl`. See
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
 
@@ -69,18 +69,17 @@ common ground, and receive-default state on the bench.
 
 ## Notes on the bundled website
 
-The website in `software/web/` is the source of the public front end, with one deliberate
-omission: **`assets/docs/` is not included.** In the working copy that folder holds private documents that are not
-distributed here. A preprint call-to-action that pointed into it was removed along with it. Add
+The website in `software/web/` is the source of the public site, with one omission:
+`assets/docs/` isn't included. In the working copy that folder holds private documents that
+aren't distributed here. A preprint call-to-action that pointed into it was removed along with it. Add
 such a link back only when there is a published paper to point at, and prefer a DOI to a bundled
 PDF.
 
-The page also probes for three optional files and simply hides the corresponding element when
-they are absent: `assets/cv.pdf`, `assets/vision.jpg` and `assets/film/poster.jpg`. If you drop a
-CV at that path in a public fork, it becomes public with everything in it. That is worth knowing
-before you use it.
+The page also checks for three optional files and hides the matching element when they are
+missing: `assets/cv.pdf`, `assets/vision.jpg` and `assets/film/poster.jpg`. If you put a CV at
+that path in a public fork, it becomes public with everything in it.
 
 The AR layer in `software/ar/` is the app only. Its capture and asset tooling is not included.
-It also has a known bug on high-DPI displays: it sizes its render target from CSS pixels while
-the canvas backs at the device ratio, so on a 2x screen the scene draws into a quarter of the
-canvas. Force a device pixel ratio of 1 as a workaround.
+It also has a known bug on high-DPI displays: it sizes its render target in CSS pixels while
+the canvas uses the device pixel ratio, so on a 2x screen the scene only fills a quarter of the
+canvas. Setting the device pixel ratio to 1 works around it.

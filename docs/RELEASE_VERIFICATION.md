@@ -12,14 +12,14 @@ not a medical, mechanical, electrical, or worn-actuation certification.
   `BaseSpool` is mesh-only in the current Fusion assembly and is therefore provided as STL only.
   Component versions and assembly quantities are recorded in [`../cad/README.md`](../cad/README.md).
 - Only TAKTO-authored mechanical bodies were exported. The hidden personal arm scan and all
-  third-party reference models were deliberately excluded, and each STEP file was created from
+  third-party reference models were excluded, and each STEP file was created from
   an isolated body so it carries no external references.
 - Firmware, the two current KiCad projects with their manufacturing outputs, and the operator
   console and bridge were taken from the current working sources. Historical branches were not
   copied.
 - **Added after this record was first written:** the public web front end, the AR layer and the
-  watch-face engine. They were audited the same way as the tree above — no absolute paths, no
-  secrets, no third-party reference models — but the check table below predates them, so treat
+  watch-face engine. They were audited the same way as the tree above (no absolute paths, no
+  secrets, no third-party reference models), but the check table below predates them, so treat
   it as covering the original set. **Added 2026-09-02:** the phone companion in
   `software/app/`, an Expo project whose media were captured from its own web target; its
   `node_modules` and capture output are ignored and it carries no other build artefacts. It
@@ -63,14 +63,14 @@ command. The firmware compile was not repeated for this re-run.
 
 ### Scope of these checks
 
-These checks cover **repository integrity**, that the published files are complete, current,
+These checks cover **repository integrity**: that the published files are complete, current,
 and free of private data. They are not the project's hardware validation.
 
 The device itself has been operated on hardware by the author: the firmware runs on the Teensy,
-the Teensy drives the fingers over the Dynamixel bus, and all twelve encoders feed the browser
-twin live. That testing predates this release and was not repeated as part of packaging it, so
-it is reported in the README under what is verified on hardware, not claimed here as something
-this checklist established.
+the Teensy drives one finger's two servos over the Dynamixel bus, and all twelve encoders feed
+the browser twin live. That testing predates this release and was not repeated as part of
+packaging it. It is reported in the README under what is verified on hardware; this checklist
+did not establish it.
 
 ## Excluded from the release
 

@@ -1,20 +1,20 @@
 # Sample takes
 
-Three demonstration takes plus the Sim Lab environment mesh, so the session-replay
-viewer has something to play on a fresh clone, before any hardware exists.
+This folder holds three demonstration takes and the Sim Lab environment mesh, so the
+session-replay viewer has something to play on a fresh clone before any hardware exists.
 
 **These are choreographed, synthetic recordings.** No hand wore the device to make
-them; every row is produced by the motion functions in [`generate.py`](generate.py),
-which is the complete provenance: run it and you get these exact files. They use the
-real take format, the real column layout, and the real device geometry, and they are
-authored to move well for a camera, with the effort trace deliberately leading the
-motion the way measured intent leads a real grasp.
+them. Every row is produced by the motion functions in [`generate.py`](generate.py),
+which is their only source: running it reproduces these exact files. They use the
+device's real take format, column layout and geometry. The motion was written to look
+good on camera, and the effort trace was set to lead the motion, the way measured
+intent leads a real grasp.
 
 | File | What it plays |
 | --- | --- |
 | `take_demo_cascade.json` | Three rolling finger waves, index to pinky, each pass fuller than the last (14 s) |
 | `take_demo_grasp.json` | Approach, pre-shape, staggered close, carry, release (12 s) |
-| `take_demo_signature.json` | A figure-eight flight with rolling supination; the hand breathes, then rests open (16 s) |
+| `take_demo_signature.json` | A figure-eight path with rolling supination while the fingers slowly open and close, then the hand rests open (16 s) |
 | `env_sim_lab.json` | The simulated lab room the takes reference (296 vertices, 148 triangles) |
 
 ## Replay them
