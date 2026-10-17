@@ -17,16 +17,15 @@ Open-source hand exoskeleton: twelve joint encoders, tendon drive, control on a 
 
 </div>
 
-TAKTO ONE is a hand exoskeleton I designed and built for my master's thesis at Hochschule
-Anhalt. Magnetic encoders on the finger joints measure twelve angles, three on each long finger.
-Servos on the forearm pull the fingers through tendons. A Teensy 4.1 on the device reads the
-sensors and runs the motors, so it works without a PC. This repository has the files to build
+TAKTO ONE is a fully actuated hand exoskeleton that I designed and built for my master's thesis
+at Hochschule Anhalt. Magnetic encoders on the finger joints measure twelve angles, three on
+each long finger, and servos on the forearm pull each finger through its own tendons. A Teensy
+4.1 on the device reads the sensors and runs the motors, so it works without a PC. This repository has the files to build
 one: CAD, circuit boards, firmware, software and the bill of materials.
 
-The design has ten servos, two per digit; the prototype has two, on one finger. All twelve
-encoders work on the worn device, and the motors have moved that finger on the bench. Force,
-latency and assistance haven't been measured yet, and there's no thumb. More under
-[Status](#status).
+Every long finger's tendon drive is built. Two servos are fitted so far, and every finger's
+drive was tested with them. All twelve encoders work on the worn device. Force, latency and
+assistance haven't been measured yet, and there's no thumb. More under [Status](#status).
 
 You can try the 3D model, the live twin and the console at [takto.one](https://takto.one)
 without any hardware. Without a device they run on simulated data.
@@ -465,7 +464,7 @@ What works today is listed under [Status](#status).
 | | |
 | --- | --- |
 | **Mechanism** | Tendon-driven; four long-finger assemblies with three encoders each |
-| **Actuation** | Designed for ten Dynamixel XC330 servos, two per digit (eight for the long fingers, two for the thumb); the prototype has two, on one finger. Series elasticity from elastic tendons and ratchet spools |
+| **Actuation** | Dynamixel XC330 servos, two per digit, in ten spool bays (eight for the long fingers, two for the thumb). Two servos fitted, every finger's drive tested with them. Series elasticity from elastic tendons and ratchet spools |
 | **Joint sensing** | 12 × AS5600 magnetic encoders: MCP abduction, MCP flexion and PIP flexion on each long finger; no DIP sensor. The bridge names these channels `_mcp`, `_pip` and `_dip` by encoder position |
 | **IMUs** | 2 × BNO085, on the hand and the forearm; a third position (thumb tip) is wired but not fitted |
 | **EMG** | MyoWare 2.0, with snap connectors for standard Ag/AgCl gel electrodes; envelope and RMS in every frame |
@@ -543,15 +542,15 @@ The Dynamixel driver for the Teensy is also available on its own as
 
 ## Status
 
-TAKTO ONE is designed for ten servos, two per digit: the forearm has ten spool bays, and the
-bus and the bill of materials are laid out for them. I paid for the prototype myself, so it has
-two, on one finger.
+Every long finger has its own tendon drive, and all four are built. The forearm has ten spool
+bays, two per digit, and the bus and the bill of materials are laid out for them. I paid for the
+prototype myself, so two servos are fitted, and every finger's drive was tested with them.
 
 What works on the hardware:
 
 - The firmware runs on the device. The Teensy drives the Dynamixel bus through the 74HC241 and
-  moves that finger with its two XC330 servos. This was tested on the bench, with and without
-  the elastic element in the transmission.
+  moves the fingers with the two fitted XC330 servos. Every finger's drive was tested with them,
+  and the transmission was run on the bench with and without its elastic element.
 - All twelve encoders read live at the same time on the worn device and drive the browser twin
   in real time. As of 14 October 2026 they also drive the AR twin in a Meta Quest 3S (the video
   at the top of this page). A wiring fault cut four channels earlier in October; the harness
@@ -609,8 +608,8 @@ and test the watchdog and the fault handling.
 ## Frequently asked questions
 
 **What is TAKTO ONE?**
-An open-source hand exoskeleton. It measures twelve finger joints with magnetic encoders at the
-joints and drives the fingers through tendons from servos on the forearm, designed for ten, two
+An open-source, fully actuated hand exoskeleton. It measures twelve finger joints with magnetic
+encoders at the joints and drives each finger through tendons from servos on the forearm, two
 per digit. A Teensy 4.1 runs the control loop on the device, so no PC is needed. Sebastian
 Molano designed and built it for his master's thesis in biomedical engineering at Hochschule
 Anhalt, Germany, and released it as open source in September 2026. Website:
@@ -641,9 +640,9 @@ simulated data.
 
 **What works today, and what doesn't?**
 Working on hardware: all twelve encoders, two IMUs, on-device logging, the browser, phone and
-AR twins, and motor-driven finger movement on the bench. The device is designed for ten servos,
-two per digit; the prototype has two, on one finger, because it was self-funded. The EMG input
-is in the firmware and is logged with every frame. Not done yet: the thumb, and measurements of
+AR twins, and the tendon drive of every long finger. Two servos are fitted, because the
+prototype was self-funded, and every finger's drive was tested with them. The EMG input is in
+the firmware and is logged with every frame. Not done yet: the thumb, and measurements of
 force, latency and assistance. Details and dates are under [Status](#status).
 
 **Is it a medical device?**

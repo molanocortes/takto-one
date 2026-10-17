@@ -3,7 +3,8 @@
 Scope: the four-finger configuration, with eight motors and twelve instrumented joints. TAKTO
 ONE is designed for ten motors, two per digit. This page prices the eight for the four long
 fingers; the thumb's two are left out because there is no thumb mechanism yet. The prototype
-has two motors, on one finger, because it was self-funded.
+has two servos fitted, because it was self-funded, and every finger's drive was tested with
+them.
 
 There are two builds. TAKTO ONE is everything below. TAKTO Lite reads the hand without driving
 it: it leaves out the eight servos, the tendons and conduit, the elastic elements, the printed

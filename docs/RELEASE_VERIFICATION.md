@@ -67,7 +67,7 @@ These checks cover **repository integrity**: that the published files are comple
 and free of private data. They are not the project's hardware validation.
 
 The device itself has been operated on hardware by the author: the firmware runs on the Teensy,
-the Teensy drives one finger's two servos over the Dynamixel bus, and all twelve encoders feed
+the Teensy drives the fingers over the Dynamixel bus, and all twelve encoders feed
 the browser twin live. That testing predates this release and was not repeated as part of
 packaging it. It is reported in the README under what is verified on hardware; this checklist
 did not establish it.
