@@ -534,8 +534,13 @@ guide and a list of known differences between the documentation and the current 
 | Source the parts | [`docs/BOM.md`](docs/BOM.md) |
 | Choose and print parts | [`cad/README.md`](cad/README.md) |
 | Order and wire the boards | [`electronics/README.md`](electronics/README.md) |
+| Assemble the device | [`docs/build-guide.pdf`](docs/build-guide.pdf) |
 | Flash the Teensy | [`firmware/README.md`](firmware/README.md) |
 | Connect the twin to hardware | [`software/README.md`](software/README.md) |
+
+<a href="docs/build-guide.pdf"><img src="docs/media/build-guide-steps.png" alt="Build guide, steps 16 and 17: fit the EMG module, then lower the case over the device" width="100%"></a>
+
+<sub>Two steps of the illustrated build guide (page 14 of 24): fit the EMG module, then lower the case over the device.</sub>
 
 The Dynamixel driver for the Teensy is also available on its own as
 [dynamixel-on-device](https://github.com/molanocortes/dynamixel-on-device).

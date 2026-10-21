@@ -5,7 +5,7 @@
 | [`system-architecture.svg`](system-architecture.svg) | Sensing, aggregation, control, and host layers as one diagram |
 | [`global-wiring.pdf`](global-wiring.pdf) | Full point-to-point wiring: every pin terminated, both I²C multiplexers, all encoder channels, three IMUs, and the 74HC241 servo bus. Rendered inline in the top-level README as [`media/global-wiring.png`](media/global-wiring.png) |
 | [`BOM.md`](BOM.md) | Bill of materials for the costed four-finger configuration: parts, quantities, suppliers, and dated indicative prices. Machine-readable copy in [`bom.csv`](bom.csv) |
-| [`build-guide.pdf`](build-guide.pdf) | 24-page illustrated assembly walkthrough, including 1:1 part-check plates |
+| [`build-guide.pdf`](build-guide.pdf) | 24-page illustrated assembly walkthrough, including 1:1 part-check plates. Page 14 (steps 16 and 17) is shown in the top-level README as [`media/build-guide-steps.png`](media/build-guide-steps.png) |
 | [`RELEASE_VERIFICATION.md`](RELEASE_VERIFICATION.md) | How this release was assembled and checked |
 
 ## Build notes and corrections
